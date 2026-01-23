@@ -22,6 +22,8 @@ using namespace glm;
 #include <common/objloader.hpp>
 #include <common/vboindexer.hpp>
 
+#include "./Plan.cpp"
+
 void processInput(GLFWwindow *window);
 
 // settings
@@ -87,7 +89,7 @@ int main( void )
     glfwSetCursorPos(window, 1024/2, 768/2);
 
     // Dark blue background
-    glClearColor(0.8f, 0.8f, 0.8f, 0.0f);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
     // Enable depth test
     glEnable(GL_DEPTH_TEST);
@@ -115,6 +117,10 @@ int main( void )
     //Chargement du fichier de maillage
     std::string filename("chair.off");
     loadOFF(filename, indexed_vertices, indices, triangles );
+
+    Plan p = Plan(1, glm::vec3(0.f, 0.f, 0.f));
+    indices = p.triangles;
+    indexed_vertices = p.vertices;
 
     // Load it into a VBO
 
@@ -171,7 +177,13 @@ int main( void )
         // in the "Model View Projection" to the shader uniforms
 
         /****************************************/
-
+        glm::mat4 projection = glm::perspective(
+            glm::radians(45.0f),
+            4.3f,
+            0.1f,
+            100.0f
+        );
+        
 
 
 
@@ -230,8 +242,9 @@ void processInput(GLFWwindow *window)
 
     //Camera zoom in and out
     float cameraSpeed = 2.5 * deltaTime;
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS){
         camera_position += cameraSpeed * camera_target;
+    }
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
         camera_position -= cameraSpeed * camera_target;
 
