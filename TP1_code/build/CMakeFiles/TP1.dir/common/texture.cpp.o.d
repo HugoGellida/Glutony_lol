@@ -1,5 +1,5 @@
 CMakeFiles/TP1.dir/common/texture.cpp.o: \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/common/texture.cpp \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/common/texture.cpp \
  /usr/include/stdc-predef.h /usr/include/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
  /usr/include/features.h /usr/include/features-time64.h \
@@ -58,9 +58,9 @@ CMakeFiles/TP1.dir/common/texture.cpp.o: \
  /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
  /usr/include/c++/11/bits/std_abs.h /usr/include/string.h \
  /usr/include/strings.h \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glew-1.13.0/include/GL/glew.h \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glew-1.13.0/include/GL/glew.h \
  /usr/lib/gcc/x86_64-linux-gnu/11/include/stdint.h /usr/include/stdint.h \
  /usr/include/x86_64-linux-gnu/bits/wchar.h \
  /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h /usr/include/GL/glu.h \
  /usr/include/GL/gl.h \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glfw-3.1.2/include/GLFW/glfw3.h
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glfw-3.1.2/include/GLFW/glfw3.h

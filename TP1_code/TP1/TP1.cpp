@@ -18,9 +18,12 @@ GLFWwindow* window;
 
 using namespace glm;
 
-#include <common/shader.hpp>
-#include <common/objloader.hpp>
-#include <common/vboindexer.hpp>
+
+#include <common/geometry/Plane.hpp>
+#include <common/shader/Shader.hpp>
+#include <common/meshRenderer/simpleMeshrenderer.hpp>
+#include <common/Scene.hpp>
+
 
 void processInput(GLFWwindow *window);
 
@@ -33,14 +36,34 @@ glm::vec3 camera_position   = glm::vec3(0.0f, 0.0f,  3.0f);
 glm::vec3 camera_target = glm::vec3(0.0f, 0.0f, -1.0f);
 glm::vec3 camera_up    = glm::vec3(0.0f, 1.0f,  0.0f);
 
+// SCENE
+Scene * scene;
+
+
 // timing
 float deltaTime = 0.0f;	// time between current frame and last frame
 float lastFrame = 0.0f;
+
+int mousePX = 0;
+int mousePY = 0;
+bool fpsControl = false;
+bool gWasPressed = false;
 
 //rotation
 float angle = 0.;
 float zoom = 1.;
 /*******************************************************************************/
+
+
+// glfw: whenever the window size changed (by OS or user resize) this callback function executes
+// ---------------------------------------------------------------------------------------------
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+    // make sure the viewport matches the new window dimensions; note that width and
+    // height will be significantly larger than specified on retina displays.
+    glViewport(0, 0, width, height);
+    scene -> updateCamSettings((float)width/(float)height);
+}
 
 int main( void )
 {
@@ -57,6 +80,8 @@ int main( void )
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // To make MacOS happy; should not be needed
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+    
 
     // Open a window and create its OpenGL context
     window = glfwCreateWindow( 1024, 768, "TP1 - GLFW", NULL, NULL);
@@ -92,48 +117,15 @@ int main( void )
     // Enable depth test
     glEnable(GL_DEPTH_TEST);
     // Accept fragment if it closer to the camera than the former one
-    glDepthFunc(GL_LESS);
+    glDepthFunc(GL_LEQUAL);
 
     // Cull triangles which normal is not towards the camera
     //glEnable(GL_CULL_FACE);
 
-    GLuint VertexArrayID;
-    glGenVertexArrays(1, &VertexArrayID);
-    glBindVertexArray(VertexArrayID);
-
-    // Create and compile our GLSL program from the shaders
-    GLuint programID = LoadShaders( "vertex_shader.glsl", "fragment_shader.glsl" );
-
-    /*****************TODO***********************/
-    // Get a handle for our "Model View Projection" matrices uniforms
-
-    /****************************************/
-    std::vector<unsigned short> indices; //Triangles concaténés dans une liste
-    std::vector<std::vector<unsigned short> > triangles;
-    std::vector<glm::vec3> indexed_vertices;
-
-    //Chargement du fichier de maillage
-    std::string filename("chair.off");
-    loadOFF(filename, indexed_vertices, indices, triangles );
-
-    // Load it into a VBO
-
-    GLuint vertexbuffer;
-    glGenBuffers(1, &vertexbuffer);
-    glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
-    glBufferData(GL_ARRAY_BUFFER, indexed_vertices.size() * sizeof(glm::vec3), &indexed_vertices[0], GL_STATIC_DRAW);
-
-    // Generate a buffer for the indices as well
-    GLuint elementbuffer;
-    glGenBuffers(1, &elementbuffer);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementbuffer);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned short), &indices[0] , GL_STATIC_DRAW);
-
-    // Get a handle for our "LightPosition" uniform
-    glUseProgram(programID);
-    GLuint LightID = glGetUniformLocation(programID, "LightPosition_worldspace");
-
-
+    // LOAD SCENE    
+    scene = new Scene();
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    
 
     // For speed computation
     double lastTime = glfwGetTime();
@@ -152,53 +144,13 @@ int main( void )
         // -----
         processInput(window);
 
-
-        // Clear the screen
+        scene -> update(deltaTime);
+        // UPDATE
+        
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        // Use our shader
-        glUseProgram(programID);
-
-
-        /*****************TODO***********************/
-        // Model matrix : an identity matrix (model will be at the origin) then change
-
-        // View matrix : camera/view transformation lookat() utiliser camera_position camera_target camera_up
-
-        // Projection matrix : 45 Field of View, 4:3 ratio, display range : 0.1 unit <-> 100 units
-
-        // Send our transformation to the currently bound shader,
-        // in the "Model View Projection" to the shader uniforms
-
-        /****************************************/
-
-
-
-
-        // 1rst attribute buffer : vertices
-        glEnableVertexAttribArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
-        glVertexAttribPointer(
-                    0,                  // attribute
-                    3,                  // size
-                    GL_FLOAT,           // type
-                    GL_FALSE,           // normalized?
-                    0,                  // stride
-                    (void*)0            // array buffer offset
-                    );
-
-        // Index buffer
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, elementbuffer);
-
-        // Draw the triangles !
-        glDrawElements(
-                    GL_TRIANGLES,      // mode
-                    indices.size(),    // count
-                    GL_UNSIGNED_SHORT,   // type
-                    (void*)0           // element array buffer offset
-                    );
-
-        glDisableVertexAttribArray(0);
+        // RENDER
+        scene -> renderScene();
+        
 
         // Swap buffers
         glfwSwapBuffers(window);
@@ -208,11 +160,10 @@ int main( void )
     while( glfwGetKey(window, GLFW_KEY_ESCAPE ) != GLFW_PRESS &&
            glfwWindowShouldClose(window) == 0 );
 
-    // Cleanup VBO and shader
-    glDeleteBuffers(1, &vertexbuffer);
-    glDeleteBuffers(1, &elementbuffer);
-    glDeleteProgram(programID);
-    glDeleteVertexArrays(1, &VertexArrayID);
+
+    // UNLOAD SCENE
+
+    delete scene;
 
     // Close OpenGL window and terminate GLFW
     glfwTerminate();
@@ -227,23 +178,83 @@ void processInput(GLFWwindow *window)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
+    
+    if (glfwGetKey(window, GLFW_KEY_G) == GLFW_RELEASE && gWasPressed) // TODO: switch to click and shift or alt   
+    {
+        gWasPressed = false;
+        fpsControl = !fpsControl;
+        if (fpsControl) // disable cursor
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+        else
+            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        std::cout << "FPS CONTROLS - " << (fpsControl ? "ON" : "OFF") << std::endl;
+    }
+    if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
+        gWasPressed = true;
 
-    //Camera zoom in and out
-    float cameraSpeed = 2.5 * deltaTime;
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        camera_position += cameraSpeed * camera_target;
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        camera_position -= cameraSpeed * camera_target;
+    if (fpsControl)
+    {
 
-    //TODO add translations
+        //Camera zoom in and out
+        float cameraSpeed = 2.5 * deltaTime;
+        glm::vec3 move = glm::vec3(0, 0, 0);
+        unsigned int a = 0;
+        // CAMERA
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        {
+            move+=glm::vec3(0, 0, -1);
+            a++;
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        {
+            move+=glm::vec3(0, 0, 1);
+            a++;
+        }
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        {
+            move+=glm::vec3(-1, 0, 0);
+            a++;
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        {
+            move+=glm::vec3(1, 0, 0);
+            a++;
+        }
+        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+        {
+            move+=glm::vec3(0, 1, 0);
+            a++;
+        }
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+        {
+            move+=glm::vec3(0, -1, 0);
+            a++;
+        }
 
+        // mouse
+        double mouseX, mouseY;
+        glfwGetCursorPos(window, &mouseX, &mouseY);
+        if (mousePX - mouseX != 0 || mousePY - mouseY != 0)
+        {
+            float sensitivity = 0.1f;
+            float xoffset = mouseX - mousePX;
+            float yoffset = mousePY - mouseY; // reversed since y-coordinates go from bottom to top
+
+            scene -> updateCamera(glm::vec3(0, 0, 0), glm::vec3(yoffset * sensitivity, xoffset * sensitivity, 0.0f));
+            // reset mouse pos
+            glfwSetCursorPos(window, 1024/2, 768/2);
+            mousePX = 1024/2;
+            mousePY = 768/2;
+        }
+        else
+        {
+            mousePX = mouseX;
+            mousePY = mouseY;
+        }
+
+        if (a>0)
+            scene -> updateCamera(deltaTime * (move / (float)a), glm::vec3(0, 0, 0));
+    }
 }
 
-// glfw: whenever the window size changed (by OS or user resize) this callback function executes
-// ---------------------------------------------------------------------------------------------
-void framebuffer_size_callback(GLFWwindow* window, int width, int height)
-{
-    // make sure the viewport matches the new window dimensions; note that width and
-    // height will be significantly larger than specified on retina displays.
-    glViewport(0, 0, width, height);
-}
+

@@ -1,7 +1,7 @@
 external/CMakeFiles/GLEW_1130.dir/glew-1.13.0/src/glew.c.o: \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glew-1.13.0/src/glew.c \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glew-1.13.0/src/glew.c \
  /usr/include/stdc-predef.h \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glew-1.13.0/include/GL/glew.h \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glew-1.13.0/include/GL/glew.h \
  /usr/lib/gcc/x86_64-linux-gnu/11/include/stddef.h \
  /usr/lib/gcc/x86_64-linux-gnu/11/include/stdint.h /usr/include/stdint.h \
  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
@@ -19,7 +19,7 @@ external/CMakeFiles/GLEW_1130.dir/glew-1.13.0/src/glew.c.o: \
  /usr/include/x86_64-linux-gnu/bits/stdint-intn.h \
  /usr/include/x86_64-linux-gnu/bits/stdint-uintn.h /usr/include/GL/glu.h \
  /usr/include/GL/gl.h \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glew-1.13.0/include/GL/glxew.h \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glew-1.13.0/include/GL/glxew.h \
  /usr/include/X11/Xlib.h /usr/include/x86_64-linux-gnu/sys/types.h \
  /usr/include/x86_64-linux-gnu/bits/types/clock_t.h \
  /usr/include/x86_64-linux-gnu/bits/types/clockid_t.h \

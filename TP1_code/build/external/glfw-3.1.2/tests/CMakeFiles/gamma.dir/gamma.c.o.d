@@ -1,9 +1,9 @@
 external/glfw-3.1.2/tests/CMakeFiles/gamma.dir/gamma.c.o: \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glfw-3.1.2/tests/gamma.c \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glfw-3.1.2/tests/gamma.c \
  /usr/include/stdc-predef.h \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glfw-3.1.2/include/GLFW/glfw3.h \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glfw-3.1.2/include/GLFW/glfw3.h \
  /usr/lib/gcc/x86_64-linux-gnu/11/include/stddef.h /usr/include/GL/gl.h \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glfw-3.1.2/deps/GL/glext.h \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glfw-3.1.2/deps/GL/glext.h \
  /usr/include/inttypes.h /usr/include/features.h \
  /usr/include/features-time64.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \
@@ -54,4 +54,4 @@ external/glfw-3.1.2/tests/CMakeFiles/gamma.dir/gamma.c.o: \
  /usr/include/x86_64-linux-gnu/bits/struct_mutex.h \
  /usr/include/x86_64-linux-gnu/bits/struct_rwlock.h /usr/include/alloca.h \
  /usr/include/x86_64-linux-gnu/bits/stdlib-float.h \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glfw-3.1.2/deps/getopt.h
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glfw-3.1.2/deps/getopt.h

@@ -1,5 +1,5 @@
 CMakeFiles/TP1.dir/common/shader.cpp.o: \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/common/shader.cpp \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/common/shader.cpp \
  /usr/include/stdc-predef.h /usr/include/stdio.h \
  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
  /usr/include/features.h /usr/include/features-time64.h \
@@ -179,6 +179,6 @@ CMakeFiles/TP1.dir/common/shader.cpp.o: \
  /usr/include/c++/11/pstl/execution_defs.h /usr/include/c++/11/sstream \
  /usr/include/c++/11/bits/sstream.tcc /usr/include/c++/11/stdlib.h \
  /usr/include/string.h /usr/include/strings.h \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glew-1.13.0/include/GL/glew.h \
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glew-1.13.0/include/GL/glew.h \
  /usr/include/GL/glu.h /usr/include/GL/gl.h \
- /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/common/shader.hpp
+ /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/common/shader.hpp

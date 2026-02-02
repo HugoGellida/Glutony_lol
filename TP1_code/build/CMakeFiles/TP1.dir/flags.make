@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = -DGLEW_STATIC -DTW_NO_DIRECT3D -DTW_NO_LIB_PRAGMA -DTW_STATIC -D_CRT_SECURE_NO_WARNINGS
 
-CXX_INCLUDES = -I/home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glfw-3.1.2/include -I/home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glm-0.9.7.1 -I/home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/external/glew-1.13.0/include -I/home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/.
+CXX_INCLUDES = -I/home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glfw-3.1.2/include -I/home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glm-0.9.7.1 -I/home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glew-1.13.0/include -I/home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/.
 
-CXX_FLAGS = 
+CXX_FLAGS = -g
 

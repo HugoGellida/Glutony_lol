@@ -57,10 +57,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code
+CMAKE_SOURCE_DIR = /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/build
+CMAKE_BINARY_DIR = /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/build
 
 #=============================================================================
 # Targets provided globally by CMake.
@@ -132,9 +132,9 @@ install/strip/fast: preinstall/fast
 
 # The main all target
 all: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/build/CMakeFiles /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/build//CMakeFiles/progress.marks
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/build/CMakeFiles /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/build//CMakeFiles/progress.marks
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 all
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/e20220008055/Bureau/M1/S2/HAI819I/TP1_code/build/CMakeFiles 0
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/build/CMakeFiles 0
 .PHONY : all
 
 # The main clean target
@@ -536,126 +536,6 @@ TP1/TP1.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/TP1/TP1.cpp.s
 .PHONY : TP1/TP1.cpp.s
 
-common/controls.o: common/controls.cpp.o
-.PHONY : common/controls.o
-
-# target to build an object file
-common/controls.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/controls.cpp.o
-.PHONY : common/controls.cpp.o
-
-common/controls.i: common/controls.cpp.i
-.PHONY : common/controls.i
-
-# target to preprocess a source file
-common/controls.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/controls.cpp.i
-.PHONY : common/controls.cpp.i
-
-common/controls.s: common/controls.cpp.s
-.PHONY : common/controls.s
-
-# target to generate assembly for a file
-common/controls.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/controls.cpp.s
-.PHONY : common/controls.cpp.s
-
-common/objloader.o: common/objloader.cpp.o
-.PHONY : common/objloader.o
-
-# target to build an object file
-common/objloader.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/objloader.cpp.o
-.PHONY : common/objloader.cpp.o
-
-common/objloader.i: common/objloader.cpp.i
-.PHONY : common/objloader.i
-
-# target to preprocess a source file
-common/objloader.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/objloader.cpp.i
-.PHONY : common/objloader.cpp.i
-
-common/objloader.s: common/objloader.cpp.s
-.PHONY : common/objloader.s
-
-# target to generate assembly for a file
-common/objloader.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/objloader.cpp.s
-.PHONY : common/objloader.cpp.s
-
-common/shader.o: common/shader.cpp.o
-.PHONY : common/shader.o
-
-# target to build an object file
-common/shader.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/shader.cpp.o
-.PHONY : common/shader.cpp.o
-
-common/shader.i: common/shader.cpp.i
-.PHONY : common/shader.i
-
-# target to preprocess a source file
-common/shader.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/shader.cpp.i
-.PHONY : common/shader.cpp.i
-
-common/shader.s: common/shader.cpp.s
-.PHONY : common/shader.s
-
-# target to generate assembly for a file
-common/shader.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/shader.cpp.s
-.PHONY : common/shader.cpp.s
-
-common/texture.o: common/texture.cpp.o
-.PHONY : common/texture.o
-
-# target to build an object file
-common/texture.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/texture.cpp.o
-.PHONY : common/texture.cpp.o
-
-common/texture.i: common/texture.cpp.i
-.PHONY : common/texture.i
-
-# target to preprocess a source file
-common/texture.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/texture.cpp.i
-.PHONY : common/texture.cpp.i
-
-common/texture.s: common/texture.cpp.s
-.PHONY : common/texture.s
-
-# target to generate assembly for a file
-common/texture.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/texture.cpp.s
-.PHONY : common/texture.cpp.s
-
-common/vboindexer.o: common/vboindexer.cpp.o
-.PHONY : common/vboindexer.o
-
-# target to build an object file
-common/vboindexer.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/vboindexer.cpp.o
-.PHONY : common/vboindexer.cpp.o
-
-common/vboindexer.i: common/vboindexer.cpp.i
-.PHONY : common/vboindexer.i
-
-# target to preprocess a source file
-common/vboindexer.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/vboindexer.cpp.i
-.PHONY : common/vboindexer.cpp.i
-
-common/vboindexer.s: common/vboindexer.cpp.s
-.PHONY : common/vboindexer.s
-
-# target to generate assembly for a file
-common/vboindexer.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/vboindexer.cpp.s
-.PHONY : common/vboindexer.cpp.s
-
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -698,21 +578,6 @@ help:
 	@echo "... TP1/TP1.o"
 	@echo "... TP1/TP1.i"
 	@echo "... TP1/TP1.s"
-	@echo "... common/controls.o"
-	@echo "... common/controls.i"
-	@echo "... common/controls.s"
-	@echo "... common/objloader.o"
-	@echo "... common/objloader.i"
-	@echo "... common/objloader.s"
-	@echo "... common/shader.o"
-	@echo "... common/shader.i"
-	@echo "... common/shader.s"
-	@echo "... common/texture.o"
-	@echo "... common/texture.i"
-	@echo "... common/texture.s"
-	@echo "... common/vboindexer.o"
-	@echo "... common/vboindexer.i"
-	@echo "... common/vboindexer.s"
 .PHONY : help
 
 
