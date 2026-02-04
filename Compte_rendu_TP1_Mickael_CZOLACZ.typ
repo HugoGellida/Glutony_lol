@@ -131,4 +131,59 @@
   #rect([#figure(image("imgRapport/perlin.png"), caption: "plan texturé avec un bruit de Perlin")<view3>]) 
 
 =
+==
+===
+  #rect([#figure(image("imgRapport/plane_heightmap.png"), caption: "plan texturé avec la heightmap, et transformée coté shader")<view4>])
+
+  On multiplie un canal de la texture par 2 et on retranche 1. cela permet de rester centrer en zéro.
+
+===
+  on fait un interpolation en trois points, de sorte à ce que chaque texture ai un intervale de hauteur assigné, et une ou deux zones dee transition, ou une interpolation est faite, la #ref(<view5>) illustre le choix de couleur et la #ref(<view6>) montre le résultat.
+#align(center, [#rect([#figure([
+$ & P(y) = y>-0.6 and y < -0.2 or y > 0.2 and y < 0.6 \
+
+& c_0 = t_0["uv"]."rgb" \
+
+& c_1 = t_1["uv"]."rgb" \
+
+& c_2 = t_2["uv"]."rgb" \
+
+& l_0 = "lerp"("remap"(-0.6, -0.2, y), c_0, c_1) \
+
+& l_1 = "lerp"("remap"(0.2, 0.6, y), c_1, c_2) $ \
+
+$ & c = not P(y) ? \ 
+  &&& y >= 0.6 ? \ 
+      &&&&& c_2 \
+      &&&&& : y <=-0.6 ? \
+          &&&&&&& c_0 \
+          &&&&&&& : c_1 \ 
+  &&& : y > 0.2 and y < 0.6 ? \
+      &&&&& l_1 \
+      &&&&& : l_0
+$
+], caption:"Pseudo code du choix de couleur en fonction de la hauteur")<view5>], fill: gray, stroke: {1pt + black})])
+
+#rect([#figure(image("imgRapport/terrain_tri_blend.png"), caption: "plan qui subit la heightmap et texturé avec nos trois textures")<view6>])
+
+===
+  #view(
+    (
+      (image("imgRapport/terrain4x4.png"), "4x4"),
+      (image("imgRapport/terrain8x8.png"), "8x8"),
+      (image("imgRapport/terrain16x16.png"), "16x16"),
+      (image("imgRapport/terrain32x32.png"), "32x32"),
+      (image("imgRapport/terrain64x64.png"), "64x64"),
+      (image("imgRapport/terrain128x128.png"), "128x128"),
+      (image("imgRapport/terrain256x256.png"), "256x256")
+      ),
+    "Terrain à différente résolutions"
+  )
+
+  J'utilise une classe pour gerer les inputs désormais. Elle est instantiée dans la scene, et surveille les entrées enregistrées, pour distinguer les touches préssées des touches maintenues.
+
+==
+  Fait sur le TP1. La sourie controle l'angle de la caméra.
+
+==
   

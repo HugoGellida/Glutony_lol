@@ -7,6 +7,8 @@
 #include "gameobject/component/Mesh.hpp"
 #include "gameobject/component/MeshRenderer.hpp"
 #include "gameobject/component/MeshNoiseDeformPerlinHeight.hpp"
+#include "InputProccessor.hpp"
+
 
 class Scene
 {
@@ -15,6 +17,9 @@ private:
     dataStruct::Material * m_materials;
     Shader * m_shaders;
     Camera m_camera;
+    inputProcessor::InputProcessor m_inputProcessor;
+    bool m_fpsControl = false;
+    int plane_res = 16;
 public:
     Scene()
     {
@@ -24,8 +29,11 @@ public:
         m_shaders = new Shader("./vertex_shader.glsl", "./fragment_shader.glsl");
 
         this -> m_materials = new dataStruct::Material(m_shaders);
-        m_materials->addTexture("main_tex", "./img/parrot.png");
-
+        m_materials->addTexture("height_map", "./img/heightmap-1024x1024.png");
+        m_materials->addTexture("t0", "./img/grass.png");
+        m_materials->addTexture("t1", "./img/rock.png");
+        m_materials->addTexture("t2", "./img/snowrocks.png");
+        
 
 
         m_gameObjects = new GameObject();
@@ -35,15 +43,119 @@ public:
         m_gameObjects -> setRotation(glm::vec3(0, 0, 0));
         
         m_gameObjects -> setScale(glm::vec3(1.0, 1.0, 1.0));
-        m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
+        //m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
         m_gameObjects -> addComponent(new MeshRenderer(m, (m_materials)));
         m_camera = Camera();
+
+
+        // input setup
+        m_inputProcessor.registerKey(GLFW_KEY_W, inputProcessor::KeyState::HOLD);
+        m_inputProcessor.registerKey(GLFW_KEY_S, inputProcessor::KeyState::HOLD);
+        m_inputProcessor.registerKey(GLFW_KEY_A, inputProcessor::KeyState::HOLD);
+        m_inputProcessor.registerKey(GLFW_KEY_D, inputProcessor::KeyState::HOLD);
+        m_inputProcessor.registerKey(GLFW_KEY_E, inputProcessor::KeyState::HOLD);
+        m_inputProcessor.registerKey(GLFW_KEY_Q, inputProcessor::KeyState::HOLD);
+        m_inputProcessor.registerKey(GLFW_KEY_G, inputProcessor::KeyState::ONCE);
+        m_inputProcessor.registerKey(GLFW_KEY_SEMICOLON, inputProcessor::KeyState::ONCE); // M
+        m_inputProcessor.registerKey(GLFW_KEY_P, inputProcessor::KeyState::ONCE);
     }
 
-    void update(double deltaTime)
+    void update(double deltaTime, GLFWwindow * window)
     {
         m_gameObjects -> update(deltaTime);
-        // TODO update cam
+        m_inputProcessor.update(window);
+        float sensitivity = 0.1f;
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+        glfwSetWindowShouldClose(window, true);
+        
+        
+
+        if (m_fpsControl)
+        {
+            //Camera zoom in and out
+            float cameraSpeed = 2.5 * deltaTime;
+            glm::vec3 move = glm::vec3(0, 0, 0);
+            unsigned int a = 0;
+            // CAMERA
+            if (m_inputProcessor.queryKey(window, GLFW_KEY_W))
+            {
+                move+=glm::vec3(0, 0, -1);
+                a++;
+            }
+            if (m_inputProcessor.queryKey(window, GLFW_KEY_S))
+            {
+                move+=glm::vec3(0, 0, 1);
+                a++;
+            }
+            if (m_inputProcessor.queryKey(window, GLFW_KEY_A))
+            {
+                move+=glm::vec3(-1, 0, 0);
+                a++;
+            }
+            if (m_inputProcessor.queryKey(window, GLFW_KEY_D))
+            {
+                move+=glm::vec3(1, 0, 0);
+                a++;
+            }
+            if (m_inputProcessor.queryKey(window, GLFW_KEY_E))
+            {
+                move+=glm::vec3(0, 1, 0);
+                a++;
+            }
+            if (m_inputProcessor.queryKey(window, GLFW_KEY_Q))
+            {
+                move+=glm::vec3(0, -1, 0);
+                a++;
+            }
+
+            if (a>0)
+                move = ((float)deltaTime) * (move / (float)a);
+            updateCamera(move, glm::vec3(m_inputProcessor.getMouseDeltaY() * sensitivity, m_inputProcessor.getMouseDeltaX() * sensitivity, 0.0f));
+            glfwSetCursorPos(window, 1024/2, 768/2);
+        }
+
+        if (m_inputProcessor.queryKey(window, GLFW_KEY_G))
+        {
+            m_fpsControl = !m_fpsControl;
+            std::cout << "FPS Camera control " << (m_fpsControl ? "enabled" : "disabled") << std::endl;
+            if (m_fpsControl)
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+            else
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        }
+
+        if (m_inputProcessor.queryKey(window, GLFW_KEY_SEMICOLON))
+        {
+            delete m_gameObjects;
+            plane_res /= 2;
+            plane_res = std::max(4, plane_res);
+            m_gameObjects = new GameObject();
+            m_gameObjects -> addComponent(new Plane(glm::vec3(0, 0, 0), 10.0, plane_res));
+            component::Mesh * m = m_gameObjects -> getComponent<Plane>();
+            m_gameObjects -> setPosition(glm::vec3(0, 0, -1));
+            m_gameObjects -> setRotation(glm::vec3(0, 0, 0));
+            
+            m_gameObjects -> setScale(glm::vec3(1.0, 1.0, 1.0));
+            //m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
+            m_gameObjects -> addComponent(new MeshRenderer(m, (m_materials)));
+            std::cout << "Plane resolution set to " << plane_res << "x" << plane_res << std::endl;
+        }
+        if (m_inputProcessor.queryKey(window, GLFW_KEY_P))
+        {
+            plane_res *= 2;
+            plane_res = std::min(plane_res, 256);
+            delete m_gameObjects;
+            m_gameObjects = new GameObject();
+            m_gameObjects -> addComponent(new Plane(glm::vec3(0, 0, 0), 10.0, plane_res));
+            component::Mesh * m = m_gameObjects -> getComponent<Plane>();
+            m_gameObjects -> setPosition(glm::vec3(0, 0, -1));
+            m_gameObjects -> setRotation(glm::vec3(0, 0, 0));
+            
+            m_gameObjects -> setScale(glm::vec3(1.0, 1.0, 1.0));
+            //m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
+            m_gameObjects -> addComponent(new MeshRenderer(m, (m_materials)));
+            std::cout << "Plane resolution set to " << plane_res << "x" << plane_res << std::endl;
+        }
     }
 
     void renderScene() const

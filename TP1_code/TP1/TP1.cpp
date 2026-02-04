@@ -140,11 +140,8 @@ int main( void )
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        // input
-        // -----
-        processInput(window);
 
-        scene -> update(deltaTime);
+        scene -> update(deltaTime, window);
         // UPDATE
         
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -176,85 +173,7 @@ int main( void )
 // ---------------------------------------------------------------------------------------------------------
 void processInput(GLFWwindow *window)
 {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, true);
     
-    if (glfwGetKey(window, GLFW_KEY_G) == GLFW_RELEASE && gWasPressed) // TODO: switch to click and shift or alt   
-    {
-        gWasPressed = false;
-        fpsControl = !fpsControl;
-        if (fpsControl) // disable cursor
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-        else
-            glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-        std::cout << "FPS CONTROLS - " << (fpsControl ? "ON" : "OFF") << std::endl;
-    }
-    if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS)
-        gWasPressed = true;
-
-    if (fpsControl)
-    {
-
-        //Camera zoom in and out
-        float cameraSpeed = 2.5 * deltaTime;
-        glm::vec3 move = glm::vec3(0, 0, 0);
-        unsigned int a = 0;
-        // CAMERA
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
-        {
-            move+=glm::vec3(0, 0, -1);
-            a++;
-        }
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
-        {
-            move+=glm::vec3(0, 0, 1);
-            a++;
-        }
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
-        {
-            move+=glm::vec3(-1, 0, 0);
-            a++;
-        }
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
-        {
-            move+=glm::vec3(1, 0, 0);
-            a++;
-        }
-        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
-        {
-            move+=glm::vec3(0, 1, 0);
-            a++;
-        }
-        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
-        {
-            move+=glm::vec3(0, -1, 0);
-            a++;
-        }
-
-        // mouse
-        double mouseX, mouseY;
-        glfwGetCursorPos(window, &mouseX, &mouseY);
-        if (mousePX - mouseX != 0 || mousePY - mouseY != 0)
-        {
-            float sensitivity = 0.1f;
-            float xoffset = mouseX - mousePX;
-            float yoffset = mousePY - mouseY; // reversed since y-coordinates go from bottom to top
-
-            scene -> updateCamera(glm::vec3(0, 0, 0), glm::vec3(-yoffset * sensitivity, xoffset * sensitivity, 0.0f));
-            // reset mouse pos
-            glfwSetCursorPos(window, 1024/2, 768/2);
-            mousePX = 1024/2;
-            mousePY = 768/2;
-        }
-        else
-        {
-            mousePX = mouseX;
-            mousePY = mouseY;
-        }
-
-        if (a>0)
-            scene -> updateCamera(deltaTime * (move / (float)a), glm::vec3(0, 0, 0));
-    }
 }
 
 

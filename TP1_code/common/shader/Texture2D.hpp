@@ -26,6 +26,7 @@ public:
 
     void sync()
     {
+
         if (m_empty || m_on_GPU)
             return;
         glGenTextures(1, &m_textureID);
@@ -58,11 +59,12 @@ public:
     }
 
 
-    void bind() const
+    void bind(const GLuint & progID, const char* name) const
     {
         if (m_empty)
             return;
         glActiveTexture(GL_TEXTURE0 + m_slot);
+        glUniform1i(glGetUniformLocation(progID, name), m_slot);
         glBindTexture(GL_TEXTURE_2D, m_textureID);
     }
 

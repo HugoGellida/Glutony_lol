@@ -50,7 +50,7 @@ public:
     UniformTex2D(std::string loc, Texture2D value) : Uniform(loc, value) {}
     void upload(GLint progID) override
     {
-        value.bind();
+        value.bind(progID, loc.c_str());
     }
 };
 
