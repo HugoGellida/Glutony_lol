@@ -10,7 +10,7 @@
 #let annee = "2025–2026"
 
 #let titre = "Compte rendu de TP"
-#let sous_titre = "[HAI809I] Codage et compression multimédia - TP2"
+#let sous_titre = "[HAI819I] Moteur de jeu - TP1/TP2"
 
 /* HEADER */
 #align(top)[
@@ -105,8 +105,9 @@
 #show ref : underline
 
 
-#set heading(numbering: "1.a)")
+#set heading(numbering: "I.1.a)")
 =
+==
   Avant tout, en base, j'utilise un ensemble de classes que j'ai écrites pour un projet personel, Glutony, initialement basé sur glut, mais réécrit pour GLFW et glm. La base de code fournie à donc été prèsque entièrement retirée, car déjà écrite dans glutony.
 
   Mon code utilise des scenes contant des arborescences de GameObject, dont les transformations sont appliquées relativement au parent(Comme Unity). Chaque gameObject à une liste de composants, qui peuvent êtres ajouté et retiré au runtime. Par exemple, les composants meshRenderer et mesh, qui permettent à un object d'avoir un maillage et une passe de rendu avec un shader.
@@ -115,12 +116,19 @@
 
   Pour le plan, on construit comme demandé, puis il est affiché:
 
-  #view(((image("imgRapport/plane.png"),""),), "Plan demandé en question 1, fov:60°")
+  #rect([#figure(image("imgRapport/plane.png"),caption:"Plan demandé en question 1, fov:60°")])
 
   La touche g permet d'activer des controles FPS [Z/Q/S/D] [E:UP] [A:DOWN].
   La direction de mouvement est relative à la rotation sur l'axe Y seulement, pour contraindre horizontalement.
 
   MeshRenderer supporte les uvs, si le composant Mesh en déclare, il les envois sur l'attribut 2 du VAO. En #ref(<view2>) nous pouvons voir les coordonnées de textures affichées telle que $"col" = vec("uv"_u, "uv"_v, 0.4)$
 
-  #view(((image("imgRapport/plane_UV.png"), ""),),"Plan avec les coordonnées de textures") <view2>
+  #rect([#figure(image("imgRapport/plane_UV.png"), caption:"Plan avec les coordonnées de textures") <view2>])
 
+==
+  Pour l'altitude, un bruit aléatoire continu et cohérent me semblait plus utile (et cela servira surement plus tard) donc j'ai écrit un composant MeshNoiseDeformPerlinHeight, qui applique un bruit de Perlin(3D) à la hauteur d'un maillage, en fonction des coordonnées objet de ses vertices.
+  la #ref(<view3>) montre le resultat, avec une texture en plus.
+  #rect([#figure(image("imgRapport/perlin.png"), caption: "plan texturé avec un bruit de Perlin")<view3>]) 
+
+=
+  
