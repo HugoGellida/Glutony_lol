@@ -186,4 +186,45 @@ $
   Fait sur le TP1. La sourie controle l'angle de la caméra.
 
 ==
-  
+
+#figure([#rect([```cpp
+if (m_inputProcessor.queryKey(window, GLFW_KEY_UP))
+{
+    m_orbitSpeed += 5.0f;
+    std::cout << "Orbit speed : " << m_orbitSpeed << std::endl;
+}
+if (m_inputProcessor.queryKey(window, GLFW_KEY_DOWN))
+{
+    m_orbitSpeed -= 5.0f;
+    std::cout << "Orbit speed : " << m_orbitSpeed << std::endl;
+}
+
+if (m_inputProcessor.queryKey(window, GLFW_KEY_C))
+{
+    if (m_fpsControl)
+    {
+        m_fpsControl = false;
+        std::cout << "FPS Camera control disabled" << std::endl;
+    }
+    m_orbitMode = !m_orbitMode;
+    std::cout << "orbitmode : " << (m_orbitMode ? "enabled" : "disabled") << std::endl;
+    if (m_orbitMode)
+    {
+        glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        
+    }
+}
+
+if (m_orbitMode)
+{
+    m_orbitYangle += m_orbitSpeed * ((float)deltaTime);
+    m_orbitYangle = m_orbitYangle > 360.0f ? m_orbitYangle - 360.0f : m_orbitYangle;
+    m_orbitYangle = m_orbitYangle < 0.0f ? m_orbitYangle + 360.0f : m_orbitYangle;
+    vec3 nCamPos = glm::quat(glm::radians(glm::vec3(0.0, m_orbitYangle, 0.0f))) * m_orbitPos;
+    m_camera.m_position = nCamPos;
+    m_camera.m_orientation = glm::vec3(-45.0f, m_orbitYangle + 180.0f, 0.0f);
+
+}
+```])],caption: "Mode orbite", supplement: [Extrait]) <extr1>
+
+L'#ref(<extr1>) est ce qui me permet d'avoir une orbite. On applique une rotation à un vecteur de position pour la camera, et on compense la rotation pour observer l'origine. Le tout en fonction d'un mode d'affichage. On peut aussi voir comment j'intéroge mon inputProcessor. Une image n'était pas pertinente, puisque le résultat est visible qu'en vidéo ou temps réèl. Cependant, en executant mon code [Branche github Rendu TP2 - MC, #link("")]
