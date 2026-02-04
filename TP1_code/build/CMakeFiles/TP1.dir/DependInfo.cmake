@@ -9,6 +9,7 @@ set(CMAKE_DEPENDS_LANGUAGES
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
   "/home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/TP1/TP1.cpp" "CMakeFiles/TP1.dir/TP1/TP1.cpp.o" "gcc" "CMakeFiles/TP1.dir/TP1/TP1.cpp.o.d"
+  "/home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/common/stb_image_impl.cpp" "CMakeFiles/TP1.dir/common/stb_image_impl.cpp.o" "gcc" "CMakeFiles/TP1.dir/common/stb_image_impl.cpp.o.d"
   )
 
 # Targets to which this target links.

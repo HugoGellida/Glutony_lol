@@ -6,6 +6,7 @@
 #include <common/shader/Shader.hpp>
 #include "gameobject/component/Mesh.hpp"
 #include "gameobject/component/MeshRenderer.hpp"
+#include "gameobject/component/MeshNoiseDeformPerlinHeight.hpp"
 
 class Scene
 {
@@ -23,7 +24,7 @@ public:
         m_shaders = new Shader("./vertex_shader.glsl", "./fragment_shader.glsl");
 
         this -> m_materials = new dataStruct::Material(m_shaders);
-        
+        m_materials->addTexture("main_tex", "./img/parrot.png");
 
 
 
@@ -34,7 +35,7 @@ public:
         m_gameObjects -> setRotation(glm::vec3(0, 0, 0));
         
         m_gameObjects -> setScale(glm::vec3(1.0, 1.0, 1.0));
-
+        m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
         m_gameObjects -> addComponent(new MeshRenderer(m, (m_materials)));
         m_camera = Camera();
     }

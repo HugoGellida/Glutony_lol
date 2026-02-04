@@ -240,7 +240,7 @@ void processInput(GLFWwindow *window)
             float xoffset = mouseX - mousePX;
             float yoffset = mousePY - mouseY; // reversed since y-coordinates go from bottom to top
 
-            scene -> updateCamera(glm::vec3(0, 0, 0), glm::vec3(yoffset * sensitivity, xoffset * sensitivity, 0.0f));
+            scene -> updateCamera(glm::vec3(0, 0, 0), glm::vec3(-yoffset * sensitivity, xoffset * sensitivity, 0.0f));
             // reset mouse pos
             glfwSetCursorPos(window, 1024/2, 768/2);
             mousePX = 1024/2;

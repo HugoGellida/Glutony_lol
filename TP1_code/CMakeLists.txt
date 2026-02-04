@@ -36,6 +36,7 @@ include_directories(
 	external/glfw-3.1.2/include/
 	external/glm-0.9.7.1/
 	external/glew-1.13.0/include/
+	external/stb_image/
 	.
 )
 
@@ -56,7 +57,7 @@ add_definitions(
 # TP1
 add_executable(TP1
         TP1/TP1.cpp
-	
+		common/stb_image_impl.cpp
         TP1/vertex_shader.glsl
         TP1/fragment_shader.glsl
 )
@@ -78,6 +79,21 @@ if (NOT ${CMAKE_GENERATOR} MATCHES "Xcode" )
 add_custom_command(
    TARGET TP1 POST_BUILD
    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/TP1${CMAKE_EXECUTABLE_SUFFIX}" "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
+)
+
+add_custom_command(
+	TARGET TP1 POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/TP1/img" "${CMAKE_CURRENT_BINARY_DIR}/img"
+)
+
+add_custom_command(
+	TARGET TP1 POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/TP1/vertex_shader.glsl" "${CMAKE_CURRENT_BINARY_DIR}/vertex_shader.glsl"
+)
+
+add_custom_command(
+	TARGET TP1 POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/TP1/fragment_shader.glsl" "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
 )
 elseif (${CMAKE_GENERATOR} MATCHES "Xcode" )
 

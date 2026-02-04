@@ -536,6 +536,30 @@ TP1/TP1.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/TP1/TP1.cpp.s
 .PHONY : TP1/TP1.cpp.s
 
+common/stb_image_impl.o: common/stb_image_impl.cpp.o
+.PHONY : common/stb_image_impl.o
+
+# target to build an object file
+common/stb_image_impl.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/stb_image_impl.cpp.o
+.PHONY : common/stb_image_impl.cpp.o
+
+common/stb_image_impl.i: common/stb_image_impl.cpp.i
+.PHONY : common/stb_image_impl.i
+
+# target to preprocess a source file
+common/stb_image_impl.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/stb_image_impl.cpp.i
+.PHONY : common/stb_image_impl.cpp.i
+
+common/stb_image_impl.s: common/stb_image_impl.cpp.s
+.PHONY : common/stb_image_impl.s
+
+# target to generate assembly for a file
+common/stb_image_impl.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/stb_image_impl.cpp.s
+.PHONY : common/stb_image_impl.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -578,6 +602,9 @@ help:
 	@echo "... TP1/TP1.o"
 	@echo "... TP1/TP1.i"
 	@echo "... TP1/TP1.s"
+	@echo "... common/stb_image_impl.o"
+	@echo "... common/stb_image_impl.i"
+	@echo "... common/stb_image_impl.s"
 .PHONY : help
 
 
