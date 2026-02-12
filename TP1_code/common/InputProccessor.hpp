@@ -59,8 +59,6 @@ namespace inputProcessor
                     {
                         if (!m_keyStates[key])
                             m_keyStates[key] = true;
-                        else
-                            m_keyStates[key] = false;
                     } // dont reset, it will be reset on consume
                 }
                 else if (state == KeyState::HOLD)
@@ -91,11 +89,6 @@ namespace inputProcessor
 
         bool queryKey(GLFWwindow * window, int key)
         {
-            if (m_keyWatchers.find(key) == m_keyWatchers.end())
-            {
-                std::cout<< "Key pressed :" << key << std::endl;
-                return false;
-            }
             if (m_keyWatchers[key] == KeyState::ONCE)
             {
                 if (m_keyStates[key] && glfwGetKey(window, key) == GLFW_RELEASE)

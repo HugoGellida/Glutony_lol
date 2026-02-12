@@ -24,6 +24,7 @@ namespace component
         bool m_hasNorm = false;
         bool m_hasUVS = false;
         bool invertCull = false;
+        bool m_wireframe = false;
     public:
         MeshRenderer(component::Mesh * mesh, Material * mat) : Component()
         {
@@ -119,6 +120,10 @@ namespace component
         {
             if (!m_onGPU) // will be renderered when stored on gpu.
                 return;
+            if (m_wireframe)
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            else
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
             glBindVertexArray(m_VAO);
 
             glDisable(GL_CULL_FACE);
@@ -149,6 +154,12 @@ namespace component
             if (m_hasUVS)
                 glDeleteBuffers(1, &m_UVS);
             glDeleteVertexArrays(1, &m_VAO);
+        }
+
+
+        void toggleWireframe()
+        {
+            m_wireframe = !m_wireframe;
         }
     };
 }

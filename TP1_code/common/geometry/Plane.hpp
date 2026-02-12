@@ -17,7 +17,7 @@ public:
     Plane(glm::vec3 position, double size = 1.0, int res = 16) : component::Mesh()
     {
         m_size = size;
-        double d = m_size / ((double)res);
+        double d = m_size / (((double)res) - 1.0);
         double o = m_size / 2.0;
         // vert (16 * 16)
         std::vector<glm::vec3> vertices = std::vector<glm::vec3>(res*res);
@@ -29,7 +29,7 @@ public:
             for (int z = 0; z < res; z++)
             {
                 vertices[x * res + z] = glm::vec3((double) x * d - o, 0, (double) z * d - o);
-                uvs[x * res + z] = glm::vec2((x/(((double)res)-1.0)), (z/(((double)res)-1.0)));
+                uvs[x * res + z] = glm::vec2(((((double)x)+0.5)/(((double)res))), ((((double)z) + 0.5)/(((double)res))));
             }
         // triangles (15 * 15 * 2 * 3)
         std::vector<int> triangles = std::vector<int>((res - 1) * (res - 1) * 2 * 3);

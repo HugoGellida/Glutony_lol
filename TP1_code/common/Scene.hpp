@@ -13,7 +13,7 @@
 class Scene
 {
 private:
-    GameObject * m_gameObjects;
+    GameObject * m_gameObjects = nullptr;
     dataStruct::Material * m_materials;
     Shader * m_shaders;
     Camera m_camera;
@@ -24,6 +24,21 @@ private:
     glm::vec3 m_orbitPos = glm::vec3(0.0f, 10.0f, -10.0f);
     float m_orbitYangle = 0.0f;
     float m_orbitSpeed = 20.0f;
+
+    void buildPlane(int res = 16)
+    {
+        if (m_gameObjects != nullptr)
+            delete m_gameObjects;
+        m_gameObjects = new GameObject();
+        m_gameObjects -> addComponent(new Plane(glm::vec3(0, 0, 0), 10.0, res));
+        component::Mesh * m = m_gameObjects -> getComponent<Plane>();
+        m_gameObjects -> setPosition(glm::vec3(0, 0, 0));
+        m_gameObjects -> setRotation(glm::vec3(0, 0, 0));
+        
+        m_gameObjects -> setScale(glm::vec3(1.0, 1.0, 1.0));
+        //m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
+        m_gameObjects -> addComponent(new MeshRenderer(m, (m_materials)));
+    }
 
 public:
     Scene()
@@ -39,17 +54,8 @@ public:
         m_materials->addTexture("t1", "./img/rock.png");
         m_materials->addTexture("t2", "./img/snowrocks.png");
         
+        buildPlane(plane_res);
 
-
-        m_gameObjects = new GameObject();
-        m_gameObjects -> addComponent(new Plane(glm::vec3(0, 0, 0), 10.0));
-        component::Mesh * m = m_gameObjects -> getComponent<Plane>();
-        m_gameObjects -> setPosition(glm::vec3(0, 0, 0));
-        m_gameObjects -> setRotation(glm::vec3(0, 0, 0));
-        
-        m_gameObjects -> setScale(glm::vec3(1.0, 1.0, 1.0));
-        //m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
-        m_gameObjects -> addComponent(new MeshRenderer(m, (m_materials)));
         m_camera = Camera();
 
 
@@ -66,6 +72,7 @@ public:
         m_inputProcessor.registerKey(GLFW_KEY_C, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_UP, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_DOWN, inputProcessor::KeyState::ONCE);
+        m_inputProcessor.registerKey(GLFW_KEY_V, inputProcessor::KeyState::ONCE);
     }
 
     void update(double deltaTime, GLFWwindow * window)
@@ -139,34 +146,16 @@ public:
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_SEMICOLON))
         {
-            delete m_gameObjects;
             plane_res /= 2;
             plane_res = std::max(4, plane_res);
-            m_gameObjects = new GameObject();
-            m_gameObjects -> addComponent(new Plane(glm::vec3(0, 0, 0), 10.0, plane_res));
-            component::Mesh * m = m_gameObjects -> getComponent<Plane>();
-            m_gameObjects -> setPosition(glm::vec3(0, 0, -1));
-            m_gameObjects -> setRotation(glm::vec3(0, 0, 0));
-            
-            m_gameObjects -> setScale(glm::vec3(1.0, 1.0, 1.0));
-            //m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
-            m_gameObjects -> addComponent(new MeshRenderer(m, (m_materials)));
+            buildPlane(plane_res);
             std::cout << "Plane resolution set to " << plane_res << "x" << plane_res << std::endl;
         }
         if (m_inputProcessor.queryKey(window, GLFW_KEY_P))
         {
             plane_res *= 2;
-            plane_res = std::min(plane_res, 256);
-            delete m_gameObjects;
-            m_gameObjects = new GameObject();
-            m_gameObjects -> addComponent(new Plane(glm::vec3(0, 0, 0), 10.0, plane_res));
-            component::Mesh * m = m_gameObjects -> getComponent<Plane>();
-            m_gameObjects -> setPosition(glm::vec3(0, 0, 0));
-            m_gameObjects -> setRotation(glm::vec3(0, 0, 0));
-            
-            m_gameObjects -> setScale(glm::vec3(1.0, 1.0, 1.0));
-            //m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
-            m_gameObjects -> addComponent(new MeshRenderer(m, (m_materials)));
+            plane_res = std::min(plane_res, 2048);
+            buildPlane(plane_res);
             std::cout << "Plane resolution set to " << plane_res << "x" << plane_res << std::endl;
         }
 
@@ -197,12 +186,17 @@ public:
             }
         }
 
+        if (m_inputProcessor.queryKey(window, GLFW_KEY_V))
+        {
+            m_gameObjects -> getComponent<MeshRenderer>()->toggleWireframe();
+        }
+
         if (m_orbitMode)
         {
             m_orbitYangle += m_orbitSpeed * ((float)deltaTime);
             m_orbitYangle = m_orbitYangle > 360.0f ? m_orbitYangle - 360.0f : m_orbitYangle;
             m_orbitYangle = m_orbitYangle < 0.0f ? m_orbitYangle + 360.0f : m_orbitYangle;
-            vec3 nCamPos = glm::quat(glm::radians(glm::vec3(0.0, m_orbitYangle, 0.0f))) * m_orbitPos;
+            glm::vec3 nCamPos = glm::quat(glm::radians(glm::vec3(0.0, m_orbitYangle, 0.0f))) * m_orbitPos;
             m_camera.m_position = nCamPos;
             m_camera.m_orientation = glm::vec3(-45.0f, m_orbitYangle + 180.0f, 0.0f);
 

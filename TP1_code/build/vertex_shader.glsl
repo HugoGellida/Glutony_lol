@@ -13,11 +13,7 @@ out float height;
 out vec2 texture_Coordinates;
 
 void main(){
-        mat4 dbg = mat4(1.0, 0.0, 0.0, 0.0,
-                        0.0, 1.0, 0.0, 0.0,
-                        0.0, 0.0, 1.0, 0.0,
-                        0.0, 0.0, 0.0, 1.0);
-        float vert = ((texture(height_map, uvs).r * 2.0) - 1.0) + vertices_position_modelspace.y;
+        float vert = (((texture(height_map, uvs).r * 2.0) - 1.0) * 0.5) + vertices_position_modelspace.y;
         // TODO : Output position of the vertex, in clip space : MVP * position
         gl_Position = MVP * vec4(vertices_position_modelspace.x, vert, vertices_position_modelspace.z,1);
         texture_Coordinates = uvs;
