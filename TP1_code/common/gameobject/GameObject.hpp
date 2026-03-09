@@ -2,7 +2,7 @@
 
 #include "component/Component.hpp"
 #include "Transform.hpp"
-
+#include <string>
 using namespace component;
 
 
@@ -11,10 +11,16 @@ class GameObject
 private:
     Component ** m_component = nullptr;
     unsigned int m_componentStride = 0;
+    std::string m_name = "GameObject";
+
 public:
     Transform transform;
-    GameObject(){}
-    
+    GameObject(){
+        transform.setGameObject(this);
+    }
+    GameObject(std::string name) : m_name(name) {}
+
+
     void addComponent(Component * component)
     {
         Component ** new_comp_arr = new Component*[++m_componentStride];
@@ -54,6 +60,41 @@ public:
             m_component[i] -> run();
     }
 
+    void setName(std::string name)
+    {
+        this -> m_name = name;
+    }
+
+    void addChild(GameObject * child)
+    {
+        this -> transform.addChild(&child -> transform);
+    }
+
+    void setParent(GameObject * parent)
+    {
+        this -> transform.setParent(&parent -> transform);
+    }
+
+    void printHierarchy(int depth = 0)
+    {
+        std::string indent = "";
+        for (int i = 0; i < depth; i++)
+        {
+            indent += " ";
+        }
+        std::cout << indent << m_name 
+            << " Components: " << std::endl;
+        for (size_t i = 0; i < m_componentStride; i++)
+        {
+            std::cout << indent << "  - " << typeid(*(m_component[i])).name() << std::endl;;;;
+        }
+        if (transform.getChildCount() > 0) { 
+            std::cout << indent << " Childs: " << std::endl; 
+            for (size_t i = 0; i < transform.getChildCount(); i++) {
+                 transform.getChild(i) -> printHierarchy(depth + 1); 
+                } 
+        }
+    }
 
     // TODO deep copy!
     GameObject(const GameObject&) = delete;
@@ -66,5 +107,7 @@ public:
             delete m_component[i];
         }
         delete[] m_component;
+        transform.removeParent();
+        transform.detachChilds();
     }
 };

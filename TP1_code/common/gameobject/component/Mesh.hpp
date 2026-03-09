@@ -18,6 +18,7 @@ namespace component
         bool m_hasNormals = false;
         bool m_hasColors = false;
         bool m_hasUVs = false;
+        bool m_onGPU = false;
     public:
         Mesh() : Component() {}
         Mesh(uint vStride, uint tStride, bool hasNormals = false, bool hasColors = false, bool hasUVs = false) : Component()
@@ -108,6 +109,29 @@ namespace component
             delete[] tNormals;
             delete[] vTri;
             m_hasNormals = true;
+            m_onGPU = false;
+        }
+
+        void computeSphericalUVs()
+        {
+            if (m_hasUVs)
+                delete[] m_uvs;
+
+            m_uvs = new float[m_vStride * 2];
+            const glm::vec3 up = glm::vec3(0, 1, 0);
+            const glm::vec3 forward = glm::vec3(0, 0, 1);
+            for (size_t i = 0; i < m_vStride; i++)
+            {
+                glm::vec3 v = glm::vec3(m_vertices[(i*3)], m_vertices[(i*3)+1], m_vertices[(i*3)+2]);
+                v = glm::normalize(v);
+                glm::vec3 v2 = glm::normalize(glm::vec3(v.x, 0, v.z)); // projection sur le plan forward de normale up pas chere
+                float u = glm::dot(v, up);
+                m_uvs[(i*2)] = (u + 1.0f) * 0.5f;
+                m_uvs[(i*2)+1] = u == 1 || u == -1 ? 0.0f : (glm::dot(v2, forward) + 1.0f) * 0.5f;
+            }
+
+            m_hasUVs = true;
+            m_onGPU = false;
         }
 
         void run() override
@@ -164,6 +188,11 @@ namespace component
         bool hasColors()
         {
             return m_hasColors;
+        }
+
+        bool isOnGPU()
+        {
+            return m_onGPU;
         }
 
         ~Mesh()

@@ -3,11 +3,14 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+class GameObject;
+
 
 
 class Transform
 {
 private:
+    GameObject * m_gameObject = nullptr;
     glm::vec3 m_position;
     glm::vec3 m_rotation;
     glm::vec3 m_scale = glm::vec3(1, 1, 1);
@@ -20,8 +23,33 @@ private:
                                      0.0f, 0.0f, 1.0f, 0.0f,
                                      0.0f, 0.0f, 0.0f, 1.0f);
     Transform * m_parent = nullptr;
+    Transform ** m_childs = nullptr;
+    size_t m_childCount = 0;
+    
+    void _addChild(Transform * child)
+    {
+        Transform * newChilds[m_childCount + 1];
+        for (size_t i = 0; i < m_childCount; i++)
+        {
+            newChilds[i] = m_childs[i];
+        }
+        newChilds[m_childCount] = child;
+        delete[] m_childs;
+        m_childs = new Transform*[m_childCount + 1]; 
+        for (size_t i = 0; i < m_childCount + 1; i++) {
+            m_childs[i] = newChilds[i];
+        }
+        m_childCount++;
+    }
+    void _setParent(Transform * transform)
+    {
+        this -> m_parent = transform;
+    }
+
 public:
     Transform(){}
+
+    void setGameObject(GameObject * gameObject);
     
     static glm::mat4 rotationMatrix(glm::vec3 rot)
     {
@@ -146,14 +174,73 @@ public:
         this -> m_scale = scale;
         rebuildMatrix();
     }
-    void AddChild(Transform & transform)
+    void addChild(Transform * child)
     {
-        transform.SetParent(this);
+        child -> _setParent(this);
+        Transform * newChilds[m_childCount + 1];
+        for (size_t i = 0; i < m_childCount; i++)
+        {
+            newChilds[i] = m_childs[i];
+        }
+        newChilds[m_childCount] = child;
+        delete[] m_childs;
+        m_childs = new Transform*[m_childCount + 1]; 
+        for (size_t i = 0; i < m_childCount + 1; i++) {
+            m_childs[i] = newChilds[i];
+        }
+        m_childCount++;
     }
-    void SetParent(Transform * transform)
+
+    void setParent(Transform * transform)
     {
         this -> m_parent = transform;
+        transform -> _addChild(this);
     }
+
+    void removeParent()
+    {
+        this -> m_parent = nullptr;
+    }
+
+    void detachChilds()
+    {
+        for (size_t i = 0; i < m_childCount; i++)
+        {
+            m_childs[i] -> removeParent();
+        }
+        m_childCount = 0;
+        delete[] m_childs;
+        m_childs = nullptr;
+    }
+
+    void detachChild(Transform * child)
+    {
+        Transform * new_childs[m_childCount - 1];
+        uint write_count = 0;
+        for (size_t i = 0; i < m_childCount; i++)
+        {
+            if (m_childs[i] != child)
+            {
+                new_childs[write_count] = m_childs[i];
+                write_count++;
+            }
+        }
+        delete[] m_childs;
+        m_childs = new Transform*[m_childCount - 1];
+        for (size_t i = 0; i < m_childCount - 1; i++)
+        {
+            m_childs[i] = new_childs[i];
+        }
+        m_childCount--;
+    }
+
+    size_t getChildCount() const { 
+        return m_childCount; 
+    }
+
+    GameObject * getChild(size_t i);
+
+    GameObject * getGameObject() const;
 
     glm::mat4 getModelWorld()
     {

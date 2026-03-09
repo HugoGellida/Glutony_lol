@@ -55,13 +55,13 @@ public:
 };
 
 
-class UniformVec3f : public Uniform<glm::vec3>
+class UniformVec3f : public Uniform<glm::vec3 *>
 {
 public:
-    UniformVec3f(std::string loc, glm::vec3 value) : Uniform(loc, value){}
+    UniformVec3f(std::string loc, glm::vec3 *& value) : Uniform(loc, value){}
     void upload(GLint progID) override
     {
-        glUniform3f(glGetUniformLocation(progID, loc.c_str()), value.x, value.y, value.z);
+        glUniform3f(glGetUniformLocation(progID, loc.c_str()), value -> x, value -> y, value -> z);
     }
 };
 

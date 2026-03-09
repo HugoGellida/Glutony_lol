@@ -3,42 +3,35 @@
 #include "Camera.hpp"
 #include "gameobject/GameObject.hpp"
 #include "common/shader/Material.hpp"
+#include "common/shader/LitMaterial.hpp"
 #include <common/shader/Shader.hpp>
 #include "gameobject/component/Mesh.hpp"
 #include "gameobject/component/MeshRenderer.hpp"
 #include "gameobject/component/MeshNoiseDeformPerlinHeight.hpp"
 #include "InputProccessor.hpp"
+#include "FileLoader.hpp"
 
 
 class Scene
 {
 private:
-    GameObject * m_gameObjects = nullptr;
+    GameObject ** m_gameObjects = nullptr;
+    size_t m_meshsCount=0;
+    component::Mesh ** m_meshs=nullptr;
+    
+    size_t m_gameObjectCount = 0;
     dataStruct::Material * m_materials;
     Shader * m_shaders;
+
     Camera m_camera;
     inputProcessor::InputProcessor m_inputProcessor;
     bool m_fpsControl = false;
-    int plane_res = 16;
     bool m_orbitMode = false;
     glm::vec3 m_orbitPos = glm::vec3(0.0f, 10.0f, -10.0f);
     float m_orbitYangle = 0.0f;
     float m_orbitSpeed = 20.0f;
 
-    void buildPlane(int res = 16)
-    {
-        if (m_gameObjects != nullptr)
-            delete m_gameObjects;
-        m_gameObjects = new GameObject();
-        m_gameObjects -> addComponent(new Plane(glm::vec3(0, 0, 0), 10.0, res));
-        component::Mesh * m = m_gameObjects -> getComponent<Plane>();
-        m_gameObjects -> setPosition(glm::vec3(0, 0, 0));
-        m_gameObjects -> setRotation(glm::vec3(0, 0, 0));
-        
-        m_gameObjects -> setScale(glm::vec3(1.0, 1.0, 1.0));
-        //m_gameObjects -> addComponent(new MeshNoisePerlinHeight(m));
-        m_gameObjects -> addComponent(new MeshRenderer(m, (m_materials)));
-    }
+    float m_anim_angle = 0.0f;
 
 public:
     Scene()
@@ -46,16 +39,32 @@ public:
         using namespace component;
         // test
 
-        m_shaders = new Shader("./vertex_shader.glsl", "./fragment_shader.glsl");
+        m_shaders = new Shader("./built-in_shaders/lit/vertex.glsl", "./built-in_shaders/lit/fragment.glsl");
 
-        this -> m_materials = new dataStruct::Material(m_shaders);
-        m_materials->addTexture("height_map", "./img/heightmap-1024x1024.png");
-        m_materials->addTexture("t0", "./img/grass.png");
-        m_materials->addTexture("t1", "./img/rock.png");
-        m_materials->addTexture("t2", "./img/snowrocks.png");
+        m_meshs = new component::Mesh*[1];
+        m_meshsCount++;
+        m_meshs[0] = fileLoader::loadModelFile("./built-in_mesh/unit_sphere_n.off");
+
+
+
+        this -> m_materials = new dataStruct::LitMaterial(m_shaders);
         
-        buildPlane(plane_res);
+        m_gameObjects = new GameObject*[2];
+        m_gameObjectCount++;
+        m_gameObjects[0] = new GameObject("sphere 0");
+        m_gameObjects[0] -> addComponent(m_meshs[0]);
+        m_gameObjects[0] -> addComponent(new MeshRenderer(m_gameObjects[0] -> getComponent<Mesh>(), m_materials));
 
+        m_gameObjectCount++;
+        m_gameObjects[1] = new GameObject("sphere 1");
+        m_gameObjects[1] -> addComponent(m_meshs[0]);
+        m_gameObjects[1] -> addComponent(new MeshRenderer(m_gameObjects[1] -> getComponent<Mesh>(), m_materials));
+        m_gameObjects[1] -> setPosition(glm::vec3(2, 0, 0));
+        m_gameObjects[1] -> setScale(glm::vec3(0.1, 0.1, 0.1));
+
+
+        m_gameObjects[0] -> addChild(m_gameObjects[1]);
+    
         m_camera = Camera();
 
 
@@ -73,11 +82,13 @@ public:
         m_inputProcessor.registerKey(GLFW_KEY_UP, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_DOWN, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_V, inputProcessor::KeyState::ONCE);
+        m_inputProcessor.registerKey(GLFW_KEY_Z, inputProcessor::KeyState::ONCE); // w
     }
 
     void update(double deltaTime, GLFWwindow * window)
     {
-        m_gameObjects -> update(deltaTime);
+        for (size_t i = 0; i < m_gameObjectCount; i++) 
+            m_gameObjects[i] -> update(deltaTime);
         m_inputProcessor.update(window);
         float sensitivity = 0.1f;
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -144,20 +155,7 @@ public:
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
 
-        if (m_inputProcessor.queryKey(window, GLFW_KEY_SEMICOLON))
-        {
-            plane_res /= 2;
-            plane_res = std::max(4, plane_res);
-            buildPlane(plane_res);
-            std::cout << "Plane resolution set to " << plane_res << "x" << plane_res << std::endl;
-        }
-        if (m_inputProcessor.queryKey(window, GLFW_KEY_P))
-        {
-            plane_res *= 2;
-            plane_res = std::min(plane_res, 2048);
-            buildPlane(plane_res);
-            std::cout << "Plane resolution set to " << plane_res << "x" << plane_res << std::endl;
-        }
+        
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_UP))
         {
@@ -186,9 +184,10 @@ public:
             }
         }
 
-        if (m_inputProcessor.queryKey(window, GLFW_KEY_V))
+        if (m_inputProcessor.queryKey(window, GLFW_KEY_Z))
         {
-            m_gameObjects -> getComponent<MeshRenderer>()->toggleWireframe();
+            for (size_t i = 0; i < m_gameObjectCount; i++)
+                m_gameObjects[i] -> getComponent<MeshRenderer>()->toggleWireframe();
         }
 
         if (m_orbitMode)
@@ -201,12 +200,23 @@ public:
             m_camera.m_orientation = glm::vec3(-45.0f, m_orbitYangle + 180.0f, 0.0f);
 
         }
+
+
+        m_anim_angle += 10.0f * deltaTime;
+        m_anim_angle = m_anim_angle > 360.0f ? m_anim_angle - 360.0f : m_anim_angle;
+
+        m_gameObjects[0] -> transform.setRotation(glm::vec3(0.0f, m_anim_angle + 30.0f, 20.0f));
+        m_gameObjects[1] -> transform.setRotation(glm::vec3(10.0f, -m_anim_angle, 40.0f));
+
     }
 
     void renderScene() const
     {
-        m_gameObjects -> getComponent<MeshRenderer>()->run();
-        m_gameObjects -> getComponent<MeshRenderer>()->render(m_camera, m_gameObjects -> transform);
+        for (size_t i = 0; i < m_gameObjectCount; i++)
+        {
+            m_gameObjects[i] -> getComponent<MeshRenderer>()->run(); 
+            m_gameObjects[i] -> getComponent<MeshRenderer>()->render(m_camera, m_gameObjects[i] -> transform);
+        }
     }
 
     void updateCamera(glm::vec3 deltaPos, glm::vec3 deltaEuler)
@@ -229,7 +239,7 @@ public:
 
     ~Scene()
     {
-        delete m_gameObjects;
+        delete[] m_gameObjects;
         delete m_materials;
         delete m_shaders;
     }

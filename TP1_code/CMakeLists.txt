@@ -95,6 +95,18 @@ add_custom_command(
 	TARGET TP1 POST_BUILD
 	COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/TP1/fragment_shader.glsl" "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
 )
+
+add_custom_command(
+	TARGET TP1 POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in_shaders" "${CMAKE_CURRENT_BINARY_DIR}/built-in_shaders"
+)
+
+add_custom_command(
+	TARGET TP1 POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in_mesh" "${CMAKE_CURRENT_BINARY_DIR}/built-in_mesh"
+)
+
+
 elseif (${CMAKE_GENERATOR} MATCHES "Xcode" )
 
 endif (NOT ${CMAKE_GENERATOR} MATCHES "Xcode" )

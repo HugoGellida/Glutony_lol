@@ -341,6 +341,7 @@ CMakeFiles/TP1.dir/TP1/TP1.cpp.o: ../TP1/TP1.cpp \
   ../common/gameobject/GameObject.hpp \
   ../common/shader/Material.hpp \
   ../common/shader/Shader.hpp \
+  ../common/shader/LitMaterial.hpp \
   ../common/gameobject/component/MeshRenderer.hpp \
   ../common/gameobject/component/MeshNoiseDeformPerlinHeight.hpp \
   ../common/noise/PerlinNoise.hpp \
@@ -373,7 +374,8 @@ CMakeFiles/TP1.dir/TP1/TP1.cpp.o: ../TP1/TP1.cpp \
   /usr/include/c++/11/map \
   /usr/include/c++/11/bits/stl_tree.h \
   /usr/include/c++/11/bits/stl_map.h \
-  /usr/include/c++/11/bits/stl_multimap.h
+  /usr/include/c++/11/bits/stl_multimap.h \
+  ../common/FileLoader.hpp
 
 CMakeFiles/TP1.dir/common/stb_image_impl.cpp.o: ../common/stb_image_impl.cpp \
   /usr/include/stdc-predef.h \
@@ -509,6 +511,8 @@ CMakeFiles/TP1.dir/common/stb_image_impl.cpp.o: ../common/stb_image_impl.cpp \
 /usr/include/c++/11/math.h:
 
 ../common/stb_image_impl.cpp:
+
+../common/FileLoader.hpp:
 
 /usr/include/c++/11/bits/stl_multimap.h:
 
@@ -843,6 +847,8 @@ CMakeFiles/TP1.dir/common/stb_image_impl.cpp.o: ../common/stb_image_impl.cpp \
 /usr/lib/gcc/x86_64-linux-gnu/11/include/limits.h:
 
 /usr/include/stdio.h:
+
+../common/shader/LitMaterial.hpp:
 
 ../external/glm-0.9.7.1/glm/detail/func_integer.hpp:
 

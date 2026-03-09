@@ -39,8 +39,19 @@ namespace component
 
         void run() override 
         {
-            if (m_onGPU)
+            if (m_onGPU && m_mesh -> isOnGPU())
                 return;
+            if (m_onGPU)
+            {
+                glDeleteBuffers(1, &m_VBO);
+                glDeleteBuffers(1, &m_EBO);
+                if (m_hasNorm)
+                    glDeleteBuffers(1, &m_NORMALS);
+                if (m_hasUVS)
+                    glDeleteBuffers(1, &m_UVS);
+                glDeleteVertexArrays(1, &m_VAO);
+            }
+
             glGenVertexArrays(1, &m_VAO);
             glBindVertexArray(m_VAO);
 

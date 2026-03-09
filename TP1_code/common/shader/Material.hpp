@@ -39,10 +39,15 @@ namespace dataStruct
     private:
         glm::mat4 * mvp;
         glm::mat4 * mvpOrtho;
-        Uniform1f ** m_uni1f = nullptr;
-        UniformMat4x4f ** m_uniMat4f = nullptr;
+    protected:
+
         uint m_uni1f_stride = 0;
         uint m_uniMat4f_stride = 0;
+        uint m_uniVec3f_stride = 0;
+        
+        Uniform1f ** m_uni1f = nullptr;
+        UniformMat4x4f ** m_uniMat4f = nullptr;
+        UniformVec3f ** m_uniVec3f = nullptr;
         std::vector<UniformTex2D> textures = std::vector<UniformTex2D>(0);
         
     public:
@@ -85,6 +90,8 @@ namespace dataStruct
                 m_shader -> Upload((IUniform *)m_uniMat4f[i]);
             for (uint i = 0; i < textures.size(); i++)
                 m_shader -> Upload((IUniform *)&(textures[i]));
+            for (uint i = 0; i < m_uniVec3f_stride; i++)
+                m_shader -> Upload((IUniform *)m_uniVec3f[i]);
         }
         
         void bind(Camera const & cam, Transform & transform) override
