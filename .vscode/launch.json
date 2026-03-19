@@ -7,6 +7,11 @@
             "request": "launch",
             "program": "${workspaceRoot}/TP1_code/build/TP1",
             "cwd": "${workspaceRoot}/TP1_code/build/",
+            "setupCommands": [
+                {
+                    "text": "set debuginfod enabled off"
+                }
+            ],
             "preLaunchTask": "build"
         }
     ]

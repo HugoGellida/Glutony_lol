@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/splitview.dir/link.d"
   "CMakeFiles/splitview.dir/splitview.c.o"
   "CMakeFiles/splitview.dir/splitview.c.o.d"
   "splitview"

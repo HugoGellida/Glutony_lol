@@ -1,1 +1,1 @@
-/usr/bin/cc -g -rdynamic CMakeFiles/monitors.dir/monitors.c.o CMakeFiles/monitors.dir/__/deps/getopt.c.o -o monitors  ../src/libglfw3.a -Wl,-Bstatic -lrt -Wl,-Bdynamic -lm -lX11 -lXrandr -lXinerama -lXi -lXxf86vm -lXcursor -lGL -ldl 
+/usr/bin/gcc -g -rdynamic -Wl,--dependency-file=CMakeFiles/monitors.dir/link.d CMakeFiles/monitors.dir/monitors.c.o CMakeFiles/monitors.dir/__/deps/getopt.c.o -o monitors  ../src/libglfw3.a -Wl,-Bstatic -lrt -Wl,-Bdynamic -lm -lX11 -lXrandr -lXinerama -lXi -lXxf86vm -lXcursor -lGL -ldl

@@ -1,8 +1,8 @@
 external/glfw-3.1.2/tests/CMakeFiles/clipboard.dir/__/deps/getopt.c.o: \
- /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glfw-3.1.2/deps/getopt.c \
+ /home/ender/Bureau/m1/moteur/Glutony_lol/TP1_code/external/glfw-3.1.2/deps/getopt.c \
  /usr/include/stdc-predef.h \
- /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external/glfw-3.1.2/deps/getopt.h \
- /usr/lib/gcc/x86_64-linux-gnu/11/include/stddef.h /usr/include/string.h \
+ /home/ender/Bureau/m1/moteur/Glutony_lol/TP1_code/external/glfw-3.1.2/deps/getopt.h \
+ /usr/lib/gcc/x86_64-linux-gnu/15/include/stddef.h /usr/include/string.h \
  /usr/include/x86_64-linux-gnu/bits/libc-header-start.h \
  /usr/include/features.h /usr/include/features-time64.h \
  /usr/include/x86_64-linux-gnu/bits/wordsize.h \

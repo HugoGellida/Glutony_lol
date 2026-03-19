@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/empty.dir/link.d"
   "CMakeFiles/empty.dir/__/deps/tinycthread.c.o"
   "CMakeFiles/empty.dir/__/deps/tinycthread.c.o.d"
   "CMakeFiles/empty.dir/empty.c.o"

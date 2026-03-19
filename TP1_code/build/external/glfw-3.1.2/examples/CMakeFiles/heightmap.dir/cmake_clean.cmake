@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/heightmap.dir/link.d"
   "CMakeFiles/heightmap.dir/__/deps/glad.c.o"
   "CMakeFiles/heightmap.dir/__/deps/glad.c.o.d"
   "CMakeFiles/heightmap.dir/heightmap.c.o"

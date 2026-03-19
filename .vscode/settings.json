@@ -47,5 +47,5 @@
         "fstream": "cpp"
     },
     "cmake.buildDirectory": "${workspaceFolder}/TP1_code/build",
-    "cmake.sourceDirectory": "/home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code"
+    "cmake.sourceDirectory": "/home/ender/Bureau/m1/moteur/Glutony_lol/TP1_code"
 }

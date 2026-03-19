@@ -76,9 +76,10 @@ namespace inputProcessor
 
                 
                 // reset mouse pos
-                
-                m_mousePX = 1024/2;
-                m_mousePY = 768/2;
+                int scrWidth, scrHeight;
+                glfwGetWindowSize(window, &scrWidth, &scrHeight);
+                m_mousePX = scrWidth / 2;
+                m_mousePY = scrHeight / 2;
             }
             else
             {

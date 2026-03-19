@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/monitors.dir/link.d"
   "CMakeFiles/monitors.dir/__/deps/getopt.c.o"
   "CMakeFiles/monitors.dir/__/deps/getopt.c.o.d"
   "CMakeFiles/monitors.dir/monitors.c.o"

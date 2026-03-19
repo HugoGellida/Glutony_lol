@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/sharing.dir/link.d"
   "CMakeFiles/sharing.dir/sharing.c.o"
   "CMakeFiles/sharing.dir/sharing.c.o.d"
   "sharing"

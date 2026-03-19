@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/reopen.dir/link.d"
   "CMakeFiles/reopen.dir/reopen.c.o"
   "CMakeFiles/reopen.dir/reopen.c.o.d"
   "reopen"

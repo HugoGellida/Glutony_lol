@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/boing.dir/link.d"
   "CMakeFiles/boing.dir/boing.c.o"
   "CMakeFiles/boing.dir/boing.c.o.d"
   "boing"

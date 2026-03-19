@@ -175,7 +175,9 @@ public:
             if (a>0)
                 move = ((float)deltaTime) * (move / (float)a);
             updateCamera(move, glm::vec3(m_inputProcessor.getMouseDeltaY() * sensitivity, m_inputProcessor.getMouseDeltaX() * sensitivity, 0.0f));
-            glfwSetCursorPos(window, 1024/2, 768/2);
+            int scrWidth, scrHeight;
+            glfwGetWindowSize(window, &scrWidth, &scrHeight);
+            glfwSetCursorPos(window, scrWidth / 2, scrHeight / 2);
         }
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_G))

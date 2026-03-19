@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/gears.dir/link.d"
   "CMakeFiles/gears.dir/gears.c.o"
   "CMakeFiles/gears.dir/gears.c.o.d"
   "gears"

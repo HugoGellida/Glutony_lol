@@ -1,4 +1,4 @@
-# Install script for directory: /home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/external
+# Install script for directory: /home/ender/Bureau/m1/moteur/Glutony_lol/TP1_code/external
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -37,14 +37,20 @@ if(NOT DEFINED CMAKE_CROSSCOMPILING)
   set(CMAKE_CROSSCOMPILING "FALSE")
 endif()
 
-# Set default install directory permissions.
+# Set path to fallback-tool for dependency-resolution.
 if(NOT DEFINED CMAKE_OBJDUMP)
   set(CMAKE_OBJDUMP "/usr/bin/objdump")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for each subdirectory.
-  include("/home/adminq/Bureau/M1/moteurdejeu/Glutony_lol/TP1_code/build/external/glfw-3.1.2/cmake_install.cmake")
+  include("/home/ender/Bureau/m1/moteur/Glutony_lol/TP1_code/build/external/glfw-3.1.2/cmake_install.cmake")
 
 endif()
 
+string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
+       "${CMAKE_INSTALL_MANIFEST_FILES}")
+if(CMAKE_INSTALL_LOCAL_ONLY)
+  file(WRITE "/home/ender/Bureau/m1/moteur/Glutony_lol/TP1_code/build/external/install_local_manifest.txt"
+     "${CMAKE_INSTALL_MANIFEST_CONTENT}")
+endif()

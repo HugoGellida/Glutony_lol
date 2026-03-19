@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/joysticks.dir/link.d"
   "CMakeFiles/joysticks.dir/joysticks.c.o"
   "CMakeFiles/joysticks.dir/joysticks.c.o.d"
   "joysticks"

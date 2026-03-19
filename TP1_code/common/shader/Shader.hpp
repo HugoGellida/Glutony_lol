@@ -9,7 +9,6 @@
 #include "Uniforms.hpp"
 
 
-#include <GL/glut.h>
 #include <GL/glew.h>
 
 class Shader
@@ -96,8 +95,9 @@ public:
         glCompileShader(vertShader);
         glGetShaderiv(vertShader, GL_COMPILE_STATUS, &result);
         glGetShaderiv(vertShader, GL_INFO_LOG_LENGTH, &logLength);
-        std::vector<char> vertShaderError(logLength);
-        glGetShaderInfoLog(vertShader, logLength, NULL, &vertShaderError[0]);
+        std::vector<char> vertShaderError(logLength > 1 ? logLength : 1, '\0');
+        if (logLength > 0)
+            glGetShaderInfoLog(vertShader, logLength, NULL, &vertShaderError[0]);
         if (logLength > 1)
             std::cout << std::endl << &vertShaderError[0] << std::endl;
         else
@@ -108,8 +108,9 @@ public:
         glCompileShader(fragShader);
         glGetShaderiv(fragShader, GL_COMPILE_STATUS, &result);
         glGetShaderiv(fragShader, GL_INFO_LOG_LENGTH, &logLength);
-        std::vector<char> fragShaderError(logLength);
-        glGetShaderInfoLog(fragShader, logLength, NULL, &fragShaderError[0]);
+        std::vector<char> fragShaderError(logLength > 1 ? logLength : 1, '\0');
+        if (logLength > 0)
+            glGetShaderInfoLog(fragShader, logLength, NULL, &fragShaderError[0]);
         if (logLength > 1)
             std::cout << std::endl << &fragShaderError[0] << std::endl; 
         else

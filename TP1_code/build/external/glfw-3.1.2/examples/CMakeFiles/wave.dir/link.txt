@@ -1,1 +1,1 @@
-/usr/bin/cc -g -rdynamic CMakeFiles/wave.dir/wave.c.o -o wave  ../src/libglfw3.a -Wl,-Bstatic -lrt -Wl,-Bdynamic -lm -lX11 -lXrandr -lXinerama -lXi -lXxf86vm -lXcursor -lGL -ldl 
+/usr/bin/gcc -g -rdynamic -Wl,--dependency-file=CMakeFiles/wave.dir/link.d CMakeFiles/wave.dir/wave.c.o -o wave  ../src/libglfw3.a -Wl,-Bstatic -lrt -Wl,-Bdynamic -lm -lX11 -lXrandr -lXinerama -lXi -lXxf86vm -lXcursor -lGL -ldl
