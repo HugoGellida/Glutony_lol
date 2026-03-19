@@ -9,5 +9,5 @@ out vec3 color;
 
 
 void main(){
-        color = (dot(normalize(vec3(-1, -1, 0)), normalize(_normals)) * _mainCol);
+        color = (max(dot(normalize(vec3(1, 0.75, -0.5)), normalize(_normals)), 0.1) * _mainCol);
 }

@@ -61,7 +61,8 @@ public:
         }
 
         for (int t = 0; t < triangles.size(); t++)
-            m_triangles[t]=triangles[t];        
+            m_triangles[t]=triangles[t];
+        computeNormals();
     }
 
     ~Plane() {

@@ -453,7 +453,7 @@ namespace fileLoader
             if (nStride == 0)
                 mesh -> setVertice(i, glm::vec3(verts[i*3], verts[i*3+1], verts[i*3+2]));
             else
-                mesh -> setVertice(i, glm::vec3(verts[i*3], verts[i*3+1], verts[i*3+2]), glm::vec3(norm[normConv[i]*3],norm[normConv[i]*3 + 1],norm[normConv[i*3]*3 + 2]));
+                mesh -> setVertice(i, glm::vec3(verts[i*3], verts[i*3+1], verts[i*3+2]), glm::vec3(norm[normConv[i]*3], norm[normConv[i]*3 + 1], norm[normConv[i]*3 + 2]));
         }
         for (uint i = 0; i < t; i++)
         {

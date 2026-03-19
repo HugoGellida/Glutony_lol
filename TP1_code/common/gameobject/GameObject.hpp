@@ -3,6 +3,7 @@
 #include "component/Component.hpp"
 #include "Transform.hpp"
 #include <string>
+#include <iostream>
 using namespace component;
 
 
@@ -35,9 +36,9 @@ public:
     T * getComponent()
     {
         for (uint i = 0; i < m_componentStride; i++)
-            if (typeid(T) == typeid(*(m_component[i])))
-                return (T *)m_component[i];
-        throw "Not found";
+            if (T * casted = dynamic_cast<T *>(m_component[i]))
+                return casted;
+        return nullptr;
     }
 
     void setPosition(glm::vec3 wPos)

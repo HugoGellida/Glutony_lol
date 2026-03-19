@@ -536,6 +536,78 @@ TP1/TP1.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/TP1/TP1.cpp.s
 .PHONY : TP1/TP1.cpp.s
 
+common/gameobject/Transform.o: common/gameobject/Transform.cpp.o
+.PHONY : common/gameobject/Transform.o
+
+# target to build an object file
+common/gameobject/Transform.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/gameobject/Transform.cpp.o
+.PHONY : common/gameobject/Transform.cpp.o
+
+common/gameobject/Transform.i: common/gameobject/Transform.cpp.i
+.PHONY : common/gameobject/Transform.i
+
+# target to preprocess a source file
+common/gameobject/Transform.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/gameobject/Transform.cpp.i
+.PHONY : common/gameobject/Transform.cpp.i
+
+common/gameobject/Transform.s: common/gameobject/Transform.cpp.s
+.PHONY : common/gameobject/Transform.s
+
+# target to generate assembly for a file
+common/gameobject/Transform.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/gameobject/Transform.cpp.s
+.PHONY : common/gameobject/Transform.cpp.s
+
+common/physics/PhysicEngine.o: common/physics/PhysicEngine.cpp.o
+.PHONY : common/physics/PhysicEngine.o
+
+# target to build an object file
+common/physics/PhysicEngine.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/physics/PhysicEngine.cpp.o
+.PHONY : common/physics/PhysicEngine.cpp.o
+
+common/physics/PhysicEngine.i: common/physics/PhysicEngine.cpp.i
+.PHONY : common/physics/PhysicEngine.i
+
+# target to preprocess a source file
+common/physics/PhysicEngine.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/physics/PhysicEngine.cpp.i
+.PHONY : common/physics/PhysicEngine.cpp.i
+
+common/physics/PhysicEngine.s: common/physics/PhysicEngine.cpp.s
+.PHONY : common/physics/PhysicEngine.s
+
+# target to generate assembly for a file
+common/physics/PhysicEngine.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/physics/PhysicEngine.cpp.s
+.PHONY : common/physics/PhysicEngine.cpp.s
+
+common/physics/RigidBody.o: common/physics/RigidBody.cpp.o
+.PHONY : common/physics/RigidBody.o
+
+# target to build an object file
+common/physics/RigidBody.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/physics/RigidBody.cpp.o
+.PHONY : common/physics/RigidBody.cpp.o
+
+common/physics/RigidBody.i: common/physics/RigidBody.cpp.i
+.PHONY : common/physics/RigidBody.i
+
+# target to preprocess a source file
+common/physics/RigidBody.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/physics/RigidBody.cpp.i
+.PHONY : common/physics/RigidBody.cpp.i
+
+common/physics/RigidBody.s: common/physics/RigidBody.cpp.s
+.PHONY : common/physics/RigidBody.s
+
+# target to generate assembly for a file
+common/physics/RigidBody.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/TP1.dir/build.make CMakeFiles/TP1.dir/common/physics/RigidBody.cpp.s
+.PHONY : common/physics/RigidBody.cpp.s
+
 common/stb_image_impl.o: common/stb_image_impl.cpp.o
 .PHONY : common/stb_image_impl.o
 
@@ -602,6 +674,15 @@ help:
 	@echo "... TP1/TP1.o"
 	@echo "... TP1/TP1.i"
 	@echo "... TP1/TP1.s"
+	@echo "... common/gameobject/Transform.o"
+	@echo "... common/gameobject/Transform.i"
+	@echo "... common/gameobject/Transform.s"
+	@echo "... common/physics/PhysicEngine.o"
+	@echo "... common/physics/PhysicEngine.i"
+	@echo "... common/physics/PhysicEngine.s"
+	@echo "... common/physics/RigidBody.o"
+	@echo "... common/physics/RigidBody.i"
+	@echo "... common/physics/RigidBody.s"
 	@echo "... common/stb_image_impl.o"
 	@echo "... common/stb_image_impl.i"
 	@echo "... common/stb_image_impl.s"

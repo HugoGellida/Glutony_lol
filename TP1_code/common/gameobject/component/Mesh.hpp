@@ -100,9 +100,9 @@ namespace component
             }
             for (uint i = 0; i < m_vStride; i++)
             {
-                m_normals[i*3]/=vTri[i];
-                m_normals[i*3+1]/=vTri[i];
-                m_normals[i*3+2]/=vTri[i];
+                m_normals[i*3]/=-vTri[i];
+                m_normals[i*3+1]/=-vTri[i];
+                m_normals[i*3+2]/=-vTri[i];
             }
 
 

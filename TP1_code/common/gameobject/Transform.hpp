@@ -242,13 +242,26 @@ public:
 
     GameObject * getGameObject() const;
 
-    glm::mat4 getModelWorld()
+    glm::mat4 getModelWorld() const
     {
         return (this->m_parent != nullptr) ? m_parent->getModelWorld() * m_transformationMatrix : m_transformationMatrix;
     }
-    // TODO support scaling --' (fix matrix inversion).
-    glm::mat4 getNormalMat()
+
+    glm::vec3 getWorldPos(glm::vec3 localPos) const
     {
-        return (this -> m_parent != nullptr) ? m_parent -> getNormalMat() * m_rotMat : m_rotMat; 
+        glm::vec4 res = getModelWorld() * glm::vec4(localPos.x, localPos.y, localPos.z, 1);
+        return glm::vec3(res.x, res.y, res.z);
+    }
+
+    glm::vec3 getWorldNormal(glm::vec3 localNormal) const
+    {
+        glm::vec4 res = getModelWorld() * glm::vec4(localNormal.x, localNormal.y, localNormal.z, 0);
+        glm::vec3 rN = glm::normalize(glm::vec3(res.x, res.y, res.z));
+        return rN;
+    }
+
+    glm::mat4 getNormalMat() const
+    {
+        return (this -> m_parent != nullptr) ? m_parent -> getNormalMat() * m_rotMat : m_rotMat;
     }
 };

@@ -54,13 +54,27 @@ add_definitions(
 	-D_CRT_SECURE_NO_WARNINGS
 )
 
+option(ENABLE_LSAN "Enable LeakSanitizer (LSan) for TP1" OFF)
+
 # TP1
 add_executable(TP1
         TP1/TP1.cpp
+		common/gameobject/Transform.cpp
+		common/physics/PhysicEngine.cpp
+		common/physics/RigidBody.cpp
 		common/stb_image_impl.cpp
         TP1/vertex_shader.glsl
         TP1/fragment_shader.glsl
 )
+
+if(ENABLE_LSAN)
+	if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+		target_compile_options(TP1 PRIVATE -fsanitize=leak -fno-omit-frame-pointer -g)
+		target_link_options(TP1 PRIVATE -fsanitize=leak)
+	else()
+		message(WARNING "ENABLE_LSAN is only supported with Clang/GCC")
+	endif()
+endif()
 target_link_libraries(TP1
 	${ALL_LIBS}
 )
