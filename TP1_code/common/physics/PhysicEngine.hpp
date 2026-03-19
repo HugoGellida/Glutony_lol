@@ -33,10 +33,18 @@ public:
     glm::vec3 gravity{0.0f, -9.81f, 0.0f};
 
 private:
+    static constexpr int kSolverIterations = 20;
+
     struct BroadPhaseEntry
     {
         PhysicBody body;
         physics::AABB aabb;
+    };
+
+    struct CandidatePair
+    {
+        size_t a = 0;
+        size_t b = 0;
     };
 
     std::vector<PhysicBody> m_bodies;
@@ -46,6 +54,8 @@ private:
     void IntegratePositions(PhysicBody & body, float dt);
     
     void ApplyPositionConstraints(physics::RigidBody * rb);
+
+    void ApplySleepThresholds(physics::RigidBody & rb);
 
     void SyncTransformFromRigidbody(PhysicBody & body);
     
@@ -80,78 +90,108 @@ public:
         if (dt <= 0.0f)
             return;
         
-            for (PhysicBody body : m_bodies)
+        for (PhysicBody & body : m_bodies)
+        {
+            if (!body.isValid())
+                continue;
+            body.rb->BeginSimulationStep();
+            IntegrateVelocities(body, dt);
+        }
+
+        for (PhysicBody & body : m_bodies)
+        {
+            if (!body.isValid())
+                continue;
+            IntegratePositions(body, dt);
+            ApplyPositionConstraints(body.rb);
+        }
+
+        std::vector<BroadPhaseEntry> broadPhaseEntries;
+        broadPhaseEntries.reserve(m_bodies.size());
+
+        for (PhysicBody & body : m_bodies)
+        {
+            if (!body.isValid())
+                continue;
+
+            body.transform->setPosition(body.rb->m_position);
+            body.transform->setOrientation(body.rb->m_orientation);
+
+            BroadPhaseEntry entry;
+            entry.body = body;
+            entry.aabb = body.collider->computeAABB(body.transform);
+            broadPhaseEntries.push_back(entry);
+        }
+
+        std::vector<CandidatePair> candidatePairs;
+        const size_t count = broadPhaseEntries.size();
+        candidatePairs.reserve((count * (count - 1)) / 2);
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            for (size_t j = i + 1; j < count; ++j)
             {
-                if (!body.isValid())
+                PhysicBody & bodyA = broadPhaseEntries[i].body;
+                PhysicBody & bodyB = broadPhaseEntries[j].body;
+                if (!CanBodiesCollide(bodyA, bodyB))
                     continue;
-                IntegrateVelocities(body, dt);                
-            }
-
-            for (PhysicBody body : m_bodies)
-            {
-                if (!body.isValid())
-                    continue;
-                IntegratePositions(body, dt);
-                ApplyPositionConstraints(body.rb);
-            }
-
-            std::vector<BroadPhaseEntry> broadPhaseEntries;
-            
-            for (PhysicBody body : m_bodies)
-            {
-                if (!body.isValid())
+                if (!broadPhaseEntries[i].aabb.Overlaps(broadPhaseEntries[j].aabb))
                     continue;
 
-                // rb as truth
-                body.transform->setPosition(body.rb->m_position);
-                
-                BroadPhaseEntry entry;
-                entry.body = body;
-                entry.aabb = body.collider->computeAABB(body.transform);
-                broadPhaseEntries.push_back(entry);
+                CandidatePair pair;
+                pair.a = i;
+                pair.b = j;
+                candidatePairs.push_back(pair);
             }
+        }
 
-            const size_t count = broadPhaseEntries.size();
+        for (int iteration = 0; iteration < kSolverIterations; ++iteration)
+        {
+            const bool applyPositionalCorrection = (iteration == 0);
 
-            for (size_t i = 0; i < count; ++i)
+            for (const CandidatePair & pair : candidatePairs)
             {
-                for (size_t j = i+1; j < count; ++j)
-                {
-                    PhysicBody & bodyA = broadPhaseEntries[i].body;
-                    PhysicBody & bodyB = broadPhaseEntries[j].body;
-                    if (!CanBodiesCollide(bodyA, bodyB)) // BroadPHASE
-                        continue;
-                    // TODO - utiliser l'algo sweep and prune !!! (check si meilleurs que mes 6 bools)
-                    if (!broadPhaseEntries[i].aabb.Overlaps(broadPhaseEntries[j].aabb))
-                        continue;
-                    
-                    physics::CollisionManifold manifold = physics::CollisionDispatcher::Test(
-                        *bodyA.collider, *bodyA.transform,
-                        *bodyB.collider, *bodyB.transform
-                    );
+                PhysicBody & bodyA = broadPhaseEntries[pair.a].body;
+                PhysicBody & bodyB = broadPhaseEntries[pair.b].body;
 
-                    if (!manifold.hasCollision)
-                        continue;
-                    
-                    physics::CollisionSolver::Resolve(*bodyA.rb, *bodyB.rb, manifold);
-
-                    ApplyPositionConstraints(bodyA.rb);
-                    ApplyPositionConstraints(bodyB.rb);
-
-                    bodyA.transform->setPosition(bodyA.rb->m_position);
-                    bodyB.transform->setPosition(bodyB.rb->m_position);
-                }
-            }
-
-            for (PhysicBody body : m_bodies)
-            {
-                if (!body.isValid())
+                if (!bodyA.isValid() || !bodyB.isValid())
                     continue;
-                
-                SyncTransformFromRigidbody(body);
 
-                body.rb->accumulatedForce = glm::vec3(0.f, 0.f, 0.f);
+                bodyA.transform->setPosition(bodyA.rb->m_position);
+                bodyB.transform->setPosition(bodyB.rb->m_position);
+                bodyA.transform->setOrientation(bodyA.rb->m_orientation);
+                bodyB.transform->setOrientation(bodyB.rb->m_orientation);
+
+                physics::CollisionManifold manifold = physics::CollisionDispatcher::Test(
+                    *bodyA.collider, *bodyA.transform,
+                    *bodyB.collider, *bodyB.transform
+                );
+
+                if (!manifold.hasCollision)
+                    continue;
+
+                physics::CollisionSolver::Resolve(*bodyA.rb, *bodyB.rb, manifold, applyPositionalCorrection);
+
+                ApplyPositionConstraints(bodyA.rb);
+                ApplyPositionConstraints(bodyB.rb);
+
+                bodyA.transform->setPosition(bodyA.rb->m_position);
+                bodyB.transform->setPosition(bodyB.rb->m_position);
+                bodyA.transform->setOrientation(bodyA.rb->m_orientation);
+                bodyB.transform->setOrientation(bodyB.rb->m_orientation);
             }
+        }
+
+        for (PhysicBody & body : m_bodies)
+        {
+            if (!body.isValid())
+                continue;
+
+            ApplySleepThresholds(*body.rb);
+            SyncTransformFromRigidbody(body);
+            body.rb->accumulatedForce = glm::vec3(0.f, 0.f, 0.f);
+            body.rb->accumulatedTorque = glm::vec3(0.f, 0.f, 0.f);
+        }
     }
 };
 

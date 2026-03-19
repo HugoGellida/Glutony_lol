@@ -121,6 +121,29 @@ namespace physics
             return q;
         }
 
+        glm::mat3 computeLocalInverseInertiaTensor(float mass) const override
+        {
+            if (mass <= CollisionUtils::kEpsilon)
+                return glm::mat3(0.0f);
+
+            const glm::vec3 halfExtents(
+                std::abs(m_halfExtents.x * m_localScale.x),
+                std::abs(m_halfExtents.y * m_localScale.y),
+                std::abs(m_halfExtents.z * m_localScale.z)
+            );
+            const glm::vec3 size = halfExtents * 2.0f;
+
+            const float inertiaX = (mass / 12.0f) * ((size.y * size.y) + (size.z * size.z));
+            const float inertiaY = (mass / 12.0f) * ((size.x * size.x) + (size.z * size.z));
+            const float inertiaZ = (mass / 12.0f) * ((size.x * size.x) + (size.y * size.y));
+
+            return glm::mat3(
+                inertiaX > CollisionUtils::kEpsilon ? 1.0f / inertiaX : 0.0f, 0.0f, 0.0f,
+                0.0f, inertiaY > CollisionUtils::kEpsilon ? 1.0f / inertiaY : 0.0f, 0.0f,
+                0.0f, 0.0f, inertiaZ > CollisionUtils::kEpsilon ? 1.0f / inertiaZ : 0.0f
+            );
+        }
+
         inline static glm::vec3 ToOBBLocalPoint(
             const glm::vec3 & worldPoint,
             const BoxCollider & box,

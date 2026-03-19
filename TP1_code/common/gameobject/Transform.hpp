@@ -13,6 +13,7 @@ private:
     GameObject * m_gameObject = nullptr;
     glm::vec3 m_position;
     glm::vec3 m_rotation;
+    glm::quat m_orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
     glm::vec3 m_scale = glm::vec3(1, 1, 1);
     glm::mat4 m_transformationMatrix = glm::mat4(1.0f, 0.0f, 0.0f, 0.0f,
                                                0.0f, 1.0f, 0.0f, 0.0f,
@@ -129,8 +130,8 @@ public:
 
     void rebuildMatrix()
     {
-        m_rotMat = rotationMatrix(m_rotation);
-        m_transformationMatrix = translationMatrix(m_position) * rotationMatrix(m_rotation) * scaleMatrix(m_scale);
+        m_rotMat = glm::mat4_cast(m_orientation);
+        m_transformationMatrix = translationMatrix(m_position) * m_rotMat * scaleMatrix(m_scale);
     }
 
     void setRotation(float const & x, float const & y, float const & z)
@@ -138,11 +139,19 @@ public:
         m_rotation.x = x;
         m_rotation.y = y;
         m_rotation.z = z;
+        m_orientation = glm::normalize(glm::quat(glm::radians(m_rotation)));
         rebuildMatrix();
     }
     void setRotation(glm::vec3 const & rot)
     {
         m_rotation = rot;
+        m_orientation = glm::normalize(glm::quat(glm::radians(m_rotation)));
+        rebuildMatrix();
+    }
+    void setOrientation(glm::quat const & orientation)
+    {
+        m_orientation = glm::normalize(orientation);
+        m_rotation = glm::degrees(glm::eulerAngles(m_orientation));
         rebuildMatrix();
     }
     void setPosition(float const & x, float const & y, float const & z)
@@ -258,6 +267,21 @@ public:
         glm::vec4 res = getModelWorld() * glm::vec4(localNormal.x, localNormal.y, localNormal.z, 0);
         glm::vec3 rN = glm::normalize(glm::vec3(res.x, res.y, res.z));
         return rN;
+    }
+
+    const glm::vec3 & getPosition() const
+    {
+        return m_position;
+    }
+
+    const glm::vec3 & getRotation() const
+    {
+        return m_rotation;
+    }
+
+    const glm::quat & getOrientation() const
+    {
+        return m_orientation;
     }
 
     glm::mat4 getNormalMat() const

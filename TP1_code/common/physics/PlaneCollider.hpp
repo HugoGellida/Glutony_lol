@@ -54,5 +54,10 @@ namespace physics
 
             return CollisionUtils::Dot(worldPoint - planeOrigin, planeNormal);
         }
+
+        glm::mat3 computeLocalInverseInertiaTensor(float mass) const override
+        {
+            return glm::mat3(0.0f);
+        }
     };
 }

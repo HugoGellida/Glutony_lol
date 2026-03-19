@@ -1,4 +1,5 @@
 #pragma once
+#include "glm/glm.hpp"
 #include "../gameobject/Transform.hpp"
 #include "AABB.hpp"
 #include "../gameobject/component/Component.hpp"
@@ -30,5 +31,6 @@ namespace physics
         }
         virtual const ColliderType getType() const = 0;
         virtual const AABB computeAABB(const Transform * world) = 0;
+        virtual glm::mat3 computeLocalInverseInertiaTensor(float mass) const = 0;
     };
 }

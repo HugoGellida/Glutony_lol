@@ -49,13 +49,13 @@ public:
         m_meshs = new component::Mesh*[3];
         m_meshsCount = 3;
         m_meshs[0] = fileLoader::loadModelFile("./built-in_mesh/cube_n.obj");
-        m_meshs[1] = new Plane(glm::vec3(0, 0, 0), 10, 16);
+        m_meshs[1] = new Plane(glm::vec3(0, 0, 0), 10, 2);
         m_meshs[2] = fileLoader::loadModelFile("./built-in_mesh/unit_sphere_n.off");
 
 
         this -> m_materials = new dataStruct::LitMaterial(m_shaders);
         
-        m_gameObjects = new GameObject*[3];
+        m_gameObjects = new GameObject*[8];
         m_gameObjectCount = 0;
         {
             m_gameObjects[m_gameObjectCount] = new GameObject("Cube");
@@ -66,6 +66,11 @@ public:
             physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
             rb.useGravity = true;
             rb.m_linearVelocity = glm::vec3(0.0, 0.0, 0.0);
+            rb.staticFriction = 1.0f;
+            rb.dynamicFriction = 1.0f;
+            rb.bounciness = 1.0f;
+            rb.mass = 0.7f;
+            rb.RecomputeInverseMass();
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::BoxCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.5, 0.5, 0.5), glm::vec3(1.0, 1.0, 1.0)));
         }
         m_gameObjectCount++;
@@ -74,14 +79,37 @@ public:
             m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[2]);
             m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
             m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0.0, 5.0, 0.0));
+            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(0.1, 0.1, 0.1));
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
             physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
             rb.useGravity = true;
-            rb.m_linearVelocity = glm::vec3(0.0, 0.0, 0.0);
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::SphereCollider(glm::vec3(0.0, 0.0, 0.0), 1.0));
+            rb.m_linearVelocity = glm::vec3(0.001, 0.0, 0.0);
+            rb.staticFriction = 1.0f;
+            rb.dynamicFriction = 1.0f;
+            rb.bounciness = 0.2f;
+            rb.mass = 0.1f;
+            rb.RecomputeInverseMass();
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::SphereCollider(glm::vec3(0.0, 0.0, 0.0), 0.1f));
         }
         m_gameObjectCount++;
-
+        {
+            m_gameObjects[m_gameObjectCount] = new GameObject("Sphere");
+            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[2]);
+            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
+            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0.0, 5.0, 0.0));
+            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(0.1, 0.1, 0.1));
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
+            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
+            rb.useGravity = true;
+            rb.m_linearVelocity = glm::vec3(0.001, 0.0, 0.0);
+            rb.staticFriction = 1.0f;
+            rb.dynamicFriction = 1.0f;
+            rb.bounciness = 0.2f;
+            rb.mass = 0.1f;
+            rb.RecomputeInverseMass();
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::SphereCollider(glm::vec3(0.0, 0.0, 0.0), 0.1f));
+        }
+        m_gameObjectCount++;
         {
             m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
             m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
@@ -97,7 +125,70 @@ public:
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
         } 
         m_gameObjectCount++;
-
+        {
+            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
+            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
+            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
+            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0, 4, 5));
+            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
+            m_gameObjects[m_gameObjectCount] -> setRotation(glm::vec3(-90.0f, 0.0f, 0.0f));
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
+            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
+            rb.useGravity = false;
+            rb.isStatic = true;
+            rb.mass = 0.0f;
+            rb.RecomputeInverseMass();
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
+        } 
+        m_gameObjectCount++;
+        {
+            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
+            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
+            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
+            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0, 4, -5));
+            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
+            m_gameObjects[m_gameObjectCount] -> setRotation(glm::vec3(90.0f, 0.0f, 0.0f));
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
+            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
+            rb.useGravity = false;
+            rb.isStatic = true;
+            rb.mass = 0.0f;
+            rb.RecomputeInverseMass();
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
+        } 
+        m_gameObjectCount++;
+        {
+            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
+            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
+            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
+            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(5, 4, 0));
+            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
+            m_gameObjects[m_gameObjectCount] -> setRotation(glm::vec3(0.0f, 0.0f, 90.0f));
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
+            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
+            rb.useGravity = false;
+            rb.isStatic = true;
+            rb.mass = 0.0f;
+            rb.RecomputeInverseMass();
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
+        } 
+        m_gameObjectCount++;
+        {
+            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
+            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
+            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
+            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(-5, 4, 0));
+            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
+            m_gameObjects[m_gameObjectCount] -> setRotation(glm::vec3(0.0f, 0.0f, -90.0f));
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
+            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
+            rb.useGravity = false;
+            rb.isStatic = true;
+            rb.mass = 0.0f;
+            rb.RecomputeInverseMass();
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
+        } 
+        m_gameObjectCount++;
         m_camera = Camera();
 
 
@@ -196,7 +287,7 @@ public:
         }
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_Y))
-            m_gameObjects[0] -> getComponent<physics::RigidBody>() -> Impulse(glm::vec3(5, 9.81, 0) * (float)deltaTime * 2.0f);
+            m_gameObjects[0] -> getComponent<physics::RigidBody>() -> Impulse(glm::vec3(9.81, 2 * 9.81f, 0) * (float)deltaTime);
 
         
 
@@ -265,7 +356,7 @@ public:
     void updateCamera(glm::vec3 deltaPos, glm::vec3 deltaEuler)
     {
         glm::vec4 posRel = (Transform::rotationMatrix(glm::vec3(0.0f, m_camera.m_orientation.y, 0.0f)) * glm::vec4(deltaPos.x, deltaPos.y, deltaPos.z, 1.0f));
-        m_camera.m_position+= glm::vec3(posRel.x, posRel.y, posRel.z);
+        m_camera.m_position+= glm::vec3(posRel.x, posRel.y, posRel.z) * 10.0f;
         m_camera.m_orientation+=deltaEuler;
 
         

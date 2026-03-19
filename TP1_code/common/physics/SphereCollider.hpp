@@ -2,6 +2,7 @@
 #include "Collider.hpp"
 #include "glm/glm.hpp"
 #include "AABB.hpp"
+#include "CollisionUtils.hpp"
 #include <cmath>
 
 namespace physics
@@ -48,6 +49,25 @@ namespace physics
         float getWorldRadius(const Transform & world) const
         {
             return m_radius;
+        }
+
+        glm::mat3 computeLocalInverseInertiaTensor(float mass) const override
+        {
+            constexpr float epsilon = 1e-6f;
+
+            if (mass <= epsilon || m_radius <= epsilon)
+                return glm::mat3(0.0f);
+
+            const float inertia = 0.4f * mass * m_radius * m_radius;
+            if (inertia <= epsilon)
+                return glm::mat3(0.0f);
+
+            const float inverseInertia = 1.0f / inertia;
+            return glm::mat3(
+                inverseInertia, 0.0f, 0.0f,
+                0.0f, inverseInertia, 0.0f,
+                0.0f, 0.0f, inverseInertia
+            );
         }
     };
 }
