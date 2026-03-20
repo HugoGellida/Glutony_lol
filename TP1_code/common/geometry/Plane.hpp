@@ -22,6 +22,7 @@ public:
         // vert (16 * 16)
         std::vector<glm::vec3> vertices = std::vector<glm::vec3>(res*res);
         std::vector<glm::vec2> uvs = std::vector<glm::vec2>(res*res);
+        std::vector<glm::vec3> normals = std::vector<glm::vec3>(res*res, glm::vec3(0, 1, 0));
         m_hasUVs = true;
 
 
@@ -62,7 +63,15 @@ public:
 
         for (int t = 0; t < triangles.size(); t++)
             m_triangles[t]=triangles[t];
-        computeNormals();
+
+        m_normals = new float[m_vStride * 3];
+        for (size_t n = 0; n < normals.size(); n++)
+        {
+            m_normals[n*3] = normals[n].x;
+            m_normals[n*3+1] = normals[n].y;
+            m_normals[n*3+2] = normals[n].z;
+        }
+        m_hasNormals = true;
     }
 
     ~Plane() {

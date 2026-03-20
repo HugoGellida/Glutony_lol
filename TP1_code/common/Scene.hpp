@@ -69,7 +69,7 @@ public:
             rb.staticFriction = 1.0f;
             rb.dynamicFriction = 1.0f;
             rb.bounciness = 1.0f;
-            rb.mass = 0.7f;
+            rb.mass = 0.2f;
             rb.RecomputeInverseMass();
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::BoxCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.5, 0.5, 0.5), glm::vec3(1.0, 1.0, 1.0)));
         }
@@ -121,6 +121,7 @@ public:
             rb.useGravity = false;
             rb.isStatic = true;
             rb.mass = 0.0f;
+            rb.bounciness = 1.0f;
             rb.RecomputeInverseMass();
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
         } 
@@ -221,7 +222,7 @@ public:
         m_inputProcessor.update(window);
         float sensitivity = 0.1f;
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, true);
+            glfwSetWindowShouldClose(window, true);
         
         
 
