@@ -64,12 +64,12 @@ public:
             m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0.0, 1.0, 0.0));
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
             physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = true;
+            rb.useGravity = false;
             rb.m_linearVelocity = glm::vec3(0.0, 0.0, 0.0);
             rb.staticFriction = 1.0f;
             rb.dynamicFriction = 1.0f;
             rb.bounciness = 1.0f;
-            rb.mass = 0.2f;
+            rb.mass = 1.f;
             rb.RecomputeInverseMass();
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::BoxCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.5, 0.5, 0.5), glm::vec3(1.0, 1.0, 1.0)));
         }
@@ -82,7 +82,7 @@ public:
             m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(0.1, 0.1, 0.1));
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
             physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = true;
+            rb.useGravity = false;
             rb.m_linearVelocity = glm::vec3(0.001, 0.0, 0.0);
             rb.staticFriction = 1.0f;
             rb.dynamicFriction = 1.0f;
@@ -100,7 +100,7 @@ public:
             m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(0.1, 0.1, 0.1));
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
             physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = true;
+            rb.useGravity = false;
             rb.m_linearVelocity = glm::vec3(0.001, 0.0, 0.0);
             rb.staticFriction = 1.0f;
             rb.dynamicFriction = 1.0f;
@@ -218,7 +218,7 @@ public:
             m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(0.25, 0.25, 0.25));
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
             physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = true;
+            rb.useGravity = false;
             rb.m_linearVelocity = glm::vec3(0.001, 0.0, 0.0);
             rb.staticFriction = 1.0f;
             rb.dynamicFriction = 1.0f;
@@ -262,8 +262,6 @@ public:
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
         
-        
-
         if (m_fpsControl)
         {
             //Camera zoom in and out
@@ -324,6 +322,30 @@ public:
             else
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
+
+        for(size_t i = 0; i < m_gameObjectCount; i++){
+            if (m_gameObjects[i] -> getComponent<physics::RigidBody>() -> isStatic)
+                continue;
+
+            glm::vec3 centre = m_gameObjects[i]->transform.getPosition();
+            float rayon =  0.125f;
+            float point_bas = centre.y - rayon;
+            float point_haut = centre.y + rayon;
+            if(point_bas < 0.0 && point_haut > 0.0){
+                float ratio = abs(point_bas)/(2.0*rayon);
+                m_gameObjects[i] -> getComponent<physics::RigidBody>() -> AddForce(glm::vec3(0, (1.0 - ratio) * -9.81 + (ratio * 9.81), 0) * (float)deltaTime);
+            }
+            else if(m_gameObjects[i] -> transform.getPosition().y > 0.0){
+                m_gameObjects[i] -> getComponent<physics::RigidBody>() -> AddForce(glm::vec3(0, -9.81f, 0) * (float)deltaTime);
+            }
+            else{
+                m_gameObjects[i] -> getComponent<physics::RigidBody>() -> AddForce(glm::vec3(0, 9.81f, 0) * (float)deltaTime);
+            }
+        }
+
+        //transform.pos = centre sphere
+        //centre sphere - rayon -> distance avec y 0 -> si y 0 dans la sphere faire le lerp
+        //centre de la sphere + rayon centre de la sphere - rayon
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_Y)){
             m_gameObjects[1] -> getComponent<physics::RigidBody>() -> Impulse(glm::vec3(9.81, 2 * 9.81f, 0) * (float)deltaTime);
