@@ -1,10 +1,16 @@
 {
-    "tasks": [
-        {
-            "label": "build",
-            "type": "shell",
-            "command": "cd ${workspaceFolder}/TP1_code/build && make -j && cd ../TP1"
-        }
-    ],
-    "version": "2.0.0"
+	"tasks": [
+		{
+			"label": "build",
+			"type": "shell",
+			"command": "cmake --build ${workspaceFolder}/TP1_code/build --parallel 4"
+		},
+		{
+			"label": "noop-check",
+			"type": "shell",
+			"command": "true",
+			"isBackground": false
+		}
+	],
+	"version": "2.0.0"
 }

@@ -211,7 +211,7 @@ public:
         m_inputProcessor.registerKey(GLFW_KEY_Y, inputProcessor::KeyState::HOLD);
     }
 
-    void update(double deltaTime, GLFWwindow * window)
+    void update(double deltaTime, GLFWwindow * window, bool inputEnabled = true, bool editorMode = false, double mouseAnchorX = 0.0, double mouseAnchorY = 0.0)
     {
         PhysicEngine::getInstance() -> Step(deltaTime);
 
@@ -219,12 +219,13 @@ public:
 
         for (size_t i = 0; i < m_gameObjectCount; i++) 
             m_gameObjects[i] -> update(deltaTime);
-        m_inputProcessor.update(window);
+        m_inputProcessor.update(window, inputEnabled && m_fpsControl, mouseAnchorX, mouseAnchorY);
         float sensitivity = 0.1f;
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, true);
         
-        
+        if (!inputEnabled)
+            return;
 
         if (m_fpsControl)
         {
@@ -267,9 +268,14 @@ public:
             if (a>0)
                 move = ((float)deltaTime) * (move / (float)a);
             updateCamera(move, glm::vec3(m_inputProcessor.getMouseDeltaY() * sensitivity, m_inputProcessor.getMouseDeltaX() * sensitivity, 0.0f));
-            int scrWidth, scrHeight;
-            glfwGetWindowSize(window, &scrWidth, &scrHeight);
-            glfwSetCursorPos(window, scrWidth / 2, scrHeight / 2);
+            if (editorMode)
+                glfwSetCursorPos(window, mouseAnchorX, mouseAnchorY);
+            else
+            {
+                int scrWidth, scrHeight;
+                glfwGetWindowSize(window, &scrWidth, &scrHeight);
+                glfwSetCursorPos(window, scrWidth / 2, scrHeight / 2);
+            }
         }
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_G))
@@ -282,7 +288,7 @@ public:
             m_fpsControl = !m_fpsControl;
             std::cout << "FPS Camera control " << (m_fpsControl ? "enabled" : "disabled") << std::endl;
             if (m_fpsControl)
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                glfwSetInputMode(window, GLFW_CURSOR, editorMode ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_DISABLED);
             else
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
@@ -370,6 +376,16 @@ public:
     void updateCamSettings(float aspectRatio)
     {
         m_camera.m_aspectRatio = aspectRatio;
+    }
+
+    bool isFpsControlEnabled() const
+    {
+        return m_fpsControl;
+    }
+
+    bool isOrbitModeEnabled() const
+    {
+        return m_orbitMode;
     }
 
     ~Scene()

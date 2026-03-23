@@ -49,7 +49,7 @@ namespace inputProcessor
 
         
 
-        void update(GLFWwindow * window)
+        void update(GLFWwindow * window, bool relativeMouseMode = false, double referenceX = 0.0, double referenceY = 0.0)
         {
             for (auto & [key, state] : m_keyWatchers)
             {
@@ -68,21 +68,17 @@ namespace inputProcessor
             }
             
             glfwGetCursorPos(window, &m_mouseX, &m_mouseY);
-            if (m_mousePX - m_mouseX != 0 || m_mousePY - m_mouseY != 0)
+            if (relativeMouseMode)
             {
-                float sensitivity = 0.1f;
+                m_mousePX = referenceX;
+                m_mousePY = referenceY;
                 m_mouseDeltaX = m_mouseX - m_mousePX;
                 m_mouseDeltaY = m_mousePY - m_mouseY;
-
-                
-                // reset mouse pos
-                int scrWidth, scrHeight;
-                glfwGetWindowSize(window, &scrWidth, &scrHeight);
-                m_mousePX = scrWidth / 2;
-                m_mousePY = scrHeight / 2;
             }
             else
             {
+                m_mouseDeltaX = 0.0f;
+                m_mouseDeltaY = 0.0f;
                 m_mousePX = m_mouseX;
                 m_mousePY = m_mouseY;
             }
@@ -108,12 +104,12 @@ namespace inputProcessor
 
         float getMouseDeltaX()
         {
-            return m_mouseX - m_mousePX;
+            return m_mouseDeltaX;
         }
 
         float getMouseDeltaY()
         {
-            return m_mouseY - m_mousePY;
+            return m_mouseDeltaY;
         }
 
         void unregisterKey(int key)
