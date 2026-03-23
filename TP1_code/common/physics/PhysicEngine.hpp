@@ -33,7 +33,7 @@ public:
     glm::vec3 gravity{0.0f, -9.81f, 0.0f};
 
 private:
-    static constexpr int kSolverIterations = 20;
+    static constexpr int kSolverIterations = 8;
 
     struct BroadPhaseEntry
     {

@@ -55,7 +55,7 @@ public:
 
         this -> m_materials = new dataStruct::LitMaterial(m_shaders);
         
-        m_gameObjects = new GameObject*[8];
+        m_gameObjects = new GameObject*[58];
         m_gameObjectCount = 0;
         {
             m_gameObjects[m_gameObjectCount] = new GameObject("Cube");
@@ -125,6 +125,25 @@ public:
             rb.RecomputeInverseMass();
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
         } 
+
+        m_gameObjectCount++;
+        {
+            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
+            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
+            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
+            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0, 9, 0));
+            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
+            m_gameObjects[m_gameObjectCount] -> setRotation(glm::vec3(-180.0f, 0.0f, 0.0f));
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
+            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
+            rb.useGravity = false;
+            rb.isStatic = true;
+            rb.mass = 0.0f;
+            rb.bounciness = 1.0f;
+            rb.RecomputeInverseMass();
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
+        } 
+
         m_gameObjectCount++;
         {
             m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
@@ -190,6 +209,25 @@ public:
             m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
         } 
         m_gameObjectCount++;
+        for (int i = 8; i < 58; i++)
+        {
+            m_gameObjects[m_gameObjectCount] = new GameObject("Sphere");
+            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[0]);
+            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
+            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0.0, 5.0, 0.0));
+            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(0.25, 0.25, 0.25));
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
+            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
+            rb.useGravity = true;
+            rb.m_linearVelocity = glm::vec3(0.001, 0.0, 0.0);
+            rb.staticFriction = 1.0f;
+            rb.dynamicFriction = 1.0f;
+            rb.bounciness = 0.2f;
+            rb.mass = 0.1f;
+            rb.RecomputeInverseMass();
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::BoxCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.125, 0.125, 0.125), glm::vec3(1.0, 1.0, 1.0)));
+            m_gameObjectCount++;
+        }
         m_camera = Camera();
 
 
@@ -266,7 +304,7 @@ public:
 
             if (a>0)
                 move = ((float)deltaTime) * (move / (float)a);
-            updateCamera(move, glm::vec3(m_inputProcessor.getMouseDeltaY() * sensitivity, m_inputProcessor.getMouseDeltaX() * sensitivity, 0.0f));
+            updateCamera(move, glm::vec3(-m_inputProcessor.getMouseDeltaY() * sensitivity, -m_inputProcessor.getMouseDeltaX() * sensitivity, 0.0f));
             int scrWidth, scrHeight;
             glfwGetWindowSize(window, &scrWidth, &scrHeight);
             glfwSetCursorPos(window, scrWidth / 2, scrHeight / 2);
@@ -287,8 +325,13 @@ public:
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
 
-        if (m_inputProcessor.queryKey(window, GLFW_KEY_Y))
-            m_gameObjects[0] -> getComponent<physics::RigidBody>() -> Impulse(glm::vec3(9.81, 2 * 9.81f, 0) * (float)deltaTime);
+        if (m_inputProcessor.queryKey(window, GLFW_KEY_Y)){
+            m_gameObjects[1] -> getComponent<physics::RigidBody>() -> Impulse(glm::vec3(9.81, 2 * 9.81f, 0) * (float)deltaTime);
+            for (int i = 8; i < 58; i++)
+            {
+                 m_gameObjects[i] -> getComponent<physics::RigidBody>() -> Impulse(glm::vec3(9.81, 2 * 9.81f, 0) * (float)deltaTime);
+            }
+        }
 
         
 
