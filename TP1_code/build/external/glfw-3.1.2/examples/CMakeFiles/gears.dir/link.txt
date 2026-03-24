@@ -1,1 +1,0 @@
-/usr/bin/gcc -g -rdynamic -Wl,--dependency-file=CMakeFiles/gears.dir/link.d CMakeFiles/gears.dir/gears.c.o -o gears  ../src/libglfw3.a -Wl,-Bstatic -lrt -Wl,-Bdynamic -lm -lX11 -lXrandr -lXinerama -lXi -lXxf86vm -lXcursor -lGL -ldl

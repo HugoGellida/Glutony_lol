@@ -5,6 +5,7 @@ project(Tutorials LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenGL REQUIRED)
 
@@ -86,7 +87,10 @@ add_executable(TP1
     common/gameobject/Transform.cpp
     common/physics/PhysicEngine.cpp
     common/physics/RigidBody.cpp
+    common/platform/NativeFileDialog.cpp
     common/ui/EditorUi.cpp
+    common/ui/EditorUiDocuments.cpp
+    common/ui/EditorUiPreviewDocument.cpp
     external/RmlUi/Backends/RmlUi_Platform_GLFW.cpp
     external/RmlUi/Backends/RmlUi_Renderer_GL3.cpp
     common/stb_image_impl.cpp
@@ -106,6 +110,10 @@ endif()
 target_link_libraries(TP1 PRIVATE
     ${ALL_LIBS}
 )
+
+if(WIN32)
+    target_link_libraries(TP1 PRIVATE Comdlg32)
+endif()
 
 # Comme tu utilises GLEW, on dit au renderer GL3 de RmlUi d'utiliser GLEW
 target_compile_definitions(TP1 PRIVATE

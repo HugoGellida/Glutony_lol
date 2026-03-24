@@ -1,3 +1,5 @@
+rm -rf ./TP1_code/build/*
+
 cmake -S ./TP1_code -B ./TP1_code/build \
 	-DCMAKE_BUILD_TYPE=Debug \
 	-DGLFW_BUILD_EXAMPLES=OFF \

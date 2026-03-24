@@ -1,1 +1,0 @@
-/usr/bin/gcc -g -rdynamic -Wl,--dependency-file=CMakeFiles/sharing.dir/link.d CMakeFiles/sharing.dir/sharing.c.o -o sharing  ../src/libglfw3.a -Wl,-Bstatic -lrt -Wl,-Bdynamic -lm -lX11 -lXrandr -lXinerama -lXi -lXxf86vm -lXcursor -lGL -ldl

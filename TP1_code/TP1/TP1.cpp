@@ -40,6 +40,8 @@ void setup_glfw_callbacks(GLFWwindow* glfwWindow);
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 bool g_editorModeEnabled = true;
+bool g_uiBuilderEnabled = true;
+bool g_uiBuilderShowStylePanel = false;
 
 // camera
 glm::vec3 camera_position   = glm::vec3(0.0f, 0.0f,  3.0f);
@@ -394,8 +396,27 @@ int main( void )
 
         if (g_editorModeEnabled)
         {
+            g_editorUi.setUiBuilderEnabled(g_uiBuilderEnabled);
+            g_editorUi.setUiBuilderShowStylePanel(g_uiBuilderShowStylePanel);
             g_editorUi.syncToWindow(g_windowFramebufferWidth, g_windowFramebufferHeight);
             g_editorUi.update();
+
+            if (g_uiBuilderEnabled)
+            {
+                glDisable(GL_SCISSOR_TEST);
+                glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+                GLint polygonMode[2] = { GL_FILL, GL_FILL };
+                glGetIntegerv(GL_POLYGON_MODE, polygonMode);
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+                g_rmlRenderInterface->BeginFrame();
+                g_editorUi.render();
+                g_rmlRenderInterface->EndFrame();
+                glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(polygonMode[0]));
+                glfwSwapBuffers(window);
+                continue;
+            }
 
             UiRect viewportRect = g_editorUi.getViewportRect();
             double cursorX = 0.0;
