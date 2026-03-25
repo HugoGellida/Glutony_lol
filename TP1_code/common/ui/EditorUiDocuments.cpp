@@ -614,7 +614,7 @@ const char* kEditorLayoutDocument = R"RML(
         #viewport_panel {
             position: absolute;
             overflow: hidden;
-            background-color: #10151a;
+            background-color: transparent;
         }
 
         #bottom_panel {
@@ -634,6 +634,13 @@ const char* kEditorLayoutDocument = R"RML(
                         <div id="builder_menu_new" class="builder_menu_item">New</div>
                         <div id="builder_menu_open" class="builder_menu_item">Open</div>
                         <div id="builder_menu_save_as" class="builder_menu_item">Save As</div>
+                        <div id="builder_menu_back_to_editor" class="builder_menu_item">Back to editor</div>
+                    </div>
+                </div>
+                <div id="builder_menu_window" class="builder_menu">
+                    <div id="builder_menu_window_button" class="builder_menu_button">Window</div>
+                    <div id="builder_menu_window_dropdown" class="builder_menu_dropdown">
+                        <div id="builder_menu_open_ui_builder" class="builder_menu_item">UI Builder</div>
                     </div>
                 </div>
             </div>

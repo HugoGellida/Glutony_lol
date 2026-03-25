@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include <common/ui/UIRenderer.hpp>
 #include <common/ui/widget/Widget.hpp>
 
 struct UiRect
@@ -49,6 +50,7 @@ public:
 
     void syncToWindow(int width, int height);
     void setUiBuilderEnabled(bool enabled);
+    bool isUiBuilderEnabled() const;
     void setUiBuilderShowStylePanel(bool showStylePanel);
     void update();
     void render();
@@ -177,11 +179,14 @@ private:
     Rml::Context* m_context = nullptr;
     Rml::ElementDocument* m_document = nullptr;
     Rml::ElementDocument* m_previewDocument = nullptr;
+    UIRenderer m_previewRenderer;
 
     Rml::Element* m_root = nullptr;
     Rml::Element* m_builderHeader = nullptr;
     Rml::Element* m_builderMenuFileButton = nullptr;
     Rml::Element* m_builderMenuFileDropdown = nullptr;
+    Rml::Element* m_builderMenuWindowButton = nullptr;
+    Rml::Element* m_builderMenuWindowDropdown = nullptr;
     Rml::Element* m_leftPanel = nullptr;
     Rml::Element* m_leftTopPanel = nullptr;
     Rml::Element* m_leftHorizontalSplitter = nullptr;
@@ -205,6 +210,7 @@ private:
     bool m_uiBuilderEnabled = false;
     bool m_uiBuilderShowStylePanel = false;
     bool m_isFileMenuOpen = false;
+    bool m_isWindowMenuOpen = false;
     int m_selectedHierarchyNodeId = 1;
     int m_nextHierarchyNodeId = 2;
     DragPayloadKind m_dragPayloadKind = DragPayloadKind::None;

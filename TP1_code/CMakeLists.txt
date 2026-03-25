@@ -91,6 +91,7 @@ add_executable(TP1
     common/ui/EditorUi.cpp
     common/ui/EditorUiDocuments.cpp
     common/ui/EditorUiPreviewDocument.cpp
+    common/ui/UIRenderer.cpp
     common/ui/widget/Widget.cpp
     common/ui/widget/WidgetRegistry.cpp
     common/ui/widget/ConstrainedBoxWidget.cpp

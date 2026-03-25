@@ -66,6 +66,10 @@ bool EditorUiController::initialize(Rml::Context* context)
         return false;
 
     m_context = context;
+    const Rml::Vector2i contextDimensions = m_context->GetDimensions();
+    m_windowWidth = std::max(contextDimensions.x, 1);
+    m_windowHeight = std::max(contextDimensions.y, 1);
+    m_previewRenderer.initialize(context);
     m_document = m_context->LoadDocumentFromMemory(getEditorLayoutDocument(), "[editor-layout]");
     if (m_document == nullptr)
         return false;
@@ -74,6 +78,8 @@ bool EditorUiController::initialize(Rml::Context* context)
     m_builderHeader = m_document->GetElementById("builder_header");
     m_builderMenuFileButton = m_document->GetElementById("builder_menu_file_button");
     m_builderMenuFileDropdown = m_document->GetElementById("builder_menu_file_dropdown");
+    m_builderMenuWindowButton = m_document->GetElementById("builder_menu_window_button");
+    m_builderMenuWindowDropdown = m_document->GetElementById("builder_menu_window_dropdown");
     m_leftPanel = m_document->GetElementById("left_panel");
     m_leftSplitter = m_document->GetElementById("left_splitter");
     m_centerPanel = m_document->GetElementById("center_panel");
@@ -87,6 +93,8 @@ bool EditorUiController::initialize(Rml::Context* context)
         m_builderHeader == nullptr ||
         m_builderMenuFileButton == nullptr ||
         m_builderMenuFileDropdown == nullptr ||
+        m_builderMenuWindowButton == nullptr ||
+        m_builderMenuWindowDropdown == nullptr ||
         m_leftPanel == nullptr ||
         m_leftSplitter == nullptr ||
         m_centerPanel == nullptr ||
@@ -112,6 +120,7 @@ bool EditorUiController::initialize(Rml::Context* context)
 void EditorUiController::shutdown()
 {
     unloadPreviewDocument();
+    m_previewRenderer.shutdown();
     detachListeners();
 
     if (m_context != nullptr && m_document != nullptr)
@@ -123,6 +132,8 @@ void EditorUiController::shutdown()
     m_builderHeader = nullptr;
     m_builderMenuFileButton = nullptr;
     m_builderMenuFileDropdown = nullptr;
+    m_builderMenuWindowButton = nullptr;
+    m_builderMenuWindowDropdown = nullptr;
     m_leftPanel = nullptr;
     m_leftTopPanel = nullptr;
     m_leftHorizontalSplitter = nullptr;
@@ -141,6 +152,7 @@ void EditorUiController::shutdown()
     m_bottomPanel = nullptr;
     m_dragTarget = DragTarget::None;
     m_isFileMenuOpen = false;
+    m_isWindowMenuOpen = false;
     m_leftPanelRect = {};
     m_viewportRect = {};
     m_centerRect = {};
@@ -165,11 +177,21 @@ void EditorUiController::setUiBuilderEnabled(bool enabled)
     if (!m_uiBuilderEnabled)
     {
         m_isFileMenuOpen = false;
+        m_isWindowMenuOpen = false;
         unloadPreviewDocument();
+    }
+    else
+    {
+        m_isWindowMenuOpen = false;
     }
     refreshModePresentation();
     if (m_uiBuilderEnabled)
         reloadPreviewDocument();
+}
+
+bool EditorUiController::isUiBuilderEnabled() const
+{
+    return m_uiBuilderEnabled;
 }
 
 void EditorUiController::setUiBuilderShowStylePanel(bool showStylePanel)
@@ -292,8 +314,51 @@ void EditorUiController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Click)
     {
-        if (!m_uiBuilderEnabled)
+        if (elementId == "builder_menu_file_button")
+        {
+            m_isFileMenuOpen = !m_isFileMenuOpen;
+            m_isWindowMenuOpen = false;
+            refreshBuilderMenuState();
+            event.StopPropagation();
             return;
+        }
+
+        if (elementId == "builder_menu_window_button")
+        {
+            m_isWindowMenuOpen = !m_isWindowMenuOpen;
+            m_isFileMenuOpen = false;
+            refreshBuilderMenuState();
+            event.StopPropagation();
+            return;
+        }
+
+        if (elementId == "builder_menu_back_to_editor")
+        {
+            m_isFileMenuOpen = false;
+            m_isWindowMenuOpen = false;
+            refreshBuilderMenuState();
+            setUiBuilderEnabled(false);
+            event.StopPropagation();
+            return;
+        }
+
+        if (elementId == "builder_menu_open_ui_builder")
+        {
+            m_isWindowMenuOpen = false;
+            m_isFileMenuOpen = false;
+            refreshBuilderMenuState();
+            setUiBuilderEnabled(true);
+            event.StopPropagation();
+            return;
+        }
+
+        if (!m_uiBuilderEnabled)
+        {
+            m_isFileMenuOpen = false;
+            m_isWindowMenuOpen = false;
+            refreshBuilderMenuState();
+            return;
+        }
 
         if (elementId == "hierarchy_context_move_up")
         {
@@ -367,14 +432,6 @@ void EditorUiController::ProcessEvent(Rml::Event& event)
             m_selectedHierarchyNodeId = *hierarchyNodeId;
             closeHierarchyContextMenu();
             requestHierarchyRefresh();
-            event.StopPropagation();
-            return;
-        }
-
-        if (elementId == "builder_menu_file_button")
-        {
-            m_isFileMenuOpen = !m_isFileMenuOpen;
-            refreshBuilderMenuState();
             event.StopPropagation();
             return;
         }
@@ -479,6 +536,7 @@ void EditorUiController::ProcessEvent(Rml::Event& event)
 
         closeHierarchyContextMenu();
         m_isFileMenuOpen = false;
+        m_isWindowMenuOpen = false;
         refreshBuilderMenuState();
         return;
     }
@@ -817,7 +875,7 @@ void EditorUiController::applyLayout()
 
     const int totalWidth = std::max(m_windowWidth, 1);
     const int totalHeight = std::max(m_windowHeight, 1);
-    const int contentTop = m_uiBuilderEnabled ? BuilderHeaderHeight : 0;
+    const int contentTop = BuilderHeaderHeight;
     const int contentHeight = std::max(1, totalHeight - contentTop);
 
     int leftWidth = static_cast<int>(std::lround(totalWidth * m_leftRatio));
@@ -851,7 +909,7 @@ void EditorUiController::applyLayout()
     m_root->SetProperty("width", pixels(totalWidth));
     m_root->SetProperty("height", pixels(totalHeight));
 
-    m_builderHeader->SetProperty("display", m_uiBuilderEnabled ? "block" : "none");
+    m_builderHeader->SetProperty("display", "block");
     m_builderHeader->SetProperty("left", pixels(0));
     m_builderHeader->SetProperty("top", pixels(0));
     m_builderHeader->SetProperty("width", pixels(totalWidth));
@@ -1122,11 +1180,18 @@ void EditorUiController::refreshModePresentation()
 
 void EditorUiController::refreshBuilderMenuState()
 {
-    if (m_builderHeader == nullptr || m_builderMenuFileDropdown == nullptr)
+    if (m_builderHeader == nullptr ||
+        m_builderMenuFileButton == nullptr ||
+        m_builderMenuFileDropdown == nullptr ||
+        m_builderMenuWindowButton == nullptr ||
+        m_builderMenuWindowDropdown == nullptr)
         return;
 
-    m_builderHeader->SetProperty("display", m_uiBuilderEnabled ? "block" : "none");
+    m_builderHeader->SetProperty("display", "block");
+    m_builderMenuFileButton->SetProperty("display", m_uiBuilderEnabled ? "block" : "none");
     m_builderMenuFileDropdown->SetProperty("display", (m_uiBuilderEnabled && m_isFileMenuOpen) ? "block" : "none");
+    m_builderMenuWindowButton->SetProperty("display", m_uiBuilderEnabled ? "none" : "block");
+    m_builderMenuWindowDropdown->SetProperty("display", (!m_uiBuilderEnabled && m_isWindowMenuOpen) ? "block" : "none");
 }
 
 void EditorUiController::refreshPreviewZoomLabel()
@@ -1952,7 +2017,13 @@ void EditorUiController::reloadPreviewDocument()
         return;
 
     const std::string sourceUrl = m_previewDocumentPath.empty() ? "[ui-builder-preview]" : m_previewDocumentPath;
-    m_previewDocument = m_context->LoadDocumentFromMemory(m_previewDocumentSource, sourceUrl);
+    if (!m_previewRenderer.loadFromMemory(m_previewDocumentSource, sourceUrl))
+    {
+        m_previewDocument = nullptr;
+        return;
+    }
+
+    m_previewDocument = m_previewRenderer.document();
     if (m_previewDocument == nullptr)
     {
         std::cerr << "Failed to load preview RML document." << std::endl;
@@ -1984,8 +2055,7 @@ void EditorUiController::unloadPreviewDocument()
         m_previewDocument->RemoveEventListener(Rml::EventId::Mouseup, this);
     }
 
-    if (m_context != nullptr && m_previewDocument != nullptr)
-        m_context->UnloadDocument(m_previewDocument);
+    m_previewRenderer.unload();
 
     m_previewDocument = nullptr;
 }
@@ -2104,24 +2174,32 @@ void EditorUiController::updatePreviewDocumentPlacement()
 
 bool EditorUiController::loadPreviewDocumentFromFile(const std::string& filePath)
 {
-    std::ifstream stream(filePath);
-    if (!stream.is_open())
-    {
-        std::cerr << "Unable to open UI document: " << filePath << std::endl;
-        return false;
-    }
-
-    std::ostringstream buffer;
-    buffer << stream.rdbuf();
-
     const std::string previousSource = m_previewDocumentSource;
     const std::string previousPath = m_previewDocumentPath;
 
-    m_previewDocumentSource = buffer.str();
-    m_previewDocumentPath = filePath;
+    if (!m_previewRenderer.loadFromFile(filePath))
+        return false;
+
+    m_previewDocumentSource = m_previewRenderer.source();
+    m_previewDocumentPath = m_previewRenderer.sourcePath();
+    m_previewDocument = m_previewRenderer.document();
     m_previewDrivenByHierarchy = false;
     m_previewRefreshPending = false;
-    reloadPreviewDocument();
+
+    if (m_previewDocument != nullptr)
+    {
+        m_previewDocument->SetProperty("display", "none");
+        m_previewDocument->AddEventListener(Rml::EventId::Click, this);
+        m_previewDocument->AddEventListener(Rml::EventId::Mousedown, this);
+        m_previewDocument->AddEventListener(Rml::EventId::Mousemove, this);
+        m_previewDocument->AddEventListener(Rml::EventId::Mousescroll, this);
+        m_previewDocument->AddEventListener(Rml::EventId::Mouseup, this);
+        m_previewDocument->PullToFront();
+        m_previewDocument->UpdateDocument();
+        if (m_previewCanvasRect.isValid())
+            fitPreviewZoom();
+        updatePreviewDocumentPlacement();
+    }
 
     if (m_uiBuilderEnabled && m_previewDocument == nullptr)
     {
@@ -2206,5 +2284,7 @@ Rml::String EditorUiController::pixels(int value)
 
 int EditorUiController::clampInt(int value, int minValue, int maxValue)
 {
+    if (maxValue < minValue)
+        maxValue = minValue;
     return std::max(minValue, std::min(value, maxValue));
 }

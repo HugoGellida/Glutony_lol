@@ -40,7 +40,7 @@ void setup_glfw_callbacks(GLFWwindow* glfwWindow);
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 bool g_editorModeEnabled = true;
-bool g_uiBuilderEnabled = true;
+bool g_uiBuilderEnabled = false;
 bool g_uiBuilderShowStylePanel = false;
 
 // camera
@@ -355,6 +355,10 @@ int main( void )
             glfwTerminate();
             return -1;
         }
+
+        g_editorUi.setUiBuilderEnabled(g_uiBuilderEnabled);
+
+        scene->setUiContext(g_rmlContext);
     }
     
 
@@ -396,12 +400,13 @@ int main( void )
 
         if (g_editorModeEnabled)
         {
-            g_editorUi.setUiBuilderEnabled(g_uiBuilderEnabled);
             g_editorUi.setUiBuilderShowStylePanel(g_uiBuilderShowStylePanel);
             g_editorUi.syncToWindow(g_windowFramebufferWidth, g_windowFramebufferHeight);
             g_editorUi.update();
 
-            if (g_uiBuilderEnabled)
+            g_uiBuilderEnabled = g_editorUi.isUiBuilderEnabled();
+
+            if (g_editorUi.isUiBuilderEnabled())
             {
                 glDisable(GL_SCISSOR_TEST);
                 glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
@@ -503,6 +508,17 @@ int main( void )
             scene -> update(deltaTime, window);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             scene -> renderScene();
+
+            if (scene->hasUiRenderers())
+            {
+                scene->setUiViewportRect(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
+                g_rmlContext->Update();
+                g_rmlRenderInterface->BeginFrame();
+                scene->renderUi();
+                g_rmlContext->Render();
+                g_rmlRenderInterface->EndFrame();
+            }
+
             glfwSwapBuffers(window);
         }
 

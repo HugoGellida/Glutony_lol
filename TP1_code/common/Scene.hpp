@@ -15,6 +15,10 @@
 #include "physics/PhysicEngine.hpp"
 #include "physics/BoxCollider.hpp"
 #include "physics/PlaneCollider.hpp"
+#include "ui/UIRenderer.hpp"
+
+#include <memory>
+#include <vector>
 
 
 class Scene
@@ -38,6 +42,18 @@ private:
     float m_orbitSpeed = 20.0f;
 
     float m_anim_angle = 0.0f;
+    Rml::Context* m_uiContext = nullptr;
+    int m_uiViewportX = 0;
+    int m_uiViewportY = 0;
+    int m_uiViewportWidth = 0;
+    int m_uiViewportHeight = 0;
+    std::vector<std::unique_ptr<UIRenderer>> m_uiRenderers;
+
+    void updateUiRenderers(double deltaTime)
+    {
+        for (const std::unique_ptr<UIRenderer>& renderer : m_uiRenderers)
+            renderer->update(deltaTime);
+    }
 
 public:
     Scene()
@@ -225,7 +241,10 @@ public:
             glfwSetWindowShouldClose(window, true);
         
         if (!inputEnabled)
+        {
+            updateUiRenderers(deltaTime);
             return;
+        }
 
         if (m_fpsControl)
         {
@@ -349,6 +368,8 @@ public:
         m_gameObjects[0] -> transform.setRotation(glm::vec3(0.0f, m_anim_angle + 30.0f, 20.0f));
         m_gameObjects[1] -> transform.setRotation(glm::vec3(10.0f, -m_anim_angle, 40.0f)); */
 
+        updateUiRenderers(deltaTime);
+
     }
 
     void renderScene() const
@@ -357,6 +378,60 @@ public:
         {
             m_gameObjects[i] -> getComponent<MeshRenderer>()->run(); 
             m_gameObjects[i] -> getComponent<MeshRenderer>()->render(m_camera, m_gameObjects[i] -> transform);
+        }
+    }
+
+    void setUiContext(Rml::Context* context)
+    {
+        m_uiContext = context;
+        for (const std::unique_ptr<UIRenderer>& renderer : m_uiRenderers)
+            renderer->initialize(m_uiContext);
+    }
+
+    UIRenderer* pushUiRenderer(std::unique_ptr<UIRenderer> renderer)
+    {
+        if (!renderer)
+            return nullptr;
+
+        renderer->initialize(m_uiContext);
+        m_uiRenderers.push_back(std::move(renderer));
+        return m_uiRenderers.back().get();
+    }
+
+    void clearUiRenderers()
+    {
+        for (const std::unique_ptr<UIRenderer>& renderer : m_uiRenderers)
+            renderer->shutdown();
+        m_uiRenderers.clear();
+    }
+
+    bool hasUiRenderers() const
+    {
+        return !m_uiRenderers.empty();
+    }
+
+    void setUiViewportRect(int x, int y, int width, int height)
+    {
+        m_uiViewportX = x;
+        m_uiViewportY = y;
+        m_uiViewportWidth = width;
+        m_uiViewportHeight = height;
+    }
+
+    void renderUi()
+    {
+        if (m_uiViewportWidth <= 0 || m_uiViewportHeight <= 0)
+        {
+            for (const std::unique_ptr<UIRenderer>& renderer : m_uiRenderers)
+                renderer->setVisible(false);
+            return;
+        }
+
+        for (size_t index = 0; index < m_uiRenderers.size(); ++index)
+        {
+            UIRenderer& renderer = *m_uiRenderers[index];
+            renderer.layoutFullscreen(m_uiViewportX, m_uiViewportY, m_uiViewportWidth, m_uiViewportHeight, static_cast<int>(index));
+            renderer.pullToFront();
         }
     }
 
@@ -390,6 +465,7 @@ public:
 
     ~Scene()
     {
+        clearUiRenderers();
         delete[] m_gameObjects;
         delete m_materials;
         delete m_shaders;
