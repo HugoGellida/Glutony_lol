@@ -158,45 +158,92 @@ const char* kEditorLayoutDocument = R"RML(
         }
 
         .placeholder_block {
+            display: block;
+            width: 100%;
             margin-bottom: 12px;
             padding: 10px 12px;
             background-color: #1e252c;
             border: 1px #2b3740;
+            box-sizing: border-box;
         }
 
         .placeholder_title {
+            display: block;
+            width: 100%;
             margin-bottom: 6px;
             font-size: 13px;
             color: #d7e0e8;
+            line-height: 16px;
+            white-space: normal;
+            box-sizing: border-box;
         }
 
         .placeholder_text {
+            display: block;
+            width: 100%;
             font-size: 12px;
             color: #7f919f;
+            line-height: 16px;
+            white-space: normal;
+            box-sizing: border-box;
         }
 
         .inspector_panel_body {
             padding: 10px;
+            scrollbar-margin: 12px;
             overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        .inspector_panel_body scrollbarvertical {
+            width: 12px;
+        }
+
+        .inspector_panel_body scrollbarvertical slidertrack {
+            background-color: #141b21;
+            border-left: 1px #25323b;
+        }
+
+        .inspector_panel_body scrollbarvertical sliderbar {
+            width: 12px;
+            min-height: 28px;
+            margin-left: 1px;
+            background-color: #4a6273;
+        }
+
+        .inspector_panel_body scrollbarvertical sliderbar:hover {
+            background-color: #6f8a9c;
         }
 
         .inspector_summary {
+            display: block;
+            width: 100%;
             margin-bottom: 10px;
             padding: 10px 12px;
             background-color: #1e252c;
             border: 1px #2b3740;
+            box-sizing: border-box;
         }
 
         .inspector_summary_title {
+            display: block;
+            width: 100%;
             margin-bottom: 4px;
             color: #d7e0e8;
             font-size: 13px;
+            line-height: 16px;
+            white-space: normal;
+            box-sizing: border-box;
         }
 
         .inspector_summary_text {
+            display: block;
+            width: 100%;
             color: #7f919f;
             font-size: 12px;
+            line-height: 16px;
             white-space: normal;
+            box-sizing: border-box;
         }
 
         .inspector_section,
@@ -235,6 +282,21 @@ const char* kEditorLayoutDocument = R"RML(
             border: 1px #33424d;
             box-sizing: border-box;
             font-size: 12px;
+        }
+
+        .inspector_field_input option {
+            background-color: #11181d;
+            color: #e3ebf2;
+        }
+
+        .inspector_field_input value,
+        .inspector_field_input selectbox,
+        .inspector_field_input selectbox option,
+        .inspector_field_input selectbox option:hover,
+        .inspector_field_input selectbox option:checked {
+            background-color: #11181d;
+            color: #e3ebf2;
+            border: 1px #33424d;
         }
 
         .inspector_foldout_header {
