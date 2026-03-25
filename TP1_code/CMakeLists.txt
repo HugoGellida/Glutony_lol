@@ -91,6 +91,15 @@ add_executable(TP1
     common/ui/EditorUi.cpp
     common/ui/EditorUiDocuments.cpp
     common/ui/EditorUiPreviewDocument.cpp
+    common/ui/widget/Widget.cpp
+    common/ui/widget/WidgetRegistry.cpp
+    common/ui/widget/ConstrainedBoxWidget.cpp
+    common/ui/widget/StackLayoutWidget.cpp
+    common/ui/widget/TextWidget.cpp
+    common/ui/widget/ImageWidget.cpp
+    common/ui/widget/ButtonWidget.cpp
+    common/ui/widget/SpacerWidget.cpp
+    common/ui/widget/ScrollRegionWidget.cpp
     external/RmlUi/Backends/RmlUi_Platform_GLFW.cpp
     external/RmlUi/Backends/RmlUi_Renderer_GL3.cpp
     common/stb_image_impl.cpp
