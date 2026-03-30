@@ -240,8 +240,6 @@ public:
             m_gameObjects[i] -> update(deltaTime);
         m_inputProcessor.update(window, inputEnabled && m_fpsControl, mouseAnchorX, mouseAnchorY);
         float sensitivity = 0.1f;
-        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-            glfwSetWindowShouldClose(window, true);
         
         if (!inputEnabled)
         {
