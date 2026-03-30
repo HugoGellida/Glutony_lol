@@ -73,8 +73,8 @@ namespace physics
             static const component_meta::ComponentDescriptor descriptor = []()
             {
                 component_meta::ComponentDescriptor value;
-                value.typeKey = "physics.rigidbody";
-                value.displayName = "RigidBody";
+                value.typeKey = "physics.planeCollider";
+                value.displayName = "Plane Collider";
                 value.version = 1;
                 value.factory = []() -> component::Component* {return new PlaneCollider();};
                 value.fields = {
@@ -121,6 +121,10 @@ namespace physics
             }();
             (void)registered;
             return descriptor;
+        }
+        const component_meta::ComponentDescriptor* getComponentDescriptor() const override
+        {
+            return &componentDescriptor();
         }
     };
 }
