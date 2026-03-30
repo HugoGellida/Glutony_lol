@@ -89,9 +89,13 @@ add_executable(TP1
     common/physics/RigidBody.cpp
     common/platform/NativeFileDialog.cpp
     common/ui/EditorUi.cpp
+    common/ui/EditorUiCommon.cpp
+    common/ui/EditorUiDispatcher.cpp
     common/ui/EditorUiDocuments.cpp
     common/ui/EditorUiPreviewDocument.cpp
+    common/ui/SceneEditorController.cpp
     common/ui/UIRenderer.cpp
+    common/ui/UiBuilderController.cpp
     common/ui/widget/Widget.cpp
     common/ui/widget/WidgetRegistry.cpp
     common/ui/widget/ConstrainedBoxWidget.cpp

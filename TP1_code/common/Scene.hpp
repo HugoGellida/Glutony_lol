@@ -286,7 +286,7 @@ public:
 
             if (a>0)
                 move = ((float)deltaTime) * (move / (float)a);
-            updateCamera(move, glm::vec3(m_inputProcessor.getMouseDeltaY() * sensitivity, m_inputProcessor.getMouseDeltaX() * sensitivity, 0.0f));
+            updateCamera(move, glm::vec3(-m_inputProcessor.getMouseDeltaY() * sensitivity, m_inputProcessor.getMouseDeltaX() * sensitivity, 0.0f));
             if (editorMode)
                 glfwSetCursorPos(window, mouseAnchorX, mouseAnchorY);
             else
