@@ -78,7 +78,6 @@ bool UiBuilderController::initialize(Rml::Context* context)
         return false;
 
     m_context = context;
-    m_uiBuilderEnabled = true;
     const Rml::Vector2i contextDimensions = m_context->GetDimensions();
     m_windowWidth = std::max(contextDimensions.x, 1);
     m_windowHeight = std::max(contextDimensions.y, 1);
@@ -141,7 +140,6 @@ void UiBuilderController::shutdown()
 
     m_document = nullptr;
     m_context = nullptr;
-    m_uiBuilderEnabled = false;
     m_root = nullptr;
     m_builderHeader = nullptr;
     m_builderMenuFileButton = nullptr;
@@ -197,32 +195,6 @@ void UiBuilderController::syncToWindow(int width, int height)
 {
     m_windowWidth = std::max(width, 1);
     m_windowHeight = std::max(height, 1);
-}
-
-void UiBuilderController::setUiBuilderEnabled(bool enabled)
-{
-    if (m_uiBuilderEnabled == enabled)
-        return;
-
-    m_uiBuilderEnabled = enabled;
-    if (!m_uiBuilderEnabled)
-    {
-        m_isFileMenuOpen = false;
-        m_isWindowMenuOpen = false;
-        unloadPreviewDocument();
-    }
-    else
-    {
-        m_isWindowMenuOpen = false;
-    }
-    refreshModePresentation();
-    if (m_uiBuilderEnabled)
-        reloadPreviewDocument();
-}
-
-bool UiBuilderController::isUiBuilderEnabled() const
-{
-    return m_uiBuilderEnabled;
 }
 
 void UiBuilderController::setUiBuilderShowStylePanel(bool showStylePanel)
@@ -320,9 +292,6 @@ void UiBuilderController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Change || eventId == Rml::EventId::Blur)
     {
-        if (!m_uiBuilderEnabled)
-            return;
-
         const auto inspectorField = parseInspectorFieldElementId(elementId);
         if (!inspectorField.has_value())
             return;
@@ -359,42 +328,14 @@ void UiBuilderController::ProcessEvent(Rml::Event& event)
             return;
         }
 
-        if (elementId == "builder_menu_window_button")
-        {
-            m_isWindowMenuOpen = !m_isWindowMenuOpen;
-            m_isFileMenuOpen = false;
-            refreshBuilderMenuState();
-            event.StopPropagation();
-            return;
-        }
-
         if (elementId == "builder_menu_back_to_editor")
         {
             m_isFileMenuOpen = false;
             m_isWindowMenuOpen = false;
             refreshBuilderMenuState();
-            setUiBuilderEnabled(false);
             if (m_modeChangeCallback)
                 m_modeChangeCallback(editor_ui::EditorMode::SceneEditor);
             event.StopPropagation();
-            return;
-        }
-
-        if (elementId == "builder_menu_open_ui_builder")
-        {
-            m_isWindowMenuOpen = false;
-            m_isFileMenuOpen = false;
-            refreshBuilderMenuState();
-            setUiBuilderEnabled(true);
-            event.StopPropagation();
-            return;
-        }
-
-        if (!m_uiBuilderEnabled)
-        {
-            m_isFileMenuOpen = false;
-            m_isWindowMenuOpen = false;
-            refreshBuilderMenuState();
             return;
         }
 
@@ -708,7 +649,7 @@ void UiBuilderController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Mousescroll)
     {
-        if (!m_uiBuilderEnabled || !m_previewPageRect.isValid())
+        if (!m_previewPageRect.isValid())
             return;
 
         if (!m_previewPageRect.contains(mouseX, mouseY))
@@ -785,14 +726,6 @@ void UiBuilderController::ProcessEvent(Rml::Event& event)
         {
             m_dragTarget = DragTarget::RightSplitter;
             event.StopPropagation();
-        }
-        else if (elementId == "horizontal_splitter")
-        {
-            if (!m_uiBuilderEnabled)
-            {
-                m_dragTarget = DragTarget::HorizontalSplitter;
-                event.StopPropagation();
-            }
         }
         return;
     }
@@ -958,8 +891,7 @@ void UiBuilderController::applyLayout()
     m_leftPanel->SetProperty("width", pixels(leftWidth));
     m_leftPanel->SetProperty("height", pixels(contentHeight));
 
-    if (m_uiBuilderEnabled &&
-        m_leftTopPanel != nullptr &&
+    if (m_leftTopPanel != nullptr &&
         m_leftHorizontalSplitter != nullptr &&
         m_leftBottomPanel != nullptr)
     {
@@ -1005,43 +937,14 @@ void UiBuilderController::applyLayout()
     m_rightPanel->SetProperty("width", pixels(rightWidth));
     m_rightPanel->SetProperty("height", pixels(contentHeight));
 
-    if (m_uiBuilderEnabled)
-    {
-        m_viewportPanel->SetProperty("display", "block");
-        m_viewportPanel->SetProperty("left", pixels(0));
-        m_viewportPanel->SetProperty("top", pixels(0));
-        m_viewportPanel->SetProperty("width", pixels(centerWidth));
-        m_viewportPanel->SetProperty("height", pixels(totalHeight));
-
-        m_horizontalSplitter->SetProperty("display", "none");
-        m_bottomPanel->SetProperty("display", "none");
-        return;
-    }
-
-    const int viewportHeight = clampInt(
-        static_cast<int>(std::lround(static_cast<float>(contentHeight) * m_viewportRatio)),
-        MinViewportHeight,
-        contentHeight - MinBottomHeight - SplitterThickness
-    );
-    const int bottomHeight = contentHeight - viewportHeight - SplitterThickness;
-
     m_viewportPanel->SetProperty("display", "block");
     m_viewportPanel->SetProperty("left", pixels(0));
     m_viewportPanel->SetProperty("top", pixels(0));
     m_viewportPanel->SetProperty("width", pixels(centerWidth));
-    m_viewportPanel->SetProperty("height", pixels(viewportHeight));
+    m_viewportPanel->SetProperty("height", pixels(contentHeight));
 
-    m_horizontalSplitter->SetProperty("display", "block");
-    m_horizontalSplitter->SetProperty("left", pixels(0));
-    m_horizontalSplitter->SetProperty("top", pixels(viewportHeight));
-    m_horizontalSplitter->SetProperty("width", pixels(centerWidth));
-    m_horizontalSplitter->SetProperty("height", pixels(SplitterThickness));
-
-    m_bottomPanel->SetProperty("display", "block");
-    m_bottomPanel->SetProperty("left", pixels(0));
-    m_bottomPanel->SetProperty("top", pixels(viewportHeight + SplitterThickness));
-    m_bottomPanel->SetProperty("width", pixels(centerWidth));
-    m_bottomPanel->SetProperty("height", pixels(bottomHeight));
+    m_horizontalSplitter->SetProperty("display", "none");
+    m_bottomPanel->SetProperty("display", "none");
 }
 
 void UiBuilderController::refreshCachedRects()
@@ -1049,49 +952,30 @@ void UiBuilderController::refreshCachedRects()
     if (m_viewportPanel == nullptr || m_centerPanel == nullptr)
         return;
 
-    if (m_uiBuilderEnabled)
-    {
-        m_leftPanelRect.x = static_cast<int>(std::lround(m_leftPanel->GetAbsoluteLeft() + m_leftPanel->GetClientLeft()));
-        m_leftPanelRect.y = static_cast<int>(std::lround(m_leftPanel->GetAbsoluteTop() + m_leftPanel->GetClientTop()));
-        m_leftPanelRect.width = static_cast<int>(std::lround(m_leftPanel->GetClientWidth()));
-        m_leftPanelRect.height = static_cast<int>(std::lround(m_leftPanel->GetClientHeight()));
-        m_viewportRect = {};
-        m_centerRect.x = static_cast<int>(std::lround(m_centerPanel->GetAbsoluteLeft() + m_centerPanel->GetClientLeft()));
-        m_centerRect.y = static_cast<int>(std::lround(m_centerPanel->GetAbsoluteTop() + m_centerPanel->GetClientTop()));
-        m_centerRect.width = static_cast<int>(std::lround(m_centerPanel->GetClientWidth()));
-        m_centerRect.height = static_cast<int>(std::lround(m_centerPanel->GetClientHeight()));
-        if (m_previewCanvas != nullptr)
-        {
-            m_previewCanvasRect.x = static_cast<int>(std::lround(m_previewCanvas->GetAbsoluteLeft() + m_previewCanvas->GetClientLeft()));
-            m_previewCanvasRect.y = static_cast<int>(std::lround(m_previewCanvas->GetAbsoluteTop() + m_previewCanvas->GetClientTop()));
-            m_previewCanvasRect.width = static_cast<int>(std::lround(m_previewCanvas->GetClientWidth()));
-            m_previewCanvasRect.height = static_cast<int>(std::lround(m_previewCanvas->GetClientHeight()));
-        }
-        else
-        {
-            m_previewCanvasRect = {};
-        }
-        m_previewPageRect = {};
-        m_previewWindowRect = {};
-        m_previewHostRect = {};
-        updatePreviewDocumentPlacement();
-        return;
-    }
-
-    m_leftPanelRect = {};
-    m_viewportRect.x = static_cast<int>(std::lround(m_viewportPanel->GetAbsoluteLeft() + m_viewportPanel->GetClientLeft()));
-    m_viewportRect.y = static_cast<int>(std::lround(m_viewportPanel->GetAbsoluteTop() + m_viewportPanel->GetClientTop()));
-    m_viewportRect.width = static_cast<int>(std::lround(m_viewportPanel->GetClientWidth()));
-    m_viewportRect.height = static_cast<int>(std::lround(m_viewportPanel->GetClientHeight()));
-
+    m_leftPanelRect.x = static_cast<int>(std::lround(m_leftPanel->GetAbsoluteLeft() + m_leftPanel->GetClientLeft()));
+    m_leftPanelRect.y = static_cast<int>(std::lround(m_leftPanel->GetAbsoluteTop() + m_leftPanel->GetClientTop()));
+    m_leftPanelRect.width = static_cast<int>(std::lround(m_leftPanel->GetClientWidth()));
+    m_leftPanelRect.height = static_cast<int>(std::lround(m_leftPanel->GetClientHeight()));
+    m_viewportRect = {};
     m_centerRect.x = static_cast<int>(std::lround(m_centerPanel->GetAbsoluteLeft() + m_centerPanel->GetClientLeft()));
     m_centerRect.y = static_cast<int>(std::lround(m_centerPanel->GetAbsoluteTop() + m_centerPanel->GetClientTop()));
     m_centerRect.width = static_cast<int>(std::lround(m_centerPanel->GetClientWidth()));
     m_centerRect.height = static_cast<int>(std::lround(m_centerPanel->GetClientHeight()));
-    m_previewCanvasRect = {};
+    if (m_previewCanvas != nullptr)
+    {
+        m_previewCanvasRect.x = static_cast<int>(std::lround(m_previewCanvas->GetAbsoluteLeft() + m_previewCanvas->GetClientLeft()));
+        m_previewCanvasRect.y = static_cast<int>(std::lround(m_previewCanvas->GetAbsoluteTop() + m_previewCanvas->GetClientTop()));
+        m_previewCanvasRect.width = static_cast<int>(std::lround(m_previewCanvas->GetClientWidth()));
+        m_previewCanvasRect.height = static_cast<int>(std::lround(m_previewCanvas->GetClientHeight()));
+    }
+    else
+    {
+        m_previewCanvasRect = {};
+    }
     m_previewPageRect = {};
     m_previewWindowRect = {};
     m_previewHostRect = {};
+    updatePreviewDocumentPlacement();
 }
 
 void UiBuilderController::refreshModePresentation()
@@ -1103,55 +987,8 @@ void UiBuilderController::refreshModePresentation()
         m_builderHeader == nullptr)
         return;
 
-    const char* leftTitle = "Scene";
-    const char* leftBody = "Scene hierarchy and scene-side tools will live here.";
-    const char* rightTitle = "Inspector";
-    const char* rightBody = "Selection details and editable properties will appear here.";
-    const char* centerMarkup = "";
-    const char* bottomMarkup =
-        R"RML(<div class='panel_shell'>
-    <div class='panel_header'>Bottom Panel</div>
-    <div class='panel_body'>
-        <div class='placeholder_block'>
-            <div class='placeholder_title'>Logs / Assets / Timeline</div>
-            <div class='placeholder_text'>This region stays available for the classic editor layout.</div>
-        </div>
-    </div>
-</div>)RML";
-
-    if (m_uiBuilderEnabled)
-    {
-        rightTitle = "Inspector";
-        rightBody = "The selected UI element will expose its editable properties here.";
-        centerMarkup =
-            R"RML(<div class='preview_shell'>
-    <div class='preview_toolbar'>
-        <div class='preview_toolbar_group'>
-            <div id='preview_zoom_out' class='preview_toolbar_button'>-</div>
-            <div id='preview_zoom_label' class='preview_zoom_label'>100%</div>
-            <div id='preview_zoom_in' class='preview_toolbar_button'>+</div>
-        </div>
-        <div class='preview_toolbar_group'>
-            <div id='preview_mode_toggle' class='preview_toolbar_button'>Render</div>
-            <div id='preview_zoom_fit' class='preview_toolbar_button'>Fit</div>
-        </div>
-    </div>
-    <div id='preview_canvas' class='preview_canvas'>
-        <div id='preview_window' class='preview_window'>
-            <div id='preview_host' class='preview_host'></div>
-            <div id='preview_resize_right' class='preview_resize_handle preview_resize_right'></div>
-            <div id='preview_resize_bottom' class='preview_resize_handle preview_resize_bottom'></div>
-            <div id='preview_resize_corner' class='preview_resize_handle preview_resize_corner'></div>
-        </div>
-    </div>
-</div>)RML";
-        bottomMarkup = "";
-    }
-
-    if (m_uiBuilderEnabled)
-    {
-        m_leftPanel->SetInnerRML(
-            R"RML(<div id='left_top_panel' class='panel panel_nested'>
+    m_leftPanel->SetInnerRML(
+        R"RML(<div id='left_top_panel' class='panel panel_nested'>
     <div class='panel_shell'>
         <div class='panel_header'>Hierarchy</div>
         <div class='panel_body'>
@@ -1174,32 +1011,36 @@ void UiBuilderController::refreshModePresentation()
         </div>
     </div>
 </div>)RML"
-        );
-    }
-    else
-    {
-        m_leftPanel->SetInnerRML(
-            "<div class='panel_shell'><div class='panel_header'>" +
-            Rml::String(leftTitle) +
-            "</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>" +
-            Rml::String(leftTitle) +
-            " panel</div><div class='placeholder_text'>" +
-            Rml::String(leftBody) +
-            "</div></div></div></div>"
-        );
-    }
-
-    m_rightPanel->SetInnerRML(
-        "<div class='panel_shell'><div class='panel_header'>" +
-        Rml::String(rightTitle) +
-        "</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>" +
-        Rml::String(rightTitle) +
-        " panel</div><div class='placeholder_text'>" +
-        Rml::String(rightBody) +
-        "</div></div></div></div>"
     );
 
-    m_viewportPanel->SetInnerRML(centerMarkup);
+    m_rightPanel->SetInnerRML(
+        R"RML(<div class='panel_shell'><div class='panel_header'>Inspector</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>Inspector panel</div><div class='placeholder_text'>The selected UI element will expose its editable properties here.</div></div></div></div>)RML"
+    );
+
+    m_viewportPanel->SetInnerRML(
+        R"RML(<div class='preview_shell'>
+    <div class='preview_toolbar'>
+        <div class='preview_toolbar_group'>
+            <div id='preview_zoom_out' class='preview_toolbar_button'>-</div>
+            <div id='preview_zoom_label' class='preview_zoom_label'>100%</div>
+            <div id='preview_zoom_in' class='preview_toolbar_button'>+</div>
+        </div>
+        <div class='preview_toolbar_group'>
+            <div id='preview_mode_toggle' class='preview_toolbar_button'>Render</div>
+            <div id='preview_zoom_fit' class='preview_toolbar_button'>Fit</div>
+        </div>
+    </div>
+    <div id='preview_canvas' class='preview_canvas'>
+        <div id='preview_window' class='preview_window'>
+            <div id='preview_host' class='preview_host'></div>
+            <div id='preview_resize_right' class='preview_resize_handle preview_resize_right'></div>
+            <div id='preview_resize_bottom' class='preview_resize_handle preview_resize_bottom'></div>
+            <div id='preview_resize_corner' class='preview_resize_handle preview_resize_corner'></div>
+        </div>
+    </div>
+</div>)RML"
+    );
+
     m_leftTopPanel = m_document->GetElementById("left_top_panel");
     m_leftHorizontalSplitter = m_document->GetElementById("left_horizontal_splitter");
     m_leftBottomPanel = m_document->GetElementById("left_bottom_panel");
@@ -1208,7 +1049,7 @@ void UiBuilderController::refreshModePresentation()
     m_previewHost = m_document->GetElementById("preview_host");
     m_previewZoomLabel = m_document->GetElementById("preview_zoom_label");
     m_previewModeButton = m_document->GetElementById("preview_mode_toggle");
-    m_bottomPanel->SetInnerRML(bottomMarkup);
+    m_bottomPanel->SetInnerRML("");
     refreshBuilderMenuState();
     refreshPreviewZoomLabel();
     refreshPreviewModeButtonLabel();
@@ -1226,10 +1067,10 @@ void UiBuilderController::refreshBuilderMenuState()
         return;
 
     m_builderHeader->SetProperty("display", "block");
-    m_builderMenuFileButton->SetProperty("display", m_uiBuilderEnabled ? "block" : "none");
-    m_builderMenuFileDropdown->SetProperty("display", (m_uiBuilderEnabled && m_isFileMenuOpen) ? "block" : "none");
-    m_builderMenuWindowButton->SetProperty("display", m_uiBuilderEnabled ? "none" : "block");
-    m_builderMenuWindowDropdown->SetProperty("display", (!m_uiBuilderEnabled && m_isWindowMenuOpen) ? "block" : "none");
+    m_builderMenuFileButton->SetProperty("display", "block");
+    m_builderMenuFileDropdown->SetProperty("display", m_isFileMenuOpen ? "block" : "none");
+    m_builderMenuWindowButton->SetProperty("display", "none");
+    m_builderMenuWindowDropdown->SetProperty("display", "none");
 }
 
 void UiBuilderController::refreshPreviewZoomLabel()
@@ -1302,11 +1143,6 @@ void UiBuilderController::resetHierarchyModel()
 
 std::string UiBuilderController::buildInspectorPanelMarkup() const
 {
-    if (!m_uiBuilderEnabled)
-    {
-        return R"RML(<div class='panel_shell'><div class='panel_header'>Inspector</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>Inspector panel</div><div class='placeholder_text'>Selection details and editable properties will appear here.</div></div></div></div>)RML";
-    }
-
     const UiHierarchyNode* selectedNode = findSelectedHierarchyNode();
     if (selectedNode == nullptr || selectedNode->id == m_hierarchyRoot.id)
     {
@@ -1612,7 +1448,7 @@ std::optional<int> UiBuilderController::parseHierarchyNodeId(const Rml::String& 
     return std::stoi(value.substr(prefix.size()));
 }
 
-std::optional<std::pair<int, UiBuilderController::HierarchyDropMode>> UiBuilderController::parseHierarchyDropId(const Rml::String& elementId)
+std::optional<std::pair<int, HierarchyDropMode>> UiBuilderController::parseHierarchyDropId(const Rml::String& elementId)
 {
     const std::string value = elementId;
     const std::string prefix = "hierarchy_drop_";
@@ -1972,7 +1808,7 @@ UiBuilderController::UiHierarchyNode UiBuilderController::makeHierarchyNodeForEl
 
 UiBuilderController::DragTarget UiBuilderController::getPreviewResizeTargetAt(float mouseX, float mouseY) const
 {
-    if (!m_uiBuilderEnabled || !m_previewPageRect.isValid())
+    if (!m_previewPageRect.isValid())
         return DragTarget::None;
 
     constexpr int ResizeMargin = 14;
@@ -2051,7 +1887,7 @@ void UiBuilderController::reloadPreviewDocument()
 
     unloadPreviewDocument();
 
-    if (!m_uiBuilderEnabled || m_previewDocumentSource.empty())
+    if (m_previewDocumentSource.empty())
         return;
 
     const std::string sourceUrl = m_previewDocumentPath.empty() ? "[ui-builder-preview]" : m_previewDocumentPath;
@@ -2103,7 +1939,7 @@ void UiBuilderController::updatePreviewDocumentPlacement()
     if (m_previewDocument == nullptr)
         return;
 
-    if (!m_uiBuilderEnabled || !m_previewCanvasRect.isValid())
+    if (!m_previewCanvasRect.isValid())
     {
         if (m_previewWindow != nullptr)
             m_previewWindow->SetProperty("display", "none");
@@ -2239,7 +2075,7 @@ bool UiBuilderController::loadPreviewDocumentFromFile(const std::string& filePat
         updatePreviewDocumentPlacement();
     }
 
-    if (m_uiBuilderEnabled && m_previewDocument == nullptr)
+    if (m_previewDocument == nullptr)
     {
         m_previewDocumentSource = previousSource;
         m_previewDocumentPath = previousPath;
@@ -2247,7 +2083,7 @@ bool UiBuilderController::loadPreviewDocumentFromFile(const std::string& filePat
         return false;
     }
 
-    if (m_uiBuilderEnabled && rebuildHierarchyFromCurrentPreviewDocument())
+    if (rebuildHierarchyFromCurrentPreviewDocument())
     {
         m_previewDrivenByHierarchy = true;
         m_hierarchyRefreshPending = false;

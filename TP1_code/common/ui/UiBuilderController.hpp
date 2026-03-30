@@ -20,8 +20,6 @@ public:
     void deactivate() override;
     void setModeChangeCallback(const std::function<void(editor_ui::EditorMode)>& callback) override;
     void syncToWindow(int width, int height) override;
-    void setUiBuilderEnabled(bool enabled);
-    bool isUiBuilderEnabled() const;
     void setShowStylePanel(bool showStylePanel) override;
     void setUiBuilderShowStylePanel(bool showStylePanel);
     void update() override;
@@ -46,21 +44,6 @@ private:
         std::string label;
         ui::widget::WidgetPropertyMap properties;
         std::vector<UiHierarchyNode> children;
-    };
-
-    enum class DragPayloadKind
-    {
-        None,
-        Widget,
-        Node,
-    };
-
-    enum class HierarchyDropMode
-    {
-        None,
-        Before,
-        Inside,
-        After,
     };
 
     enum class DragTarget
@@ -168,7 +151,6 @@ private:
     std::function<void(editor_ui::EditorMode)> m_modeChangeCallback;
     int m_windowWidth = 1;
     int m_windowHeight = 1;
-    bool m_uiBuilderEnabled = false;
     bool m_uiBuilderShowStylePanel = false;
     bool m_isFileMenuOpen = false;
     bool m_isWindowMenuOpen = false;

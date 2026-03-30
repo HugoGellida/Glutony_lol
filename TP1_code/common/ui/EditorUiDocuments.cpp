@@ -358,6 +358,10 @@ const char* kEditorLayoutDocument = R"RML(
             drag: drag-drop;
         }
 
+        .scene_hierarchy_row {
+            drag: none;
+        }
+
         .hierarchy_row:hover {
             background-color: #263039;
             border-color: #466170;
@@ -535,6 +539,48 @@ const char* kEditorLayoutDocument = R"RML(
             padding: 16px;
             background-color: #0d1318;
             border: 1px #28333c;
+            box-sizing: border-box;
+        }
+
+        .scene_viewport_shell {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            padding: 12px;
+            background-color: transparent;
+            box-sizing: border-box;
+        }
+
+        .scene_viewport_toolbar {
+            width: 100%;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            background-color: #11171c;
+            border: 1px #28333c;
+            box-sizing: border-box;
+        }
+
+        .scene_playback_status {
+            min-width: 132px;
+            height: 30px;
+            padding: 0px 10px;
+            line-height: 30px;
+            text-align: center;
+            color: #b6c4cf;
+            background-color: #141b21;
+            border: 1px #29353f;
+        }
+
+        .scene_viewport_surface {
+            width: 100%;
+            flex: 1;
+            display: block;
+            background-color: transparent;
+            border: 0px;
             box-sizing: border-box;
         }
 

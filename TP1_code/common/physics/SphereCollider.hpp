@@ -1,5 +1,6 @@
 #pragma once
 #include "Collider.hpp"
+#include "../gameobject/component/ComponentSerialization.hpp"
 #include "glm/glm.hpp"
 #include "AABB.hpp"
 #include "CollisionUtils.hpp"
@@ -28,6 +29,65 @@ namespace physics
         const ColliderType getType() const override
         {
             return ColliderType::Sphere;
+        }
+
+        static const component_meta::ComponentDescriptor& componentDescriptor()
+        {
+            static const component_meta::ComponentDescriptor descriptor = []() {
+                component_meta::ComponentDescriptor value;
+                value.typeKey = "physics.sphere_collider";
+                value.displayName = "Sphere Collider";
+                value.version = 1;
+                value.factory = []() -> component::Component* { return new SphereCollider(); };
+                value.fields = {
+                    {
+                        "local_center",
+                        "Center",
+                        component_meta::FieldKind::Vec3,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const SphereCollider&>(component).m_localCenter;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const glm::vec3* parsed = std::get_if<glm::vec3>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<SphereCollider&>(component).m_localCenter = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "radius",
+                        "Radius",
+                        component_meta::FieldKind::Float,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const SphereCollider&>(component).m_radius;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const float* parsed = std::get_if<float>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<SphereCollider&>(component).m_radius = *parsed;
+                            return true;
+                        },
+                        {}
+                    }
+                };
+                return value;
+            }();
+            static const bool registered = []() {
+                component_meta::registerComponentDescriptor(descriptor);
+                return true;
+            }();
+            (void)registered;
+            return descriptor;
+        }
+
+        const component_meta::ComponentDescriptor* getComponentDescriptor() const override
+        {
+            return &componentDescriptor();
         }
 
         const AABB computeAABB(const Transform * world) override

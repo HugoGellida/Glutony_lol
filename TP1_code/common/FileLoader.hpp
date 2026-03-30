@@ -18,7 +18,7 @@ namespace fileLoader
         OFF
     };
 
-    EXTENSION getExtension(std::string const & filename)
+    inline EXTENSION getExtension(std::string const & filename)
     {
         if (filename[filename.size() - 4] == '.' && filename[filename.size() - 3] == 'o' && filename[filename.size() - 2] == 'b' && filename[filename.size() - 1] == 'j')
             return OBJ;
@@ -211,7 +211,7 @@ namespace fileLoader
 
 
 
-    float readFloat(uint & start, string str)
+    inline float readFloat(uint & start, string str)
     {
         string buf = "";
         while (start < str.size())
@@ -221,7 +221,7 @@ namespace fileLoader
                 buf.push_back(str[start++]);
         return atof(buf.c_str());
     }
-    uint readFUInt(uint & start, string & str)
+    inline uint readFUInt(uint & start, string & str)
     {
         string buf = "";
         while(start < str.size())
@@ -232,7 +232,7 @@ namespace fileLoader
         return atoi(buf.c_str());
     }
 
-    void readFace(uint & start, string str, uint & vert)
+    inline void readFace(uint & start, string str, uint & vert)
     {
         vert = readFUInt(start, str);
         if (start < str.size() && str[start] != ' ') // offset to next space, ignore potential tex + norm values
@@ -242,7 +242,7 @@ namespace fileLoader
         }
     }
 
-    bool __objLineQuad(uint start, string str)
+    inline bool __objLineQuad(uint start, string str)
     {
         uint spaceCount = 0;
         for (uint i = start; i < str.size() - 1; i++)
@@ -251,7 +251,7 @@ namespace fileLoader
         return spaceCount == 4;
     }
     
-    void readFace(uint & start, string & str, uint & vert, uint &tex, uint & norm)
+    inline void readFace(uint & start, string & str, uint & vert, uint &tex, uint & norm)
     {
         bool containTexNorm = false;
         for (uint i = start; i < str.size(); i++)

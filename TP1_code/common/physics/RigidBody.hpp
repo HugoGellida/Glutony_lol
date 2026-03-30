@@ -5,6 +5,7 @@
 #include "../gameobject/GameObject.hpp"
 #include "../gameobject/component/Component.hpp"
 #include "SphereCollider.hpp"
+#include "../gameobject/component/ComponentSerialization.hpp"
 
 namespace physics
 {
@@ -114,6 +115,83 @@ namespace physics
         void SetVelocity(glm::vec3 v);
 
         void SetAngularVelocity(glm::vec3 v);
+
+        static const component_meta::ComponentDescriptor& componentDescriptor()
+        {
+            static const component_meta::ComponentDescriptor descriptor = []()
+            {
+                component_meta::ComponentDescriptor value;
+                value.typeKey = "physics.rigidbody";
+                value.displayName = "RigidBody";
+                value.version = 1;
+                value.factory = []() -> component::Component* {return new RigidBody(nullptr);};
+                value.fields = {
+                    {
+                        "position",
+                        "Position",
+                        component_meta::FieldKind::Vec3,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).m_position;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const glm::vec3* parsed = std::get_if<glm::vec3>(&value);
+                            if (parsed == nullptr)
+                                return false;
+                            
+                            static_cast<RigidBody&>(component).m_position = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "rotation",
+                        "Rotation",
+                        component_meta::FieldKind::Vec3,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).m_rotation;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const glm::vec3* parsed = std::get_if<glm::vec3>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<RigidBody&>(component).m_rotation = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "velocity",
+                        "Velocity",
+                        component_meta::FieldKind::Vec3,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).m_linearVelocity;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const glm::vec3* parsed = std::get_if<glm::vec3>(&value);
+                            if (parsed == nullptr)
+                                return false;
+                            
+                            static_cast<RigidBody&>(component).m_linearVelocity = *parsed;
+                            return true;
+                        },
+                        {}
+                    }
+                };
+                return value;
+            }();
+            static const bool registered = []() {
+                component_meta::registerComponentDescriptor(descriptor);
+                return true;
+            }();
+            (void)registered;
+            return descriptor;
+        }
+
+        const component_meta::ComponentDescriptor*  getComponentDescriptor() const override
+        {
+            return &componentDescriptor();
+        }
 
         ~RigidBody(); // TOCHECK
         

@@ -15,6 +15,7 @@
 #include "physics/PhysicEngine.hpp"
 #include "physics/BoxCollider.hpp"
 #include "physics/PlaneCollider.hpp"
+#include "geometry/Plane.hpp"
 #include "ui/UIRenderer.hpp"
 
 #include <memory>
@@ -37,6 +38,7 @@ private:
     inputProcessor::InputProcessor m_inputProcessor;
     bool m_fpsControl = false;
     bool m_orbitMode = false;
+    bool m_physicsSimulationEnabled = false;
     glm::vec3 m_orbitPos = glm::vec3(0.0f, 10.0f, -10.0f);
     float m_orbitYangle = 0.0f;
     float m_orbitSpeed = 20.0f;
@@ -229,7 +231,8 @@ public:
 
     void update(double deltaTime, GLFWwindow * window, bool inputEnabled = true, bool editorMode = false, double mouseAnchorX = 0.0, double mouseAnchorY = 0.0)
     {
-        PhysicEngine::getInstance() -> Step(deltaTime);
+        if (m_physicsSimulationEnabled)
+            PhysicEngine::getInstance() -> Step(deltaTime);
 
 
 
@@ -381,6 +384,16 @@ public:
         }
     }
 
+    size_t getGameObjectCount() const
+    {
+        return m_gameObjectCount;
+    }
+
+    GameObject* getGameObject(size_t index) const
+    {
+        return index < m_gameObjectCount ? m_gameObjects[index] : nullptr;
+    }
+
     void setUiContext(Rml::Context* context)
     {
         m_uiContext = context;
@@ -461,6 +474,16 @@ public:
     bool isOrbitModeEnabled() const
     {
         return m_orbitMode;
+    }
+
+    void setPhysicsSimulationEnabled(bool enabled)
+    {
+        m_physicsSimulationEnabled = enabled;
+    }
+
+    bool isPhysicsSimulationEnabled() const
+    {
+        return m_physicsSimulationEnabled;
     }
 
     ~Scene()

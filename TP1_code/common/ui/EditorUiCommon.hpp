@@ -89,3 +89,18 @@ const Rml::Element* findFirstElementByTagName(const Rml::Element* root, const Rm
 Rml::String pixels(int value);
 int clampInt(int value, int minValue, int maxValue);
 }
+
+enum class DragPayloadKind
+{
+    None,
+    Widget,
+    Node,
+};
+
+enum class HierarchyDropMode
+{
+    None,
+    Before,
+    Inside,
+    After,
+};

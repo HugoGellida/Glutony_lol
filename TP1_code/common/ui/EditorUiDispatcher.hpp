@@ -5,6 +5,7 @@
 #include "EditorUiCommon.hpp"
 
 class EditorUiModeController;
+class Scene;
 class SceneEditorController;
 class UiBuilderController;
 
@@ -17,6 +18,7 @@ public:
     bool initialize(Rml::Context* context);
     void shutdown();
 
+    void sync(Scene& scene);
     void syncToWindow(int width, int height);
     void setUiBuilderEnabled(bool enabled);
     bool isUiBuilderEnabled() const;

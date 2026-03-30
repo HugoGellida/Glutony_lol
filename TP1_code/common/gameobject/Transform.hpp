@@ -248,6 +248,7 @@ public:
     }
 
     GameObject * getChild(size_t i);
+    const GameObject * getChild(size_t i) const;
 
     GameObject * getGameObject() const;
 

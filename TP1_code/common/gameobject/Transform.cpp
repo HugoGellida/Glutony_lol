@@ -12,6 +12,11 @@ GameObject * Transform::getChild(size_t i)
     return m_childs[i]->m_gameObject;
 }
 
+const GameObject * Transform::getChild(size_t i) const
+{
+    return m_childs[i]->m_gameObject;
+}
+
 GameObject * Transform::getGameObject() const
 {
     return m_gameObject;

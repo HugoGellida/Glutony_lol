@@ -7,6 +7,7 @@
 #include "EditorUiCommon.hpp"
 
 class EditorUiDispatcher;
+class Scene;
 
 class EditorUiController : public Rml::EventListener
 {
@@ -20,6 +21,7 @@ public:
     bool initialize(Rml::Context* context);
     void shutdown();
 
+    void sync(Scene& scene);
     void syncToWindow(int width, int height);
     void setUiBuilderEnabled(bool enabled);
     bool isUiBuilderEnabled() const;

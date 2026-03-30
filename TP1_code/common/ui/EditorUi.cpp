@@ -14,6 +14,12 @@ bool EditorUiController::initialize(Rml::Context* context)
     return m_dispatcher != nullptr && m_dispatcher->initialize(context);
 }
 
+void EditorUiController::sync(Scene& scene)
+{
+    if (m_dispatcher != nullptr)
+        m_dispatcher->sync(scene);
+}
+
 void EditorUiController::shutdown()
 {
     if (m_dispatcher != nullptr)

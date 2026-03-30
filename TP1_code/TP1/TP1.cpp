@@ -401,6 +401,8 @@ int main( void )
         if (g_editorModeEnabled)
         {
             g_editorUi.setUiBuilderShowStylePanel(g_uiBuilderShowStylePanel);
+            if (scene != nullptr)
+                g_editorUi.sync(*scene);
             g_editorUi.syncToWindow(g_windowFramebufferWidth, g_windowFramebufferHeight);
             g_editorUi.update();
 

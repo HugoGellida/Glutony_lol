@@ -19,7 +19,9 @@ public:
     GameObject(){
         transform.setGameObject(this);
     }
-    GameObject(std::string name) : m_name(name) {}
+    GameObject(std::string name) : m_name(name) {
+        transform.setGameObject(this);
+    }
 
 
     void addComponent(Component * component)
@@ -39,6 +41,27 @@ public:
             if (T * casted = dynamic_cast<T *>(m_component[i]))
                 return casted;
         return nullptr;
+    }
+
+    size_t getComponentCount() const
+    {
+        return m_componentStride;
+    }
+
+    Component* getComponentAt(size_t index)
+    {
+        if (index >= m_componentStride)
+            return nullptr;
+
+        return m_component[index];
+    }
+
+    const Component* getComponentAt(size_t index) const
+    {
+        if (index >= m_componentStride)
+            return nullptr;
+
+        return m_component[index];
     }
 
     void setPosition(glm::vec3 wPos)
@@ -64,6 +87,11 @@ public:
     void setName(std::string name)
     {
         this -> m_name = name;
+    }
+
+    const std::string& getName() const
+    {
+        return m_name;
     }
 
     void addChild(GameObject * child)
