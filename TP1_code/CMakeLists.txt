@@ -7,6 +7,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(FetchContent)
+
+if(POLICY CMP0072)
+    cmake_policy(SET CMP0072 NEW)
+endif()
+
+set(CMAKE_WARN_DEPRECATED OFF CACHE BOOL "Suppress deprecation warnings from bundled third-party CMake projects" FORCE)
+set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE BOOL "Suppress developer warnings from bundled third-party CMake projects" FORCE)
+
+set(OpenGL_GL_PREFERENCE LEGACY)
+
 find_package(OpenGL REQUIRED)
 
 if(CMAKE_BINARY_DIR STREQUAL CMAKE_SOURCE_DIR)
@@ -38,6 +49,57 @@ set(RMLUI_SVG_PLUGIN OFF CACHE BOOL "" FORCE)
 set(RMLUI_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
+option(GLUTONY_FETCH_FREETYPE "Download and build Freetype when it is not available on the host" ON)
+
+if(GLUTONY_FETCH_FREETYPE)
+    find_package(Freetype QUIET)
+
+    if(FREETYPE_FOUND AND NOT TARGET Freetype::Freetype)
+        add_library(Freetype::Freetype INTERFACE IMPORTED)
+        set_target_properties(Freetype::Freetype PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${FREETYPE_INCLUDE_DIRS}"
+            INTERFACE_LINK_LIBRARIES "${FREETYPE_LIBRARIES}"
+        )
+    endif()
+
+    if(NOT TARGET Freetype::Freetype)
+        message(STATUS "Freetype not found on the host, fetching a static copy for RmlUi.")
+
+        set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+        set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+        set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+        set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+        set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+
+        FetchContent_Declare(
+            freetype
+            URL https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz
+            DOWNLOAD_EXTRACT_TIMESTAMP FALSE
+        )
+
+        if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.14")
+            FetchContent_MakeAvailable(freetype)
+        else()
+            FetchContent_GetProperties(freetype)
+            if(NOT freetype_POPULATED)
+                FetchContent_Populate(freetype)
+                add_subdirectory(${freetype_SOURCE_DIR} ${freetype_BINARY_DIR} EXCLUDE_FROM_ALL)
+            endif()
+        endif()
+
+        if(TARGET freetype AND NOT TARGET Freetype::Freetype)
+            add_library(Freetype::Freetype ALIAS freetype)
+        endif()
+    endif()
+endif()
+
+if(NOT TARGET Freetype::Freetype)
+    message(FATAL_ERROR
+        "Freetype is required by RmlUi. Install it on the host or leave GLUTONY_FETCH_FREETYPE=ON "
+        "to build a bundled static copy automatically."
+    )
+endif()
+
 # Compile external dependencies
 add_subdirectory(external)
 
@@ -45,10 +107,7 @@ add_subdirectory(external)
 add_subdirectory(external/RmlUi)
 add_subdirectory(external/RmlUi/Backends)
 
-# On Visual 2005 and above, this module can set the debug working directory
-cmake_policy(SET CMP0026 OLD)
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/external/rpavlik-cmake-modules-fe2273")
-include(CreateLaunchers)
 include(MSVCMultipleProcessCompile) # /MP
 
 if(INCLUDE_DISTRIB)
@@ -141,9 +200,9 @@ endif()
 
 # Xcode and Visual working directories
 set_target_properties(TP1 PROPERTIES
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
     XCODE_ATTRIBUTE_CONFIGURATION_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
 )
-create_target_launcher(TP1 WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/TP1/")
 
 SOURCE_GROUP(common REGULAR_EXPRESSION ".*/common/.*")
 SOURCE_GROUP(shaders REGULAR_EXPRESSION ".*/.*shader$")

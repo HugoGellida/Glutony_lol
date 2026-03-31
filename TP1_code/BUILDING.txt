@@ -1,1 +1,6 @@
 Please READ Tutorial 1 and don't build the tutorials yourself ! Use CMake instead
+
+Notes:
+- RmlUi requires Freetype.
+- If Freetype is not installed on the host, the root CMake project now downloads and builds a static copy automatically.
+- Disable this fallback with -DGLUTONY_FETCH_FREETYPE=OFF if you want to force usage of a system package.
