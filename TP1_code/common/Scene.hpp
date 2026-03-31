@@ -4,6 +4,7 @@
 #include "gameobject/GameObject.hpp"
 #include "common/shader/Material.hpp"
 #include "common/shader/LitMaterial.hpp"
+#include "common/shader/UnlitMaterial.hpp"
 #include <common/shader/Shader.hpp>
 #include "gameobject/component/Mesh.hpp"
 #include "gameobject/component/MeshRenderer.hpp"
@@ -17,6 +18,7 @@
 #include "physics/PlaneCollider.hpp"
 #include "geometry/Plane.hpp"
 #include "ui/UIRenderer.hpp"
+#include "utils/Raycast.hpp"
 
 #include <memory>
 #include <vector>
@@ -32,6 +34,8 @@ private:
     size_t m_gameObjectCount = 0;
     dataStruct::Material * m_materials;
     Shader * m_shaders;
+    Shader * m_selectionHighlightShader = nullptr;
+    dataStruct::UnlitMaterial* m_selectionHighlightMaterial = nullptr;
     PhysicsSystem ph;
 
     Camera m_camera;
@@ -39,6 +43,7 @@ private:
     bool m_fpsControl = false;
     bool m_orbitMode = false;
     bool m_physicsSimulationEnabled = false;
+    GameObject* m_selectedGameObject = nullptr;
     glm::vec3 m_orbitPos = glm::vec3(0.0f, 10.0f, -10.0f);
     float m_orbitYangle = 0.0f;
     float m_orbitSpeed = 20.0f;
@@ -57,6 +62,43 @@ private:
             renderer->update(deltaTime);
     }
 
+    void renderGameObject(GameObject* gameObject)
+    {
+        if (gameObject == nullptr)
+            return;
+
+        MeshRenderer* meshRenderer = gameObject->getComponent<MeshRenderer>();
+        if (meshRenderer == nullptr)
+            return;
+
+        meshRenderer->run();
+        meshRenderer->render(m_camera, gameObject->transform);
+    }
+
+    void renderSelectedHighlight()
+    {
+        if (m_selectedGameObject == nullptr || m_selectionHighlightMaterial == nullptr)
+            return;
+
+        MeshRenderer* meshRenderer = m_selectedGameObject->getComponent<MeshRenderer>();
+        if (meshRenderer == nullptr)
+            return;
+
+        Transform highlightTransform = m_selectedGameObject->transform;
+        highlightTransform.setScale(m_selectedGameObject->transform.getScale() * 1.08f);
+
+        m_selectionHighlightMaterial->setMainColor(glm::vec3(1.0f, 0.58f, 0.14f));
+
+        glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+        glStencilMask(0x00);
+        glDepthMask(GL_FALSE);
+        meshRenderer->run();
+        meshRenderer->renderWithMaterial(m_camera, highlightTransform, *m_selectionHighlightMaterial);
+        glDepthMask(GL_TRUE);
+        glStencilMask(0xFF);
+        glStencilFunc(GL_ALWAYS, 0, 0xFF);
+    }
+
 public:
     Scene()
     {
@@ -72,6 +114,8 @@ public:
 
 
         this -> m_materials = new dataStruct::LitMaterial(m_shaders);
+        m_selectionHighlightShader = new Shader("./built-in_shaders/unlit/vertex.glsl", "./built-in_shaders/unlit/fragment.glsl");
+        m_selectionHighlightMaterial = new dataStruct::UnlitMaterial(m_selectionHighlightShader);
         
         m_gameObjects = new GameObject*[8];
         m_gameObjectCount = 0;
@@ -229,7 +273,16 @@ public:
         m_inputProcessor.registerKey(GLFW_KEY_Y, inputProcessor::KeyState::HOLD);
     }
 
-    void update(double deltaTime, GLFWwindow * window, bool inputEnabled = true, bool editorMode = false, double mouseAnchorX = 0.0, double mouseAnchorY = 0.0)
+    void update(
+        double deltaTime,
+        GLFWwindow * window,
+        bool inputEnabled = true,
+        bool editorMode = false,
+        double mouseAnchorX = 0.0,
+        double mouseAnchorY = 0.0,
+        bool sceneClickPending = false,
+        double sceneClickX = 0.0,
+        double sceneClickY = 0.0)
     {
         if (m_physicsSimulationEnabled)
             PhysicEngine::getInstance() -> Step(deltaTime);
@@ -241,7 +294,7 @@ public:
         m_inputProcessor.update(window, inputEnabled && m_fpsControl, mouseAnchorX, mouseAnchorY);
         float sensitivity = 0.1f;
         
-        if (!inputEnabled)
+        if (!inputEnabled && !sceneClickPending)
         {
             updateUiRenderers(deltaTime);
             return;
@@ -296,6 +349,30 @@ public:
                 glfwGetWindowSize(window, &scrWidth, &scrHeight);
                 glfwSetCursorPos(window, scrWidth / 2, scrHeight / 2);
             }
+        }
+
+        if (sceneClickPending && !m_fpsControl)
+        {
+            Raycast::Ray ray = Raycast::getRayFromClick(editorMode, m_uiViewportX, m_uiViewportY, m_uiViewportWidth, m_uiViewportHeight, sceneClickX, sceneClickY, m_camera, window);
+            float m = MAXFLOAT;
+            GameObject* selectedGameObject = nullptr;
+            for (size_t i = 0; i < m_gameObjectCount; i++)
+            {
+                float t = MAXFLOAT;
+                if (m_gameObjects[i] -> getComponent<Mesh>() != nullptr)
+                {
+                    Raycast::raycastTransformedAABB(m_gameObjects[i]->transform, m_gameObjects[i] -> getComponent<Mesh>() -> getAABB(), ray, &t);
+                } 
+                else if (m_gameObjects[i] -> getComponent<physics::RigidBody>() != nullptr)
+                    Raycast::raycastAABB(m_gameObjects[i] -> getComponent<physics::RigidBody>() -> getAABB(), ray, &t);
+                if (t < m && t > 0.0)
+                {
+                    selectedGameObject = m_gameObjects[i];
+                    m = t;
+                }
+            }
+
+            setSelectedGameObject(selectedGameObject);
         }
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_G))
@@ -373,13 +450,31 @@ public:
 
     }
 
-    void renderScene() const
+    void renderScene()
     {
         for (size_t i = 0; i < m_gameObjectCount; i++)
         {
-            m_gameObjects[i] -> getComponent<MeshRenderer>()->run(); 
-            m_gameObjects[i] -> getComponent<MeshRenderer>()->render(m_camera, m_gameObjects[i] -> transform);
+            renderGameObject(m_gameObjects[i]);
         }
+    }
+
+    void renderSceneWithSelectionHighlight()
+    {
+        glEnable(GL_STENCIL_TEST);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        glStencilFunc(GL_ALWAYS, 0, 0xFF);
+        glStencilMask(0x00);
+
+        for (size_t i = 0; i < m_gameObjectCount; i++)
+        {
+            const bool isSelected = m_gameObjects[i] == m_selectedGameObject;
+            glStencilMask(isSelected ? 0xFF : 0x00);
+            glStencilFunc(GL_ALWAYS, isSelected ? 1 : 0, 0xFF);
+            renderGameObject(m_gameObjects[i]);
+        }
+
+        renderSelectedHighlight();
+        glDisable(GL_STENCIL_TEST);
     }
 
     size_t getGameObjectCount() const
@@ -390,6 +485,27 @@ public:
     GameObject* getGameObject(size_t index) const
     {
         return index < m_gameObjectCount ? m_gameObjects[index] : nullptr;
+    }
+
+    GameObject* getSelectedGameObject() const
+    {
+        return m_selectedGameObject;
+    }
+
+    void setSelectedGameObject(GameObject* gameObject)
+    {
+        m_selectedGameObject = gameObject;
+    }
+
+    void toggleSelectedGameObject(GameObject* gameObject)
+    {
+        if (gameObject == nullptr)
+        {
+            m_selectedGameObject = nullptr;
+            return;
+        }
+
+        m_selectedGameObject = (m_selectedGameObject == gameObject) ? nullptr : gameObject;
     }
 
     void setUiContext(Rml::Context* context)
@@ -489,6 +605,8 @@ public:
         clearUiRenderers();
         delete[] m_gameObjects;
         delete m_materials;
+        delete m_selectionHighlightMaterial;
         delete m_shaders;
+        delete m_selectionHighlightShader;
     }
 };

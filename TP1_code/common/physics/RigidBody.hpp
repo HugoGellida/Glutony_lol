@@ -117,6 +117,18 @@ namespace physics
 
         void SetAngularVelocity(glm::vec3 v);
 
+        AABB getAABB() const
+        {
+            if (m_parent == nullptr)
+                return AABB{};
+
+            Collider* collider = m_parent->getComponent<Collider>();
+            if (collider == nullptr)
+                return AABB{};
+
+            return collider->computeAABB(&(m_parent->transform));
+        }
+
         static const component_meta::ComponentDescriptor& componentDescriptor()
         {
             static const component_meta::ComponentDescriptor descriptor = []()

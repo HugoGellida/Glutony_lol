@@ -108,7 +108,9 @@ namespace physics
 
         float getWorldRadius(const Transform & world) const
         {
-            return m_radius;
+            const glm::vec3 worldScale = world.getWorldScale();
+            const float maxScale = std::max(std::abs(worldScale.x), std::max(std::abs(worldScale.y), std::abs(worldScale.z)));
+            return m_radius * maxScale;
         }
 
         glm::mat3 computeLocalInverseInertiaTensor(float mass) const override

@@ -36,6 +36,24 @@ using namespace glm;
 void processInput(GLFWwindow *window);
 void setup_glfw_callbacks(GLFWwindow* glfwWindow);
 
+glm::dvec2 windowToFramebufferCoords(GLFWwindow* glfwWindow, double x, double y)
+{
+    int windowWidth = 1;
+    int windowHeight = 1;
+    int framebufferWidth = 1;
+    int framebufferHeight = 1;
+    glfwGetWindowSize(glfwWindow, &windowWidth, &windowHeight);
+    glfwGetFramebufferSize(glfwWindow, &framebufferWidth, &framebufferHeight);
+
+    if (windowWidth <= 0 || windowHeight <= 0)
+        return glm::dvec2(0.0);
+
+    return glm::dvec2(
+        x * static_cast<double>(framebufferWidth) / static_cast<double>(windowWidth),
+        y * static_cast<double>(framebufferHeight) / static_cast<double>(windowHeight)
+    );
+}
+
 // settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
@@ -145,11 +163,211 @@ struct ViewportFramebuffer
 
 ViewportFramebuffer g_viewportFramebuffer;
 
+struct ViewportTexturePresenter
+{
+    GLuint program = 0;
+    GLuint vertexShader = 0;
+    GLuint fragmentShader = 0;
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    GLint textureUniformLocation = -1;
+
+    static bool compileShader(GLuint shader, const char* source, const char* label)
+    {
+        glShaderSource(shader, 1, &source, nullptr);
+        glCompileShader(shader);
+
+        GLint compileStatus = GL_FALSE;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &compileStatus);
+        if (compileStatus == GL_TRUE)
+            return true;
+
+        GLint logLength = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+        std::vector<char> logBuffer(static_cast<size_t>(std::max(logLength, 1)), '\0');
+        glGetShaderInfoLog(shader, logLength, nullptr, logBuffer.data());
+        std::cerr << "Viewport presenter " << label << " shader compilation failed: " << logBuffer.data() << std::endl;
+        return false;
+    }
+
+    bool initialize()
+    {
+        if (program != 0)
+            return true;
+
+        static const char* kVertexShaderSource = R"GLSL(
+            #version 330 core
+            layout(location = 0) in vec2 inPosition;
+            layout(location = 1) in vec2 inUv;
+
+            out vec2 fragUv;
+
+            void main()
+            {
+                fragUv = inUv;
+                gl_Position = vec4(inPosition, 0.0, 1.0);
+            }
+        )GLSL";
+
+        static const char* kFragmentShaderSource = R"GLSL(
+            #version 330 core
+            in vec2 fragUv;
+            out vec4 outColor;
+
+            uniform sampler2D viewportTexture;
+
+            void main()
+            {
+                outColor = texture(viewportTexture, fragUv);
+            }
+        )GLSL";
+
+        vertexShader = glCreateShader(GL_VERTEX_SHADER);
+        fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+        if (vertexShader == 0 || fragmentShader == 0)
+        {
+            destroy();
+            return false;
+        }
+
+        if (!compileShader(vertexShader, kVertexShaderSource, "vertex") ||
+            !compileShader(fragmentShader, kFragmentShaderSource, "fragment"))
+        {
+            destroy();
+            return false;
+        }
+
+        program = glCreateProgram();
+        if (program == 0)
+        {
+            destroy();
+            return false;
+        }
+
+        glAttachShader(program, vertexShader);
+        glAttachShader(program, fragmentShader);
+        glLinkProgram(program);
+
+        GLint linkStatus = GL_FALSE;
+        glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+        if (linkStatus != GL_TRUE)
+        {
+            GLint logLength = 0;
+            glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
+            std::vector<char> logBuffer(static_cast<size_t>(std::max(logLength, 1)), '\0');
+            glGetProgramInfoLog(program, logLength, nullptr, logBuffer.data());
+            std::cerr << "Viewport presenter program link failed: " << logBuffer.data() << std::endl;
+            destroy();
+            return false;
+        }
+
+        textureUniformLocation = glGetUniformLocation(program, "viewportTexture");
+
+        static const float kVertices[] = {
+            -1.0f, -1.0f, 0.0f, 0.0f,
+             1.0f, -1.0f, 1.0f, 0.0f,
+            -1.0f,  1.0f, 0.0f, 1.0f,
+             1.0f,  1.0f, 1.0f, 1.0f,
+        };
+
+        glGenVertexArrays(1, &vao);
+        glGenBuffers(1, &vbo);
+        if (vao == 0 || vbo == 0)
+        {
+            destroy();
+            return false;
+        }
+
+        glBindVertexArray(vao);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(kVertices), kVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (void*)(sizeof(float) * 2));
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+
+        return true;
+    }
+
+    void render(GLuint texture, int x, int y, int width, int height) const
+    {
+        if (program == 0 || vao == 0 || texture == 0 || width <= 0 || height <= 0)
+            return;
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(x, y, width, height);
+        glDisable(GL_SCISSOR_TEST);
+        glDisable(GL_BLEND);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_STENCIL_TEST);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+        glUseProgram(program);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1i(textureUniformLocation, 0);
+        glBindVertexArray(vao);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        glBindVertexArray(0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glUseProgram(0);
+    }
+
+    void destroy()
+    {
+        if (vbo != 0)
+        {
+            glDeleteBuffers(1, &vbo);
+            vbo = 0;
+        }
+
+        if (vao != 0)
+        {
+            glDeleteVertexArrays(1, &vao);
+            vao = 0;
+        }
+
+        if (program != 0)
+        {
+            glDeleteProgram(program);
+            program = 0;
+        }
+
+        if (vertexShader != 0)
+        {
+            glDeleteShader(vertexShader);
+            vertexShader = 0;
+        }
+
+        if (fragmentShader != 0)
+        {
+            glDeleteShader(fragmentShader);
+            fragmentShader = 0;
+        }
+
+        textureUniformLocation = -1;
+    }
+
+    explicit operator bool() const
+    {
+        return program != 0 && vao != 0;
+    }
+};
+
+ViewportTexturePresenter g_viewportTexturePresenter;
+
 int mousePX = 0;
 int mousePY = 0;
 bool fpsControl = false;
 bool gWasPressed = false;
 bool g_editorTogglePressed = false;
+bool g_sceneClickPending = false;
+double g_sceneClickX = 0.0;
+double g_sceneClickY = 0.0;
 
 //rotation
 float angle = 0.;
@@ -215,10 +433,33 @@ void setup_glfw_callbacks(GLFWwindow* glfwWindow)
 
     glfwSetMouseButtonCallback(glfwWindow, [](GLFWwindow* callbackWindow, int button, int action, int mods)
     {
-        (void)callbackWindow;
         g_glfwActiveModifiers = mods;
+
+        bool uiHandled = false;
         if (g_rmlContext)
-            RmlGLFW::ProcessMouseButtonCallback(g_rmlContext, button, action, mods);
+            uiHandled = RmlGLFW::ProcessMouseButtonCallback(g_rmlContext, button, action, mods);
+
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
+        {
+            double clickWindowX = 0.0;
+            double clickWindowY = 0.0;
+            glfwGetCursorPos(callbackWindow, &clickWindowX, &clickWindowY);
+            const glm::dvec2 clickPosition = windowToFramebufferCoords(callbackWindow, clickWindowX, clickWindowY);
+
+            bool shouldDispatchToScene = !uiHandled;
+            if (g_editorModeEnabled)
+            {
+                const UiRect viewportRect = g_editorUi.getViewportRect();
+                shouldDispatchToScene = viewportRect.isValid() && viewportRect.contains(clickPosition.x, clickPosition.y) && !g_editorUi.isDragging();
+            }
+
+            if (shouldDispatchToScene)
+            {
+                g_sceneClickPending = true;
+                g_sceneClickX = clickPosition.x;
+                g_sceneClickY = clickPosition.y;
+            }
+        }
     });
 
     glfwSetScrollCallback(glfwWindow, [](GLFWwindow* callbackWindow, double xoffset, double yoffset)
@@ -286,6 +527,11 @@ int main( void )
     // Dark blue background
     glClearColor(0.8f, 0.8f, 0.8f, 0.0f);
     glGetIntegerv(GL_SAMPLES, &g_defaultFramebufferSamples);
+
+    if (!g_viewportTexturePresenter.initialize())
+    {
+        std::cerr << "Failed to initialize viewport texture presenter, falling back to direct scene rendering." << std::endl;
+    }
 
     // Enable depth test
     glEnable(GL_DEPTH_TEST);
@@ -426,14 +672,24 @@ int main( void )
             }
 
             UiRect viewportRect = g_editorUi.getViewportRect();
-            double cursorX = 0.0;
-            double cursorY = 0.0;
-            glfwGetCursorPos(window, &cursorX, &cursorY);
+            double cursorWindowX = 0.0;
+            double cursorWindowY = 0.0;
+            glfwGetCursorPos(window, &cursorWindowX, &cursorWindowY);
+            const glm::dvec2 cursorPosition = windowToFramebufferCoords(window, cursorWindowX, cursorWindowY);
 
-            const bool viewportHovered = viewportRect.isValid() && g_editorUi.isViewportHovered(cursorX, cursorY);
-            const bool sceneInputEnabled = (viewportHovered && !g_editorUi.isDragging()) || scene->isFpsControlEnabled() || scene->isOrbitModeEnabled();
+            const bool viewportHovered = viewportRect.isValid() && g_editorUi.isViewportHovered(cursorPosition.x, cursorPosition.y);
+            const bool sceneInputEnabled =
+                (viewportHovered && !g_editorUi.isDragging()) ||
+                scene->isFpsControlEnabled() ||
+                scene->isOrbitModeEnabled() ||
+                g_sceneClickPending;
             const bool viewportFramebufferReady = viewportRect.isValid() && g_viewportFramebuffer.ensureSize(viewportRect.width, viewportRect.height);
-            const bool useViewportFramebuffer = viewportFramebufferReady && g_defaultFramebufferSamples == 0;
+            const bool useViewportFramebuffer = viewportFramebufferReady && static_cast<bool>(g_viewportTexturePresenter);
+
+            if (viewportRect.isValid())
+                scene->setUiViewportRect(viewportRect.x, viewportRect.y, viewportRect.width, viewportRect.height);
+            else
+                scene->setUiViewportRect(0, 0, 0, 0);
 
             if (viewportRect.isValid())
                 scene->updateCamSettings((float)viewportRect.width / (float)std::max(viewportRect.height, 1));
@@ -444,8 +700,13 @@ int main( void )
                 sceneInputEnabled,
                 true,
                 viewportRect.centerX(),
-                viewportRect.centerY()
+                viewportRect.centerY(),
+                g_sceneClickPending,
+                g_sceneClickX,
+                g_sceneClickY
             );
+
+            g_sceneClickPending = false;
 
             glDisable(GL_SCISSOR_TEST);
 
@@ -453,8 +714,8 @@ int main( void )
             {
                 glBindFramebuffer(GL_FRAMEBUFFER, g_viewportFramebuffer.framebuffer);
                 glViewport(0, 0, g_viewportFramebuffer.width, g_viewportFramebuffer.height);
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                scene->renderScene();
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+                scene->renderSceneWithSelectionHighlight();
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
             }
 
@@ -463,26 +724,15 @@ int main( void )
 
             if (useViewportFramebuffer)
             {
-                const int destinationX0 = viewportRect.x;
-                const int destinationY0 = g_windowFramebufferHeight - viewportRect.y - viewportRect.height;
-                const int destinationX1 = destinationX0 + viewportRect.width;
-                const int destinationY1 = destinationY0 + viewportRect.height;
-
-                glBindFramebuffer(GL_READ_FRAMEBUFFER, g_viewportFramebuffer.framebuffer);
-                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-                glBlitFramebuffer(
-                    0,
-                    0,
-                    g_viewportFramebuffer.width,
-                    g_viewportFramebuffer.height,
-                    destinationX0,
-                    destinationY0,
-                    destinationX1,
-                    destinationY1,
-                    GL_COLOR_BUFFER_BIT,
-                    GL_LINEAR
+                const int destinationY = g_windowFramebufferHeight - viewportRect.y - viewportRect.height;
+                g_viewportTexturePresenter.render(
+                    g_viewportFramebuffer.colorTexture,
+                    viewportRect.x,
+                    destinationY,
+                    viewportRect.width,
+                    viewportRect.height
                 );
-                glBindFramebuffer(GL_FRAMEBUFFER, 0);
+                glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
             }
             else if (viewportRect.isValid())
             {
@@ -490,8 +740,8 @@ int main( void )
                 glEnable(GL_SCISSOR_TEST);
                 glViewport(viewportRect.x, glViewportY, viewportRect.width, viewportRect.height);
                 glScissor(viewportRect.x, glViewportY, viewportRect.width, viewportRect.height);
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-                scene->renderScene();
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+                scene->renderSceneWithSelectionHighlight();
                 glDisable(GL_SCISSOR_TEST);
                 glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
             }
@@ -507,9 +757,10 @@ int main( void )
         }
         else
         {
-            scene -> update(deltaTime, window);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            scene -> renderScene();
+            scene -> update(deltaTime, window, true, false, 0.0, 0.0, g_sceneClickPending, g_sceneClickX, g_sceneClickY);
+            g_sceneClickPending = false;
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+            scene -> renderSceneWithSelectionHighlight();
 
             if (scene->hasUiRenderers())
             {
@@ -533,6 +784,7 @@ int main( void )
     delete scene;
 
     g_viewportFramebuffer.destroy();
+    g_viewportTexturePresenter.destroy();
 
     if (g_rmlContext != nullptr)
     {

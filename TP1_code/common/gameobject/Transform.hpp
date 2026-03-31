@@ -2,6 +2,8 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include "common/physics/AABB.hpp"
+#include <vector>
 
 class GameObject;
 
@@ -280,6 +282,24 @@ public:
         return m_rotation;
     }
 
+    const glm::vec3 & getScale() const
+    {
+        return m_scale;
+    }
+
+    glm::vec3 getWorldScale() const
+    {
+        if (m_parent == nullptr)
+            return m_scale;
+
+        const glm::vec3 parentScale = m_parent->getWorldScale();
+        return glm::vec3(
+            parentScale.x * m_scale.x,
+            parentScale.y * m_scale.y,
+            parentScale.z * m_scale.z
+        );
+    }
+
     const glm::quat & getOrientation() const
     {
         return m_orientation;
@@ -288,5 +308,36 @@ public:
     glm::mat4 getNormalMat() const
     {
         return (this -> m_parent != nullptr) ? m_parent -> getNormalMat() * m_rotMat : m_rotMat;
+    }
+
+    physics::AABB applyToAABB(const physics::AABB& aabb) const
+    {
+        std::vector<glm::vec4> box = std::vector<glm::vec4>{
+            glm::vec4(aabb.min.x, aabb.min.y, aabb.min.z, 1.0),
+            glm::vec4(aabb.min.x, aabb.min.y, aabb.max.z, 1.0),
+            glm::vec4(aabb.min.x, aabb.max.y, aabb.min.z, 1.0),
+            glm::vec4(aabb.min.x, aabb.max.y, aabb.max.z, 1.0),
+            glm::vec4(aabb.max.x, aabb.min.y, aabb.min.z, 1.0),
+            glm::vec4(aabb.max.x, aabb.min.y, aabb.max.z, 1.0),
+            glm::vec4(aabb.max.x, aabb.max.y, aabb.min.z, 1.0),
+            glm::vec4(aabb.max.x, aabb.max.y, aabb.max.z, 1.0)
+        };
+        physics::AABB res = physics::AABB();
+        res.min = glm::vec3(MAXFLOAT, MAXFLOAT, MAXFLOAT);
+        res.max = glm::vec3(-MAXFLOAT, -MAXFLOAT, -MAXFLOAT);
+
+        glm::mat4 MW = getModelWorld();
+        for (size_t i = 0; i < 8; i++)
+        {
+            box[i] = MW * box[i];
+            for (size_t j = 0; j < 3; j++)
+            {
+                if (box[i][j] > res.max[j])
+                    res.max[j] = box[i][j];
+                if (box[i][j] < res.min[j])
+                    res.min[j] = box[i][j];
+            }
+        }
+        return res;
     }
 };

@@ -93,6 +93,8 @@ private:
     static std::string makeInspectorGroupElementId(int nodeId, size_t componentIndex);
     UiGOHierarchyNode* findHierarchyNodeById(int nodeId);
     const UiGOHierarchyNode* findHierarchyNodeById(int nodeId) const;
+    UiGOHierarchyNode* findHierarchyNodeByGameObject(const GameObject* gameObject);
+    const UiGOHierarchyNode* findHierarchyNodeByGameObject(const GameObject* gameObject) const;
     const UiGOHierarchyNode* findSelectedHierarchyNode() const;
     bool shouldRefreshInspectorPresentation() const;
     bool applyInspectorFieldValue(const InspectorFieldBinding& binding, const std::string& value);

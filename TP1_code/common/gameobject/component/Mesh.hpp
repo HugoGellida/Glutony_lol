@@ -2,11 +2,31 @@
 
 #include <glm/glm.hpp>
 #include "Component.hpp"
+#include "../../physics/AABB.hpp"
 
 namespace component
 {
     class Mesh : public Component
     {
+    private:
+        void updateAABB()
+        {
+            physics::AABB res = physics::AABB();
+            res.min = glm::vec3(MAXFLOAT, MAXFLOAT, MAXFLOAT);
+            res.max = glm::vec3(-MAXFLOAT, -MAXFLOAT, -MAXFLOAT);
+            for (size_t i = 0; i < m_vStride; i++)
+                for (size_t j = 0; j < 3; j++)
+                {
+                    if (m_vertices[i*3+j] > res.max[j])
+                        res.max[j] = m_vertices[i*3+j];
+                    if (m_vertices[i*3+j] < res.min[j])
+                        res.min[j] = m_vertices[i*3+j];
+                }
+            
+            m_AABB = res;
+        }
+
+
     protected:
         float * m_vertices = nullptr;
         float * m_normals = nullptr;
@@ -19,28 +39,28 @@ namespace component
         bool m_hasColors = false;
         bool m_hasUVs = false;
         bool m_onGPU = false;
+        physics::AABB m_AABB = physics::AABB();
     public:
         Mesh() : Component() {}
         Mesh(uint vStride, uint tStride, bool hasNormals = false, bool hasColors = false, bool hasUVs = false) : Component()
         {
             m_vStride = vStride;
-            m_vertices = new float[vStride * 3];
+            m_vertices = new float[vStride * 3]();
             m_tStride = tStride;
-            m_triangles = new uint[tStride * 3];
+            m_triangles = new uint[tStride * 3]();
             
             m_hasNormals = hasNormals;
             if (hasNormals)
-                m_normals = new float[vStride * 3];
-            else
-                m_normals = new float[0];
+                m_normals = new float[vStride * 3]();
             
             m_hasColors = hasColors;
             if (hasColors)
-                m_colors = new float[vStride * 3];
+                m_colors = new float[vStride * 3]();
 
             m_hasUVs = hasUVs;
             if (hasUVs)
-                m_uvs = new float[vStride * 2];
+                m_uvs = new float[vStride * 2]();
+            updateAABB();
         }
         void setVertice(uint i, glm::vec3 pos, glm::vec3 normal = glm::vec3(), glm::vec3 color = glm::vec3(), glm::vec2 uv = glm::vec2())
         {
@@ -62,28 +82,34 @@ namespace component
                 m_uvs[i * 2] = uv.x;
                 m_uvs[i * 2 + 1] = uv.y;
             }
+            m_onGPU = false;
         }
         void setTriangle(uint start, uint t1, uint t2, uint t3)
         {
             m_triangles[start * 3] = t1;
             m_triangles[start * 3 + 1] = t2;
             m_triangles[start * 3 + 2] = t3;
+            m_onGPU = false;
         }
 
         void computeNormals()
         {
 
-            float * tNormals = new float[m_tStride * 3];
+            float * tNormals = new float[m_tStride * 3]();
             delete[] m_normals;
-            m_normals = new float[m_vStride * 3];
-            int * vTri = new int[m_vStride];
+            m_normals = new float[m_vStride * 3]();
+            int * vTri = new int[m_vStride]();
 
             for (uint i = 0; i < m_tStride; i++)
             {
                 glm::vec3 v0 = glm::vec3(m_vertices[m_triangles[i*3]*3], m_vertices[m_triangles[i*3]*3+1], m_vertices[m_triangles[i*3]*3+2]);
                 glm::vec3 v1 = glm::vec3(m_vertices[m_triangles[i*3+1]*3], m_vertices[m_triangles[i*3+1]*3+1], m_vertices[m_triangles[i*3+1]*3+2]);
                 glm::vec3 v2 = glm::vec3(m_vertices[m_triangles[i*3+2]*3], m_vertices[m_triangles[i*3+2]*3+1], m_vertices[m_triangles[i*3+2]*3+2]);
-                glm::vec3 n = glm::normalize(glm::cross(glm::normalize(v2 - v0),glm::normalize(v1 - v0)));
+                const glm::vec3 edgeA = v2 - v0;
+                const glm::vec3 edgeB = v1 - v0;
+                glm::vec3 n(0.0f);
+                if (glm::length(edgeA) > 0.0f && glm::length(edgeB) > 0.0f)
+                    n = glm::normalize(glm::cross(glm::normalize(edgeA), glm::normalize(edgeB)));
                 tNormals[i*3] = n.x;
                 tNormals[i*3+1] = n.y;
                 tNormals[i*3+2] = n.z;
@@ -100,9 +126,23 @@ namespace component
             }
             for (uint i = 0; i < m_vStride; i++)
             {
-                m_normals[i*3]/=-vTri[i];
-                m_normals[i*3+1]/=-vTri[i];
-                m_normals[i*3+2]/=-vTri[i];
+                if (vTri[i] <= 0)
+                    continue;
+
+                glm::vec3 vertexNormal(
+                    m_normals[i*3],
+                    m_normals[i*3+1],
+                    m_normals[i*3+2]
+                );
+
+                if (glm::length(vertexNormal) > 0.0f)
+                    vertexNormal = glm::normalize(-vertexNormal);
+                else
+                    vertexNormal = glm::vec3(0.0f, 1.0f, 0.0f);
+
+                m_normals[i*3] = vertexNormal.x;
+                m_normals[i*3+1] = vertexNormal.y;
+                m_normals[i*3+2] = vertexNormal.z;
             }
 
 
@@ -136,7 +176,8 @@ namespace component
 
         void run() override
         {
-
+            if (m_onGPU == false) // mean that mesh as changed this frame, so recompute AABB just in case.
+                updateAABB();
         }
 
 
@@ -193,6 +234,11 @@ namespace component
         bool isOnGPU()
         {
             return m_onGPU;
+        }
+
+        physics::AABB getAABB() const
+        {
+            return m_AABB;
         }
 
         ~Mesh()

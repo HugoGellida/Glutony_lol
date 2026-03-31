@@ -25,6 +25,26 @@ namespace component
         bool m_hasUVS = false;
         bool invertCull = false;
         bool m_wireframe = false;
+
+        void prepareRenderState()
+        {
+            if (m_wireframe)
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            else
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+            glBindVertexArray(m_VAO);
+            glDisable(GL_CULL_FACE);
+            glEnable(GL_DEPTH_TEST);
+            glDepthFunc(GL_LEQUAL);
+        }
+
+        void finishRenderState()
+        {
+            glUseProgram(0);
+            glBindVertexArray(0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
     public:
         MeshRenderer(component::Mesh * mesh, Material * mat) : Component()
         {
@@ -131,17 +151,7 @@ namespace component
         {
             if (!m_onGPU) // will be renderered when stored on gpu.
                 return;
-            if (m_wireframe)
-                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-            else
-                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-            glBindVertexArray(m_VAO);
-
-            glDisable(GL_CULL_FACE);
-            //glEnable(GL_CULL_FACE);
-            //glCullFace(invertCull ? GL_FRONT : GL_BACK);
-            glEnable(GL_DEPTH_TEST);
-            glDepthFunc(GL_LEQUAL);
+            prepareRenderState();
 
             m_mat -> bind(camera, transform);
             glDrawElements(
@@ -150,10 +160,25 @@ namespace component
                 GL_UNSIGNED_INT,
                 (void*)0
             );
-            // clean state
-            glUseProgram(0);
-            glBindVertexArray(0);
-            glBindTexture(GL_TEXTURE_2D, 0);
+            finishRenderState();
+        }
+
+        void renderWithMaterial(Camera const& camera, Transform& transform, Material& material)
+        {
+            if (!m_onGPU)
+                return;
+
+            prepareRenderState();
+
+            material.bind(camera, transform);
+            glDrawElements(
+                GL_TRIANGLES,
+                m_mesh -> trianglesCount() * 3,
+                GL_UNSIGNED_INT,
+                (void*)0
+            );
+
+            finishRenderState();
         }
         ~MeshRenderer()
         {

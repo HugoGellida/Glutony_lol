@@ -336,6 +336,16 @@ void SceneEditorController::sync(Scene& scene)
 
     rebuildHierarchyFromScene(scene);
 
+    if (const GameObject* selectedGameObject = scene.getSelectedGameObject())
+    {
+        if (const UiGOHierarchyNode* selectedNode = findHierarchyNodeByGameObject(selectedGameObject))
+            m_selectedHierarchyNodeId = selectedNode->id;
+    }
+    else
+    {
+        m_selectedHierarchyNodeId = m_hierarchyRoot.id;
+    }
+
     if (findHierarchyNodeById(m_selectedHierarchyNodeId) == nullptr)
         m_selectedHierarchyNodeId = m_hierarchyRoot.id;
 
@@ -507,7 +517,20 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
         if (const std::optional<int> hierarchyNodeId = parseHierarchyNodeId(hierarchyNodeElementId))
         {
-            m_selectedHierarchyNodeId = *hierarchyNodeId;
+            const UiGOHierarchyNode* hierarchyNode = findHierarchyNodeById(*hierarchyNodeId);
+            if (hierarchyNode != nullptr && m_scene != nullptr)
+            {
+                GameObject* clickedGameObject = const_cast<GameObject*>(hierarchyNode->gameObject);
+                m_scene->toggleSelectedGameObject(clickedGameObject);
+                m_selectedHierarchyNodeId = (clickedGameObject != nullptr && m_scene->getSelectedGameObject() == clickedGameObject)
+                    ? *hierarchyNodeId
+                    : m_hierarchyRoot.id;
+            }
+            else
+            {
+                m_selectedHierarchyNodeId = *hierarchyNodeId;
+            }
+
             requestHierarchyRefresh();
             event.StopPropagation();
             return;
@@ -1084,6 +1107,31 @@ SceneEditorController::UiGOHierarchyNode* SceneEditorController::findHierarchyNo
 const SceneEditorController::UiGOHierarchyNode* SceneEditorController::findHierarchyNodeById(int nodeId) const
 {
     return const_cast<SceneEditorController*>(this)->findHierarchyNodeById(nodeId);
+}
+
+SceneEditorController::UiGOHierarchyNode* SceneEditorController::findHierarchyNodeByGameObject(const GameObject* gameObject)
+{
+    if (gameObject == nullptr)
+        return nullptr;
+
+    std::function<UiGOHierarchyNode*(UiGOHierarchyNode&)> findInChildren = [&](UiGOHierarchyNode& node) -> UiGOHierarchyNode*
+    {
+        for (UiGOHierarchyNode& child : node.children)
+        {
+            if (child.gameObject == gameObject)
+                return &child;
+            if (UiGOHierarchyNode* found = findInChildren(child))
+                return found;
+        }
+        return nullptr;
+    };
+
+    return findInChildren(m_hierarchyRoot);
+}
+
+const SceneEditorController::UiGOHierarchyNode* SceneEditorController::findHierarchyNodeByGameObject(const GameObject* gameObject) const
+{
+    return const_cast<SceneEditorController*>(this)->findHierarchyNodeByGameObject(gameObject);
 }
 
 const SceneEditorController::UiGOHierarchyNode* SceneEditorController::findSelectedHierarchyNode() const

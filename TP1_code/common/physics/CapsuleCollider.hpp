@@ -40,7 +40,9 @@ namespace physics
 
         float getWorldRadius(const Transform & world) const
         {
-            return m_radius;
+            const glm::vec3 worldScale = world.getWorldScale();
+            const float radialScale = std::max(std::abs(worldScale.x), std::abs(worldScale.z));
+            return m_radius * radialScale;
         }
 
         glm::vec3 getWorldCenter(const Transform & world) const
@@ -56,6 +58,19 @@ namespace physics
         float getHalfHeight() const
         {
             return m_halfHeight;
+        }
+
+        float getWorldHalfHeight(const Transform & world) const
+        {
+            const glm::vec3 localAxis = CollisionUtils::NormalizeSafe(m_localAxis, glm::vec3(0.0f, 1.0f, 0.0f));
+            const glm::vec3 worldScale = world.getWorldScale();
+            const glm::vec3 axisScaled(
+                std::abs(localAxis.x * worldScale.x),
+                std::abs(localAxis.y * worldScale.y),
+                std::abs(localAxis.z * worldScale.z)
+            );
+            const float axisScale = axisScaled.x + axisScaled.y + axisScaled.z;
+            return m_halfHeight * axisScale;
         }
 
         const AABB computeAABB(const Transform * world) override
@@ -76,7 +91,7 @@ namespace physics
         {
             const glm::vec3 center = getWorldCenter(world);
             const glm::vec3 axis = getWorldAxis(world);
-            const glm::vec3 offset = axis * m_halfHeight;
+            const glm::vec3 offset = axis * getWorldHalfHeight(world);
 
             a = center - offset;
             b = center + offset;

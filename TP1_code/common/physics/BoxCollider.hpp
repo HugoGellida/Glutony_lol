@@ -71,10 +71,11 @@ namespace physics
 
         glm::vec3 getWorldHalfExtents(const Transform & world) const
         {
+            const glm::vec3 worldScale = world.getWorldScale();
             return glm::vec3(
-                std::abs(m_halfExtents.x * m_localScale.x),
-                std::abs(m_halfExtents.y * m_localScale.y),
-                std::abs(m_halfExtents.z * m_localScale.z)
+                std::abs(m_halfExtents.x * m_localScale.x * worldScale.x),
+                std::abs(m_halfExtents.y * m_localScale.y * worldScale.y),
+                std::abs(m_halfExtents.z * m_localScale.z * worldScale.z)
             );
         }
 

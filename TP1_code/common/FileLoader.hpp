@@ -60,7 +60,8 @@ namespace fileLoader
         vector<Vec3f> verts = vector<Vec3f>(n_vertices);
 
         vector<Vec3f> norms = vector<Vec3f>(n_vertices);
-        vector<uint> tri = vector<uint>(n_faces * 3);
+        vector<uint> tri;
+        tri.reserve(n_faces * 6);
 
         for( int v = 0 ; v < n_vertices ; ++v )
         {
@@ -146,7 +147,8 @@ namespace fileLoader
 
         vector<float> verts = vector<float>(n_vertices * 3);
 
-        vector<uint> tri = vector<uint>(n_faces * 3);
+        vector<uint> tri;
+        tri.reserve(n_faces * 6);
 
         for( int v = 0 ; v < n_vertices ; v++ )
         {
@@ -167,9 +169,9 @@ namespace fileLoader
                 unsigned int _v1 , _v2 , _v3;
                 myfile >> _v1 >> _v2 >> _v3;
 
-                tri[f*3] = _v1;
-                tri[f*3+1] = _v2;
-                tri[f*3+2] = _v3;
+                tri.push_back(_v1);
+                tri.push_back(_v2);
+                tri.push_back(_v3);
             }
             else if( n_vertices_on_face == 4 )
             {
@@ -191,7 +193,7 @@ namespace fileLoader
             }
             
         }
-        component::Mesh * mesh = new Mesh(verts.size(), tri.size() / 3);
+        component::Mesh * mesh = new Mesh(verts.size() / 3, tri.size() / 3);
         for (uint i = 0; i < verts.size() / 3; i++)
             mesh -> setVertice(i, glm::vec3(verts[i*3], verts[i*3+1], verts[i*3+2]));
         for (uint i = 0; i < tri.size() / 3; i++)
