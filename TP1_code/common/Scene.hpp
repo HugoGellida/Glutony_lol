@@ -84,19 +84,9 @@ private:
         if (meshRenderer == nullptr)
             return;
 
-        Transform highlightTransform = m_selectedGameObject->transform;
-        highlightTransform.setScale(m_selectedGameObject->transform.getScale() * 1.08f);
-
         m_selectionHighlightMaterial->setMainColor(glm::vec3(1.0f, 0.58f, 0.14f));
-
-        glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
-        glStencilMask(0x00);
-        glDepthMask(GL_FALSE);
         meshRenderer->run();
-        meshRenderer->renderWithMaterial(m_camera, highlightTransform, *m_selectionHighlightMaterial);
-        glDepthMask(GL_TRUE);
-        glStencilMask(0xFF);
-        glStencilFunc(GL_ALWAYS, 0, 0xFF);
+        meshRenderer->renderOverlayWithMaterial(m_camera, m_selectedGameObject->transform, *m_selectionHighlightMaterial);
     }
 
 public:
@@ -151,7 +141,7 @@ public:
             rb.bounciness = 0.2f;
             rb.mass = 0.1f;
             rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::SphereCollider(glm::vec3(0.0, 0.0, 0.0), 0.1f));
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::SphereCollider(glm::vec3(0.0, 0.0, 0.0), 1.0f));
         }
         m_gameObjectCount++;
         {
@@ -169,7 +159,7 @@ public:
             rb.bounciness = 0.2f;
             rb.mass = 0.1f;
             rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::SphereCollider(glm::vec3(0.0, 0.0, 0.0), 0.1f));
+            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::SphereCollider(glm::vec3(0.0, 0.0, 0.0), 1.0f));
         }
         m_gameObjectCount++;
         {
@@ -460,21 +450,10 @@ public:
 
     void renderSceneWithSelectionHighlight()
     {
-        glEnable(GL_STENCIL_TEST);
-        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-        glStencilFunc(GL_ALWAYS, 0, 0xFF);
-        glStencilMask(0x00);
-
         for (size_t i = 0; i < m_gameObjectCount; i++)
-        {
-            const bool isSelected = m_gameObjects[i] == m_selectedGameObject;
-            glStencilMask(isSelected ? 0xFF : 0x00);
-            glStencilFunc(GL_ALWAYS, isSelected ? 1 : 0, 0xFF);
             renderGameObject(m_gameObjects[i]);
-        }
 
         renderSelectedHighlight();
-        glDisable(GL_STENCIL_TEST);
     }
 
     size_t getGameObjectCount() const

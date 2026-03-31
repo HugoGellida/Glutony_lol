@@ -180,6 +180,32 @@ namespace component
 
             finishRenderState();
         }
+
+        void renderOverlayWithMaterial(Camera const& camera, Transform& transform, Material& material)
+        {
+            if (!m_onGPU)
+                return;
+
+            prepareRenderState();
+
+            glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+            material.bind(camera, transform);
+            glDrawElements(
+                GL_TRIANGLES,
+                m_mesh -> trianglesCount() * 3,
+                GL_UNSIGNED_INT,
+                (void*)0
+            );
+            glDisable(GL_BLEND);
+            glEnable(GL_DEPTH_TEST);
+            glDepthMask(GL_TRUE);
+            finishRenderState();
+        }
+
         ~MeshRenderer()
         {
             // clean FBO
