@@ -4,6 +4,8 @@
 
 void physics::RigidBody::run()
 {
+    if (p_mass != mass)
+        RecomputeInverseMass();
     if (registered)
         return;
 

@@ -51,6 +51,7 @@ namespace physics
         float dynamicFriction = 0.4f;
         bool m_hadContact = false;
         bool registered = false;
+        float p_mass=0.0f; // pour gerer le Recompute si changement.
 
 
         RigidBody(GameObject * parent) : Component()
@@ -173,6 +174,159 @@ namespace physics
                                 return false;
                             
                             static_cast<RigidBody&>(component).m_linearVelocity = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "angularVelocity",
+                        "Angular Velocity",
+                        component_meta::FieldKind::Vec3,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).m_angularVelocity;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const glm::vec3* parsed = std::get_if<glm::vec3>(&value);
+                            if (parsed == nullptr)
+                                return false;
+                            
+                            static_cast<RigidBody&>(component).m_angularVelocity = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "linearDamping",
+                        "Linear Damping",
+                        component_meta::FieldKind::Float,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).linearDamping;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const float* parsed = std::get_if<float>(&value);
+                            if (parsed == nullptr)
+                                return false;
+                            
+                            static_cast<RigidBody&>(component).linearDamping = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "angularDamping",
+                        "Angular Damping",
+                        component_meta::FieldKind::Float,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).angularDamping;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const float* parsed = std::get_if<float>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<RigidBody&>(component).angularDamping = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "useGravity",
+                        "Use Gravity",
+                        component_meta::FieldKind::Bool,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).useGravity;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const bool* parsed = std::get_if<bool>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<RigidBody&>(component).useGravity = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "enableAngularDynamics",
+                        "Enable Angular Dynamics",
+                        component_meta::FieldKind::Bool,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).enableAngularDynamics;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const bool* parsed = std::get_if<bool>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<RigidBody&>(component).enableAngularDynamics= *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "mass",
+                        "Mass",
+                        component_meta::FieldKind::Float,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).mass;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const float* parsed = std::get_if<float>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<RigidBody&>(component).mass = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "bounciness",
+                        "Bounciness",
+                        component_meta::FieldKind::Float,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).bounciness;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const float* parsed = std::get_if<float>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<RigidBody&>(component).bounciness = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "staticFriction",
+                        "Static Friction",
+                        component_meta::FieldKind::Float,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).staticFriction;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const float* parsed = std::get_if<float>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<RigidBody&>(component).staticFriction = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "dynamicFriction",
+                        "Dynamic Friction",
+                        component_meta::FieldKind::Float,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).dynamicFriction;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const float* parsed = std::get_if<float>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<RigidBody&>(component).dynamicFriction = *parsed;
                             return true;
                         },
                         {}
