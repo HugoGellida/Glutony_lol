@@ -254,6 +254,16 @@ public:
 
     GameObject * getGameObject() const;
 
+    Transform* getParent()
+    {
+        return m_parent;
+    }
+
+    const Transform* getParent() const
+    {
+        return m_parent;
+    }
+
     glm::mat4 getModelWorld() const
     {
         return (this->m_parent != nullptr) ? m_parent->getModelWorld() * m_transformationMatrix : m_transformationMatrix;

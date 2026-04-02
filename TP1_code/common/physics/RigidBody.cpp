@@ -236,6 +236,20 @@ void physics::RigidBody::SetAngularVelocity(glm::vec3 v)
     m_angularVelocity = v;
 }
 
+void physics::RigidBody::RefreshSerializedState()
+{
+    Teleport(m_position);
+    SetRotation(m_rotation);
+    SetVelocity(m_linearVelocity);
+    SetAngularVelocity(m_angularVelocity);
+    accumulatedForce = glm::vec3(0.0f, 0.0f, 0.0f);
+    accumulatedTorque = glm::vec3(0.0f, 0.0f, 0.0f);
+    m_hadContact = false;
+    m_accumulatedContactNormal = glm::vec3(0.0f, 0.0f, 0.0f);
+    RecomputeInverseMass();
+    ApplyMotionConstraints();
+}
+
 physics::RigidBody::~RigidBody()
 {
     if (registered)

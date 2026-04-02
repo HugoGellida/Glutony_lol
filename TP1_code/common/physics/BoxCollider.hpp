@@ -5,6 +5,7 @@
 #include "glm/glm.hpp"
 #include "AABB.hpp"
 #include "CollisionUtils.hpp"
+#include "../gameobject/component/ComponentSerialization.hpp"
 #include <cmath>
 
 namespace physics
@@ -30,6 +31,85 @@ namespace physics
         const ColliderType getType() const override
         {
             return ColliderType::Box;
+        }
+
+        static const component_meta::ComponentDescriptor& componentDescriptor()
+        {
+            static const component_meta::ComponentDescriptor descriptor = []() {
+                component_meta::ComponentDescriptor value;
+                value.typeKey = "physics.box_collider";
+                value.displayName = "Box Collider";
+                value.version = 1;
+                value.factory = [](GameObject* parent) -> component::Component* {
+                    (void)parent;
+                    return new BoxCollider();
+                };
+                value.fields = {
+                    {
+                        "local_center",
+                        "Center",
+                        component_meta::FieldKind::Vec3,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const BoxCollider&>(component).m_localCenter;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const glm::vec3* parsed = std::get_if<glm::vec3>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<BoxCollider&>(component).m_localCenter = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "half_extents",
+                        "Half Extents",
+                        component_meta::FieldKind::Vec3,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const BoxCollider&>(component).m_halfExtents;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const glm::vec3* parsed = std::get_if<glm::vec3>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<BoxCollider&>(component).m_halfExtents = *parsed;
+                            return true;
+                        },
+                        {}
+                    },
+                    {
+                        "local_scale",
+                        "Local Scale",
+                        component_meta::FieldKind::Vec3,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const BoxCollider&>(component).m_localScale;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const glm::vec3* parsed = std::get_if<glm::vec3>(&value);
+                            if (parsed == nullptr)
+                                return false;
+
+                            static_cast<BoxCollider&>(component).m_localScale = *parsed;
+                            return true;
+                        },
+                        {}
+                    }
+                };
+                return value;
+            }();
+            static const bool registered = []() {
+                component_meta::registerComponentDescriptor(descriptor);
+                return true;
+            }();
+            (void)registered;
+            return descriptor;
+        }
+
+        const component_meta::ComponentDescriptor* getComponentDescriptor() const override
+        {
+            return &componentDescriptor();
         }
 
         const AABB computeAABB(const Transform * world) override

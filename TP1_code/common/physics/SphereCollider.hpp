@@ -38,7 +38,10 @@ namespace physics
                 value.typeKey = "physics.sphere_collider";
                 value.displayName = "Sphere Collider";
                 value.version = 1;
-                value.factory = []() -> component::Component* { return new SphereCollider(); };
+                value.factory = [](GameObject* parent) -> component::Component* {
+                    (void)parent;
+                    return new SphereCollider();
+                };
                 value.fields = {
                     {
                         "local_center",

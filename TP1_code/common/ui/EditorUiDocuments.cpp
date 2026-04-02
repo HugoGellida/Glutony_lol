@@ -120,10 +120,37 @@ const char* kEditorLayoutDocument = R"RML(
             color: #8ea0b0;
         }
 
+        .panel_header_with_action {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-right: 8px;
+            box-sizing: border-box;
+        }
+
+        .panel_header_action {
+            min-width: 22px;
+            height: 22px;
+            line-height: 22px;
+            margin-top: 6px;
+            text-align: center;
+            color: #dbe4ea;
+            background-color: #27323b;
+            border: 1px #3a4a56;
+        }
+
+        .panel_header_action:hover {
+            background-color: #31404a;
+        }
+
         .panel_body {
             flex: 1;
             padding: 12px;
             overflow: auto;
+        }
+
+        .panel_body_no_padding {
+            padding: 0px;
         }
 
         .hierarchy_body,
@@ -255,6 +282,7 @@ const char* kEditorLayoutDocument = R"RML(
 
         .inspector_field_row {
             display: flex;
+            flex-wrap: wrap;
             align-items: center;
             width: 100%;
             padding: 8px 10px;
@@ -282,6 +310,43 @@ const char* kEditorLayoutDocument = R"RML(
             border: 1px #33424d;
             box-sizing: border-box;
             font-size: 12px;
+        }
+
+        .inspector_asset_field {
+            border-color: #48606f;
+            background-color: #121b21;
+        }
+
+        .inspector_asset_field_active {
+            border-color: #9fc1dd;
+            background-color: #1d2d37;
+        }
+
+        .inspector_asset_hint {
+            width: 60%;
+            margin-left: 40%;
+            margin-top: 4px;
+            color: #7f919f;
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+
+        .inspector_add_component_row {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 12px;
+        }
+
+        .inspector_add_component_button {
+            min-width: 132px;
+            margin-top: 0px;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.8px;
+        }
+
+        .inspector_add_component_menu {
+            z-index: 70;
         }
 
         .inspector_field_input option {
@@ -545,6 +610,7 @@ const char* kEditorLayoutDocument = R"RML(
         .scene_viewport_shell {
             width: 100%;
             height: 100%;
+            position: relative;
             display: flex;
             flex-direction: column;
             padding: 12px;
@@ -575,6 +641,19 @@ const char* kEditorLayoutDocument = R"RML(
             border: 1px #29353f;
         }
 
+        .scene_document_status {
+            max-width: 360px;
+            margin-right: 10px;
+            padding: 0px 10px;
+            line-height: 30px;
+            color: #94a6b4;
+            background-color: #141b21;
+            border: 1px #29353f;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         .scene_viewport_surface {
             width: 100%;
             flex: 1;
@@ -582,6 +661,64 @@ const char* kEditorLayoutDocument = R"RML(
             background-color: transparent;
             border: 0px;
             box-sizing: border-box;
+        }
+
+        .scene_modal_overlay {
+            position: absolute;
+            left: 0px;
+            top: 0px;
+            right: 0px;
+            bottom: 0px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(8, 12, 15, 0.74);
+        }
+
+        .scene_modal_card {
+            width: 320px;
+            padding: 16px;
+            background-color: #171f25;
+            border: 1px #33424d;
+        }
+
+        .scene_modal_title {
+            margin-bottom: 8px;
+            color: #e2eaf0;
+            font-size: 15px;
+        }
+
+        .scene_modal_text {
+            margin-bottom: 14px;
+            color: #8ea0b0;
+            font-size: 12px;
+            white-space: normal;
+        }
+
+        .scene_modal_actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .scene_modal_button {
+            margin-left: 8px;
+            padding: 8px 12px;
+            color: #dbe4ea;
+            background-color: #24303a;
+            border: 1px #364651;
+        }
+
+        .scene_modal_button:hover {
+            background-color: #2c3943;
+        }
+
+        .scene_modal_button.primary {
+            background-color: #2d4350;
+            border-color: #58778a;
+        }
+
+        .scene_modal_button.danger {
+            color: #efb0b0;
         }
 
         .preview_window {
@@ -650,6 +787,221 @@ const char* kEditorLayoutDocument = R"RML(
 
         .splitter_horizontal_nested {
             cursor: ns-resize;
+        }
+
+        .splitter_vertical_nested {
+            cursor: ew-resize;
+        }
+
+        .asset_browser_workspace {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: stretch;
+            position: relative;
+            background-color: #11171c;
+        }
+
+        .asset_browser_pane {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            min-width: 0px;
+        }
+
+        .asset_browser_files_pane {
+            background-color: #13191e;
+        }
+
+        .asset_browser_tree_pane {
+            background-color: #171e24;
+            border-left: 1px #2a353e;
+        }
+
+        .asset_browser_section_header {
+            display: block;
+            min-height: 34px;
+            padding: 10px 12px;
+            background-color: #1c242b;
+            border-bottom: 1px #2d3943;
+            color: #d6dee5;
+            font-size: 12px;
+            letter-spacing: 0.9px;
+            text-transform: uppercase;
+        }
+
+        .asset_browser_section_path {
+            display: block;
+            margin-top: 3px;
+            color: #879aa8;
+            font-size: 11px;
+            letter-spacing: 0px;
+            text-transform: none;
+        }
+
+        .asset_browser_section_body {
+            flex: 1;
+            padding: 10px;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        .asset_browser_tree_body scrollbarvertical,
+        .asset_browser_files_body scrollbarvertical {
+            width: 12px;
+        }
+
+        .asset_browser_tree_body scrollbarvertical slidertrack,
+        .asset_browser_files_body scrollbarvertical slidertrack {
+            background-color: #141b21;
+            border-left: 1px #25323b;
+        }
+
+        .asset_browser_tree_body scrollbarvertical sliderbar,
+        .asset_browser_files_body scrollbarvertical sliderbar {
+            width: 12px;
+            min-height: 28px;
+            margin-left: 1px;
+            background-color: #4a6273;
+        }
+
+        .asset_browser_tree_node {
+            display: block;
+            width: 100%;
+            margin-bottom: 2px;
+        }
+
+        .asset_browser_tree_children {
+            display: block;
+            margin-left: 16px;
+        }
+
+        .asset_browser_tree_row {
+            display: flex;
+            align-items: center;
+            min-height: 32px;
+            padding: 6px 8px;
+            background-color: #1c252c;
+            border: 1px #2b3740;
+            box-sizing: border-box;
+        }
+
+        .asset_browser_tree_row:hover {
+            background-color: #243039;
+            border-color: #415563;
+        }
+
+        .asset_browser_tree_row.selected {
+            background-color: #29404f;
+            border-color: #67839a;
+        }
+
+        .asset_browser_tree_toggle {
+            width: 18px;
+            color: #8ea0b0;
+            font-size: 11px;
+            text-align: center;
+        }
+
+        .asset_browser_tree_label {
+            flex: 1;
+            color: #dce5eb;
+            font-size: 12px;
+            white-space: normal;
+        }
+
+        .asset_browser_tree_meta {
+            color: #7f919f;
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+
+        .asset_browser_file_grid {
+            display: flex;
+            flex-wrap: wrap;
+            align-content: flex-start;
+        }
+
+        .asset_browser_file_card {
+            width: 168px;
+            min-height: 112px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            padding: 10px 12px;
+            background-color: #1d252c;
+            border: 1px #2b3740;
+            box-sizing: border-box;
+            drag: clone;
+        }
+
+        .asset_browser_file_card:hover {
+            background-color: #263039;
+            border-color: #466170;
+        }
+
+        .asset_browser_file_card.selected {
+            background-color: #29404f;
+            border-color: #66859c;
+        }
+
+        .asset_browser_file_card.dragging {
+            opacity: 0.55;
+        }
+
+        .asset_browser_file_badge {
+            display: inline-block;
+            margin-bottom: 10px;
+            padding: 2px 7px;
+            background-color: #10161b;
+            border: 1px #34424e;
+            color: #a7bac8;
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+
+        .asset_browser_file_card.material .asset_browser_file_badge {
+            color: #f2c58d;
+            border-color: #6b4f23;
+        }
+
+        .asset_browser_file_card.mesh .asset_browser_file_badge {
+            color: #8fd6d6;
+            border-color: #2e6262;
+        }
+
+        .asset_browser_file_card.shader .asset_browser_file_badge {
+            color: #d0a6ef;
+            border-color: #5b3b73;
+        }
+
+        .asset_browser_file_card.texture .asset_browser_file_badge {
+            color: #92d39e;
+            border-color: #345b3b;
+        }
+
+        .asset_browser_file_card.scene .asset_browser_file_badge {
+            color: #d9cf8c;
+            border-color: #62572a;
+        }
+
+        .asset_browser_file_label {
+            display: block;
+            margin-bottom: 8px;
+            color: #dde5eb;
+            font-size: 13px;
+            white-space: normal;
+        }
+
+        .asset_browser_file_meta {
+            display: block;
+            color: #7f919f;
+            font-size: 11px;
+            white-space: normal;
+            line-height: 15px;
+        }
+
+        .asset_browser_context_menu {
+            z-index: 60;
         }
 
         #center_panel {

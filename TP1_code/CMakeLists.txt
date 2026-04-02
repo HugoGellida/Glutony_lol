@@ -144,6 +144,7 @@ option(ENABLE_LSAN "Enable LeakSanitizer (LSan) for TP1" OFF)
 add_executable(TP1
     TP1/TP1.cpp
     common/gameobject/Transform.cpp
+    common/gameobject/component/MeshRenderer.cpp
     common/physics/PhysicEngine.cpp
     common/physics/RigidBody.cpp
     common/platform/NativeFileDialog.cpp
@@ -238,16 +239,22 @@ if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
 
     add_custom_command(
         TARGET TP1 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/Assets"
+        )
+
+        add_custom_command(
+        TARGET TP1 POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in_shaders"
-                "${CMAKE_CURRENT_BINARY_DIR}/built-in_shaders"
+            "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in"
+            "${CMAKE_CURRENT_BINARY_DIR}/built-in"
     )
 
     add_custom_command(
         TARGET TP1 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in_mesh"
-                "${CMAKE_CURRENT_BINARY_DIR}/built-in_mesh"
+        COMMAND ${CMAKE_COMMAND} -E rm -f
+            "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/lit_default.material.json"
+            "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/selection_highlight.material.json"
     )
 
     # A activer plus tard quand tu auras créé un dossier TP1/ui

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <string>
 #include "Component.hpp"
 #include "../../physics/AABB.hpp"
 
@@ -40,6 +41,7 @@ namespace component
         bool m_hasUVs = false;
         bool m_onGPU = false;
         physics::AABB m_AABB = physics::AABB();
+        std::string m_assetPath;
     public:
         Mesh() : Component() {}
         Mesh(uint vStride, uint tStride, bool hasNormals = false, bool hasColors = false, bool hasUVs = false) : Component()
@@ -239,6 +241,16 @@ namespace component
         physics::AABB getAABB() const
         {
             return m_AABB;
+        }
+
+        void setAssetPath(const std::string& assetPath)
+        {
+            m_assetPath = assetPath;
+        }
+
+        const std::string& getAssetPath() const
+        {
+            return m_assetPath;
         }
 
         ~Mesh()

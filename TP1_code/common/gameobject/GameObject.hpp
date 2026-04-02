@@ -6,13 +6,16 @@
 #include <iostream>
 using namespace component;
 
+class Scene;
 
 class GameObject
 {
 private:
     Component ** m_component = nullptr;
     unsigned int m_componentStride = 0;
+    int m_id = -1;
     std::string m_name = "GameObject";
+    Scene* m_scene = nullptr;
 
 public:
     Transform transform;
@@ -30,16 +33,55 @@ public:
         for (unsigned int i = 0; i < m_componentStride - 1; i++)
             new_comp_arr[i] = m_component[i];
         new_comp_arr[m_componentStride - 1] = component;
+        if (component != nullptr)
+        {
+            component->ownerCount++;
+            component->setOwner(this);
+        }
         delete[] m_component;
         this -> m_component = new_comp_arr;
+    }
+
+    template <typename T>
+    bool setSharedComponent(T* replacement)
+    {
+        if (replacement == nullptr)
+            return false;
+
+        for (unsigned int index = 0; index < m_componentStride; ++index)
+        {
+            T* existing = dynamic_cast<T*>(m_component[index]);
+            if (existing == nullptr)
+                continue;
+
+            if (existing == replacement)
+            {
+                replacement->setOwner(this);
+                return true;
+            }
+
+            replacement->ownerCount++;
+            replacement->setOwner(this);
+            m_component[index] = replacement;
+
+            if (existing->ownerCount > 0)
+                existing->ownerCount--;
+            if (existing->ownerCount == 0)
+                delete existing;
+            return true;
+        }
+
+        addComponent(replacement);
+        return true;
     }
 
     template <typename T>
     T * getComponent()
     {
         for (uint i = 0; i < m_componentStride; i++)
-            if (T * casted = dynamic_cast<T *>(m_component[i]))
-                return casted;
+            if (m_component[i] != nullptr)
+                if ( T * casted = dynamic_cast<T *>(m_component[i]))
+                    return casted;
         return nullptr;
     }
 
@@ -89,6 +131,26 @@ public:
         this -> m_name = name;
     }
 
+    void setId(int id)
+    {
+        m_id = id;
+    }
+
+    void setScene(Scene* scene)
+    {
+        m_scene = scene;
+    }
+
+    int getId() const
+    {
+        return m_id;
+    }
+
+    Scene* getScene() const
+    {
+        return m_scene;
+    }
+
     const std::string& getName() const
     {
         return m_name;
@@ -133,7 +195,17 @@ public:
     {
         for (unsigned int i = 0; i < m_componentStride; i++)
         {
-            delete m_component[i];
+            Component* component = m_component[i];
+            m_component[i] = nullptr;
+
+            if (component == nullptr)
+                continue;
+
+            if (component->ownerCount > 0)
+                component->ownerCount--;
+
+            if (component->ownerCount == 0)
+                delete component;
         }
         delete[] m_component;
         transform.removeParent();

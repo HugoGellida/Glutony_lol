@@ -2,6 +2,7 @@
 
 #include "Component.hpp"
 #include "Mesh.hpp"
+#include "ComponentSerialization.hpp"
 #include "../../shader/Material.hpp"
 #include <GL/glew.h>
 
@@ -15,6 +16,8 @@ namespace component
     private:
         component::Mesh * m_mesh = nullptr;
         Material * m_mat = nullptr;
+        std::string m_meshAssetPath;
+        std::string m_materialAssetPath;
         bool m_onGPU = false;
         GLuint m_VBO;
         GLuint m_VAO;
@@ -48,8 +51,8 @@ namespace component
     public:
         MeshRenderer(component::Mesh * mesh, Material * mat) : Component()
         {
-            m_mesh = mesh;
-            m_mat = mat;
+            setMesh(mesh);
+            setMaterial(mat);
         }
 
         void setInverted()
@@ -57,8 +60,61 @@ namespace component
             invertCull = true;
         }
 
+        void setMesh(component::Mesh* mesh)
+        {
+            m_mesh = mesh;
+            m_meshAssetPath = (m_mesh != nullptr) ? m_mesh->getAssetPath() : "";
+            m_onGPU = false;
+        }
+
+        component::Mesh* getMesh() const
+        {
+            return m_mesh;
+        }
+
+        void setMaterial(Material* material)
+        {
+            m_mat = material;
+            m_materialAssetPath = (m_mat != nullptr) ? m_mat->getAssetPath() : "";
+        }
+
+        Material* getMaterial() const
+        {
+            return m_mat;
+        }
+
+        void setMeshAssetPath(const std::string& assetPath)
+        {
+            m_meshAssetPath = assetPath;
+        }
+
+        const std::string& getMeshAssetPath() const
+        {
+            return m_meshAssetPath;
+        }
+
+        void setMaterialAssetPath(const std::string& assetPath)
+        {
+            m_materialAssetPath = assetPath;
+        }
+
+        const std::string& getMaterialAssetPath() const
+        {
+            return m_materialAssetPath;
+        }
+
+        static const component_meta::ComponentDescriptor& componentDescriptor();
+
+        const component_meta::ComponentDescriptor* getComponentDescriptor() const override
+        {
+            return &componentDescriptor();
+        }
+
         void run() override 
         {
+            if (m_mesh == nullptr || m_mat == nullptr)
+                return;
+
             if (m_onGPU && m_mesh -> isOnGPU())
                 return;
             if (m_onGPU)
@@ -149,7 +205,7 @@ namespace component
         }
         void render(Camera const & camera, Transform & transform)
         {
-            if (!m_onGPU) // will be renderered when stored on gpu.
+            if (!m_onGPU || m_mesh == nullptr || m_mat == nullptr) // will be renderered when stored on gpu.
                 return;
             prepareRenderState();
 
@@ -165,7 +221,7 @@ namespace component
 
         void renderWithMaterial(Camera const& camera, Transform& transform, Material& material)
         {
-            if (!m_onGPU)
+            if (!m_onGPU || m_mesh == nullptr)
                 return;
 
             prepareRenderState();
@@ -183,7 +239,7 @@ namespace component
 
         void renderOverlayWithMaterial(Camera const& camera, Transform& transform, Material& material)
         {
-            if (!m_onGPU)
+            if (!m_onGPU || m_mesh == nullptr)
                 return;
 
             prepareRenderState();

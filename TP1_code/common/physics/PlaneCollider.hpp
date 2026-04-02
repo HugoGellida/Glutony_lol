@@ -76,7 +76,10 @@ namespace physics
                 value.typeKey = "physics.planeCollider";
                 value.displayName = "Plane Collider";
                 value.version = 1;
-                value.factory = []() -> component::Component* {return new PlaneCollider();};
+                value.factory = [](GameObject* parent) -> component::Component* {
+                    (void)parent;
+                    return new PlaneCollider();
+                };
                 value.fields = {
                     {
                         "planeOrigin",

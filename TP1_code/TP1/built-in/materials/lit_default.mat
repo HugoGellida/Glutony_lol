@@ -1,0 +1,5 @@
+{
+  "type": "lit",
+  "shader": "built-in/shaders/lit",
+  "mainColor": [0.5, 0.5, 0.5]
+}

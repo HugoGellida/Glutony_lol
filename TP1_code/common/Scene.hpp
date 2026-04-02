@@ -17,10 +17,12 @@
 #include "physics/BoxCollider.hpp"
 #include "physics/PlaneCollider.hpp"
 #include "geometry/Plane.hpp"
+#include "asset/AssetManager.hpp"
 #include "ui/UIRenderer.hpp"
 #include "utils/Raycast.hpp"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 
@@ -28,10 +30,12 @@ class Scene
 {
 private:
     GameObject ** m_gameObjects = nullptr;
+    size_t m_gameObjectCapacity = 0;
     size_t m_meshsCount=0;
     component::Mesh ** m_meshs=nullptr;
     
     size_t m_gameObjectCount = 0;
+    int m_nextGameObjectId = 1;
     dataStruct::Material * m_materials;
     Shader * m_shaders;
     Shader * m_selectionHighlightShader = nullptr;
@@ -55,6 +59,51 @@ private:
     int m_uiViewportWidth = 0;
     int m_uiViewportHeight = 0;
     std::vector<std::unique_ptr<UIRenderer>> m_uiRenderers;
+    asset::SceneAssetRegistry m_sceneAssetRegistry;
+
+    static std::string proceduralPlaneAssetPath()
+    {
+        return "procedural/plane";
+    }
+
+    component::Mesh* useMeshAsset(const std::string& relativePath)
+    {
+        const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(relativePath);
+        m_sceneAssetRegistry.registerAsset(asset::AssetType::Mesh, normalizedPath);
+        return asset::AssetManager::instance().loadMesh(normalizedPath);
+    }
+
+    Shader* useShaderAsset(const std::string& relativePath)
+    {
+        const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(relativePath);
+        m_sceneAssetRegistry.registerAsset(asset::AssetType::Shader, normalizedPath);
+        return asset::AssetManager::instance().loadShader(normalizedPath);
+    }
+
+    dataStruct::Material* useMaterialAsset(const std::string& relativePath)
+    {
+        const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(relativePath);
+        m_sceneAssetRegistry.registerAsset(asset::AssetType::Material, normalizedPath);
+        return asset::AssetManager::instance().loadMaterial(normalizedPath);
+    }
+
+    component::Mesh* useProceduralPlaneAsset()
+    {
+        const std::string assetPath = proceduralPlaneAssetPath();
+        m_sceneAssetRegistry.registerAsset(asset::AssetType::Mesh, assetPath);
+
+        if (m_meshs != nullptr && m_meshsCount > 1 && m_meshs[1] != nullptr)
+            return m_meshs[1];
+
+        component::Mesh* plane = new Plane(glm::vec3(0, 0, 0), 10, 2);
+        plane->setAssetPath(assetPath);
+        plane->ownerCount++;
+
+        if (m_meshs != nullptr && m_meshsCount > 1)
+            m_meshs[1] = plane;
+
+        return plane;
+    }
 
     void updateUiRenderers(double deltaTime)
     {
@@ -89,159 +138,84 @@ private:
         meshRenderer->renderOverlayWithMaterial(m_camera, m_selectedGameObject->transform, *m_selectionHighlightMaterial);
     }
 
+    void ensureGameObjectCapacity(size_t requiredCapacity)
+    {
+        if (requiredCapacity <= m_gameObjectCapacity)
+            return;
+
+        size_t newCapacity = (m_gameObjectCapacity == 0) ? 8 : m_gameObjectCapacity;
+        while (newCapacity < requiredCapacity)
+            newCapacity *= 2;
+
+        GameObject** newGameObjects = new GameObject*[newCapacity];
+        for (size_t index = 0; index < m_gameObjectCount; ++index)
+            newGameObjects[index] = m_gameObjects[index];
+        for (size_t index = m_gameObjectCount; index < newCapacity; ++index)
+            newGameObjects[index] = nullptr;
+
+        delete[] m_gameObjects;
+        m_gameObjects = newGameObjects;
+        m_gameObjectCapacity = newCapacity;
+    }
+
+    void detachGameObjectFromHierarchy(GameObject* gameObject)
+    {
+        if (gameObject == nullptr)
+            return;
+
+        for (size_t index = 0; index < m_gameObjectCount; ++index)
+        {
+            GameObject* candidate = m_gameObjects[index];
+            if (candidate == nullptr || candidate == gameObject)
+                continue;
+
+            for (size_t childIndex = 0; childIndex < candidate->transform.getChildCount(); ++childIndex)
+            {
+                if (candidate->transform.getChild(childIndex) == gameObject)
+                {
+                    candidate->transform.detachChild(&gameObject->transform);
+                    gameObject->transform.removeParent();
+                    return;
+                }
+            }
+        }
+    }
+
+    void destroyAllGameObjects()
+    {
+        for (size_t index = 0; index < m_gameObjectCount; ++index)
+        {
+            delete m_gameObjects[index];
+            m_gameObjects[index] = nullptr;
+        }
+
+        m_gameObjectCount = 0;
+        m_selectedGameObject = nullptr;
+    }
+
 public:
     Scene()
     {
         using namespace component;
 
-        m_shaders = new Shader("./built-in_shaders/lit/vertex.glsl", "./built-in_shaders/lit/fragment.glsl");
+        (void)component::MeshRenderer::componentDescriptor();
+        (void)physics::RigidBody::componentDescriptor();
+        (void)physics::SphereCollider::componentDescriptor();
+        (void)physics::PlaneCollider::componentDescriptor();
+        (void)physics::BoxCollider::componentDescriptor();
+
+        m_shaders = useShaderAsset("built-in/shaders/lit");
 
         m_meshs = new component::Mesh*[3];
         m_meshsCount = 3;
-        m_meshs[0] = fileLoader::loadModelFile("./built-in_mesh/cube_n.obj");
-        m_meshs[1] = new Plane(glm::vec3(0, 0, 0), 10, 2);
-        m_meshs[2] = fileLoader::loadModelFile("./built-in_mesh/unit_sphere_n.off");
+        m_meshs[0] = useMeshAsset("built-in/mesh/cube_n.obj");
+        m_meshs[1] = useProceduralPlaneAsset();
+        m_meshs[2] = useMeshAsset("built-in/mesh/unit_sphere_n.off");
 
 
-        this -> m_materials = new dataStruct::LitMaterial(m_shaders);
-        m_selectionHighlightShader = new Shader("./built-in_shaders/unlit/vertex.glsl", "./built-in_shaders/unlit/fragment.glsl");
-        m_selectionHighlightMaterial = new dataStruct::UnlitMaterial(m_selectionHighlightShader);
-        
-        m_gameObjects = new GameObject*[8];
-        m_gameObjectCount = 0;
-        {
-            m_gameObjects[m_gameObjectCount] = new GameObject("Cube");
-            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[0]);
-            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
-            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0.0, 1.0, 0.0));
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
-            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = true;
-            rb.m_linearVelocity = glm::vec3(0.0, 0.0, 0.0);
-            rb.staticFriction = 1.0f;
-            rb.dynamicFriction = 1.0f;
-            rb.bounciness = 1.0f;
-            rb.mass = 0.2f;
-            rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::BoxCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.5, 0.5, 0.5), glm::vec3(1.0, 1.0, 1.0)));
-        }
-        m_gameObjectCount++;
-        {
-            m_gameObjects[m_gameObjectCount] = new GameObject("Sphere");
-            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[2]);
-            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
-            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0.0, 5.0, 0.0));
-            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(0.1, 0.1, 0.1));
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
-            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = true;
-            rb.m_linearVelocity = glm::vec3(0.001, 0.0, 0.0);
-            rb.staticFriction = 1.0f;
-            rb.dynamicFriction = 1.0f;
-            rb.bounciness = 0.2f;
-            rb.mass = 0.1f;
-            rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::SphereCollider(glm::vec3(0.0, 0.0, 0.0), 1.0f));
-        }
-        m_gameObjectCount++;
-        {
-            m_gameObjects[m_gameObjectCount] = new GameObject("Sphere");
-            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[2]);
-            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
-            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0.0, 5.0, 0.0));
-            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(0.1, 0.1, 0.1));
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
-            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = true;
-            rb.m_linearVelocity = glm::vec3(0.001, 0.0, 0.0);
-            rb.staticFriction = 1.0f;
-            rb.dynamicFriction = 1.0f;
-            rb.bounciness = 0.2f;
-            rb.mass = 0.1f;
-            rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::SphereCollider(glm::vec3(0.0, 0.0, 0.0), 1.0f));
-        }
-        m_gameObjectCount++;
-        {
-            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
-            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
-            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
-            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0, -1, 0));
-            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
-            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = false;
-            rb.isStatic = true;
-            rb.mass = 0.0f;
-            rb.bounciness = 1.0f;
-            rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
-        } 
-        m_gameObjectCount++;
-        {
-            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
-            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
-            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
-            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0, 4, 5));
-            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
-            m_gameObjects[m_gameObjectCount] -> setRotation(glm::vec3(-90.0f, 0.0f, 0.0f));
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
-            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = false;
-            rb.isStatic = true;
-            rb.mass = 0.0f;
-            rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
-        } 
-        m_gameObjectCount++;
-        {
-            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
-            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
-            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
-            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(0, 4, -5));
-            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
-            m_gameObjects[m_gameObjectCount] -> setRotation(glm::vec3(90.0f, 0.0f, 0.0f));
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
-            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = false;
-            rb.isStatic = true;
-            rb.mass = 0.0f;
-            rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
-        } 
-        m_gameObjectCount++;
-        {
-            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
-            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
-            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
-            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(5, 4, 0));
-            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
-            m_gameObjects[m_gameObjectCount] -> setRotation(glm::vec3(0.0f, 0.0f, 90.0f));
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
-            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = false;
-            rb.isStatic = true;
-            rb.mass = 0.0f;
-            rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
-        } 
-        m_gameObjectCount++;
-        {
-            m_gameObjects[m_gameObjectCount] = new GameObject("Plane");
-            m_gameObjects[m_gameObjectCount] -> addComponent(m_meshs[1]);
-            m_gameObjects[m_gameObjectCount] -> addComponent(new MeshRenderer(m_gameObjects[m_gameObjectCount] -> getComponent<Mesh>(), m_materials));
-            m_gameObjects[m_gameObjectCount] -> setPosition(glm::vec3(-5, 4, 0));
-            m_gameObjects[m_gameObjectCount] -> setScale(glm::vec3(1, 1, 1));
-            m_gameObjects[m_gameObjectCount] -> setRotation(glm::vec3(0.0f, 0.0f, -90.0f));
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::RigidBody(m_gameObjects[m_gameObjectCount]));
-            physics::RigidBody & rb = *m_gameObjects[m_gameObjectCount] -> getComponent<physics::RigidBody>();
-            rb.useGravity = false;
-            rb.isStatic = true;
-            rb.mass = 0.0f;
-            rb.RecomputeInverseMass();
-            m_gameObjects[m_gameObjectCount] -> addComponent(new physics::PlaneCollider(glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 1.0, 0.0)));
-        } 
-        m_gameObjectCount++;
+        this -> m_materials = useMaterialAsset("built-in/materials/lit_default.mat");
+        m_selectionHighlightShader = useShaderAsset("built-in/shaders/unlit");
+        m_selectionHighlightMaterial = dynamic_cast<dataStruct::UnlitMaterial*>(useMaterialAsset("built-in/materials/selection_highlight.mat"));
         m_camera = Camera();
 
 
@@ -461,6 +435,67 @@ public:
         return m_gameObjectCount;
     }
 
+    GameObject* addGameObject(const std::string& name)
+    {
+        ensureGameObjectCapacity(m_gameObjectCount + 1);
+
+        GameObject* gameObject = new GameObject(name);
+        gameObject->setScene(this);
+        gameObject->setId(m_nextGameObjectId++);
+        m_gameObjects[m_gameObjectCount++] = gameObject;
+        return gameObject;
+    }
+
+    GameObject* addGameObject(const std::string& name, int id)
+    {
+        ensureGameObjectCapacity(m_gameObjectCount + 1);
+
+        GameObject* gameObject = new GameObject(name);
+        gameObject->setScene(this);
+        gameObject->setId(id);
+        if (id >= m_nextGameObjectId)
+            m_nextGameObjectId = id + 1;
+        m_gameObjects[m_gameObjectCount++] = gameObject;
+        return gameObject;
+    }
+
+    bool removeGameObject(int id)
+    {
+        for (size_t index = 0; index < m_gameObjectCount; ++index)
+        {
+            GameObject* gameObject = m_gameObjects[index];
+            if (gameObject == nullptr || gameObject->getId() != id)
+                continue;
+
+            if (m_selectedGameObject == gameObject)
+                m_selectedGameObject = nullptr;
+
+            detachGameObjectFromHierarchy(gameObject);
+            delete gameObject;
+
+            for (size_t moveIndex = index + 1; moveIndex < m_gameObjectCount; ++moveIndex)
+                m_gameObjects[moveIndex - 1] = m_gameObjects[moveIndex];
+
+            m_gameObjects[m_gameObjectCount - 1] = nullptr;
+            m_gameObjectCount--;
+            return true;
+        }
+
+        return false;
+    }
+
+    GameObject* getGameObjectById(int id) const
+    {
+        for (size_t index = 0; index < m_gameObjectCount; ++index)
+        {
+            GameObject* gameObject = m_gameObjects[index];
+            if (gameObject != nullptr && gameObject->getId() == id)
+                return gameObject;
+        }
+
+        return nullptr;
+    }
+
     GameObject* getGameObject(size_t index) const
     {
         return index < m_gameObjectCount ? m_gameObjects[index] : nullptr;
@@ -474,6 +509,11 @@ public:
     void setSelectedGameObject(GameObject* gameObject)
     {
         m_selectedGameObject = gameObject;
+    }
+
+    void setSelectedGameObjectById(int id)
+    {
+        m_selectedGameObject = getGameObjectById(id);
     }
 
     void toggleSelectedGameObject(GameObject* gameObject)
@@ -559,6 +599,54 @@ public:
         m_camera.m_aspectRatio = aspectRatio;
     }
 
+    Camera& getCamera()
+    {
+        return m_camera;
+    }
+
+    const Camera& getCamera() const
+    {
+        return m_camera;
+    }
+
+    component::Mesh* resolveMeshAsset(const std::string& relativePath)
+    {
+        const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(relativePath);
+        if (normalizedPath == proceduralPlaneAssetPath())
+            return useProceduralPlaneAsset();
+        return useMeshAsset(normalizedPath);
+    }
+
+    Shader* resolveShaderAsset(const std::string& relativePath)
+    {
+        return useShaderAsset(relativePath);
+    }
+
+    dataStruct::Material* resolveMaterialAsset(const std::string& relativePath)
+    {
+        return useMaterialAsset(relativePath);
+    }
+
+    void clearGameObjects()
+    {
+        destroyAllGameObjects();
+    }
+
+    void clearSceneAssetRegistry()
+    {
+        m_sceneAssetRegistry.clear();
+    }
+
+    void setNextGameObjectId(int nextId)
+    {
+        m_nextGameObjectId = std::max(1, nextId);
+    }
+
+    int getNextGameObjectId() const
+    {
+        return m_nextGameObjectId;
+    }
+
     bool isFpsControlEnabled() const
     {
         return m_fpsControl;
@@ -579,13 +667,24 @@ public:
         return m_physicsSimulationEnabled;
     }
 
+    const asset::SceneAssetRegistry& getSceneAssetRegistry() const
+    {
+        return m_sceneAssetRegistry;
+    }
+
     ~Scene()
     {
         clearUiRenderers();
+        destroyAllGameObjects();
+        if (m_meshs != nullptr && m_meshsCount > 1 && m_meshs[1] != nullptr)
+        {
+            if (m_meshs[1]->ownerCount > 0)
+                m_meshs[1]->ownerCount--;
+            if (m_meshs[1]->ownerCount == 0)
+                delete m_meshs[1];
+            m_meshs[1] = nullptr;
+        }
         delete[] m_gameObjects;
-        delete m_materials;
-        delete m_selectionHighlightMaterial;
-        delete m_shaders;
-        delete m_selectionHighlightShader;
+        delete[] m_meshs;
     }
 };

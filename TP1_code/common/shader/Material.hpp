@@ -39,6 +39,7 @@ namespace dataStruct
     private:
         glm::mat4 * mvp;
         glm::mat4 * mvpOrtho;
+        std::string m_assetPath;
     protected:
 
         uint m_uni1f_stride = 0;
@@ -100,6 +101,21 @@ namespace dataStruct
             *mvp = cam.projectionMatrix() * cam.inverseTransform() * transform.getModelWorld();
             *mvpOrtho = glm::transpose(glm::inverse(transform.getModelWorld()));
             sync();
+        }
+
+        Shader* getShader() const
+        {
+            return m_shader;
+        }
+
+        void setAssetPath(const std::string& assetPath)
+        {
+            m_assetPath = assetPath;
+        }
+
+        const std::string& getAssetPath() const
+        {
+            return m_assetPath;
         }
 
         ~Material()

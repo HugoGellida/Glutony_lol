@@ -117,6 +117,8 @@ namespace physics
 
         void SetAngularVelocity(glm::vec3 v);
 
+        void RefreshSerializedState();
+
         AABB getAABB() const
         {
             if (m_parent == nullptr)
@@ -137,7 +139,7 @@ namespace physics
                 value.typeKey = "physics.rigidbody";
                 value.displayName = "RigidBody";
                 value.version = 1;
-                value.factory = []() -> component::Component* {return new RigidBody(nullptr);};
+                value.factory = [](GameObject* parent) -> component::Component* {return parent != nullptr ? new RigidBody(parent) : nullptr;};
                 value.fields = {
                     {
                         "position",
@@ -151,7 +153,7 @@ namespace physics
                             if (parsed == nullptr)
                                 return false;
                             
-                            static_cast<RigidBody&>(component).m_position = *parsed;
+                            static_cast<RigidBody&>(component).Teleport(*parsed);
                             return true;
                         },
                         {}
@@ -168,7 +170,7 @@ namespace physics
                             if (parsed == nullptr)
                                 return false;
 
-                            static_cast<RigidBody&>(component).m_rotation = *parsed;
+                            static_cast<RigidBody&>(component).SetRotation(*parsed);
                             return true;
                         },
                         {}
@@ -185,7 +187,7 @@ namespace physics
                             if (parsed == nullptr)
                                 return false;
                             
-                            static_cast<RigidBody&>(component).m_linearVelocity = *parsed;
+                            static_cast<RigidBody&>(component).SetVelocity(*parsed);
                             return true;
                         },
                         {}
@@ -202,7 +204,7 @@ namespace physics
                             if (parsed == nullptr)
                                 return false;
                             
-                            static_cast<RigidBody&>(component).m_angularVelocity = *parsed;
+                            static_cast<RigidBody&>(component).SetAngularVelocity(*parsed);
                             return true;
                         },
                         {}
@@ -242,6 +244,25 @@ namespace physics
                         {}
                     },
                     {
+                        "isStatic",
+                        "Is Static",
+                        component_meta::FieldKind::Bool,
+                        [](const component::Component& component) -> component_meta::SerializedValue {
+                            return static_cast<const RigidBody&>(component).isStatic;
+                        },
+                        [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
+                            const bool* parsed = std::get_if<bool>(&value);
+                            if (parsed == nullptr)
+                                return false;
+                            
+                            RigidBody& rigidBody = static_cast<RigidBody&>(component);
+                            rigidBody.isStatic = *parsed;
+                            rigidBody.RecomputeInverseMass();
+                            return true;
+                        },
+                        {}
+                    },
+                    {
                         "useGravity",
                         "Use Gravity",
                         component_meta::FieldKind::Bool,
@@ -270,7 +291,9 @@ namespace physics
                             if (parsed == nullptr)
                                 return false;
 
-                            static_cast<RigidBody&>(component).enableAngularDynamics= *parsed;
+                            RigidBody& rigidBody = static_cast<RigidBody&>(component);
+                            rigidBody.enableAngularDynamics = *parsed;
+                            rigidBody.RecomputeMassProperties();
                             return true;
                         },
                         {}
@@ -287,7 +310,9 @@ namespace physics
                             if (parsed == nullptr)
                                 return false;
 
-                            static_cast<RigidBody&>(component).mass = *parsed;
+                            RigidBody& rigidBody = static_cast<RigidBody&>(component);
+                            rigidBody.mass = *parsed;
+                            rigidBody.RecomputeInverseMass();
                             return true;
                         },
                         {}

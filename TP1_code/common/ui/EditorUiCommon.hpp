@@ -95,6 +95,11 @@ enum class DragPayloadKind
     None,
     Widget,
     Node,
+    AssetFile,
+    MeshAsset,
+    ShaderAsset,
+    MaterialAsset,
+    TextureAsset,
 };
 
 enum class HierarchyDropMode

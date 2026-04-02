@@ -24,6 +24,18 @@ enum class FieldKind
     Vec3,
     String,
     Enum,
+    Asset,
+};
+
+enum class AssetReferenceKind
+{
+    None,
+    Generic,
+    Mesh,
+    Shader,
+    Material,
+    Texture,
+    Scene,
 };
 
 using SerializedValue = std::variant<bool, int, float, glm::vec3, std::string>;
@@ -55,6 +67,7 @@ struct ComponentFieldDescriptor
     std::function<SerializedValue(const component::Component&)> read;
     std::function<bool(component::Component&, const SerializedValue&)> write;
     std::vector<EnumOption> enumOptions;
+    AssetReferenceKind assetReferenceKind = AssetReferenceKind::None;
 };
 
 struct ComponentDescriptor
@@ -62,7 +75,7 @@ struct ComponentDescriptor
     std::string typeKey;
     std::string displayName;
     std::uint32_t version = 1;
-    std::function<component::Component*()> factory;
+    std::function<component::Component*(GameObject*)> factory;
     std::vector<ComponentFieldDescriptor> fields;
 };
 
@@ -135,13 +148,15 @@ inline bool applyComponentSnapshot(component::Component& component, const Compon
     return true;
 }
 
-inline std::unique_ptr<component::Component> createComponentFromSnapshot(const ComponentSnapshot& snapshot)
+inline std::unique_ptr<component::Component> createComponentFromSnapshot(const ComponentSnapshot& snapshot, GameObject* parent = nullptr)
 {
     const ComponentDescriptor* descriptor = findComponentDescriptor(snapshot.typeKey);
     if (descriptor == nullptr || !descriptor->factory)
         return nullptr;
 
-    std::unique_ptr<component::Component> component(descriptor->factory());
+    std::unique_ptr<component::Component> component(descriptor->factory(parent));
+    if (component)
+        component->setOwner(parent);
     if (!component || !applyComponentSnapshot(*component, snapshot))
         return nullptr;
 

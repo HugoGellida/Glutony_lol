@@ -14,18 +14,29 @@
 class Shader
 {
 private:
-    const char * vPath;
-    const char * fPath;
+    std::string vPath;
+    std::string fPath;
+    std::string m_assetPath;
     GLuint programID;
     bool loaded = false;
     
 public:
-    Shader(const char * vertex_path, const char * fragment_path){vPath = vertex_path; fPath = fragment_path;}
+    Shader(const char * vertex_path, const char * fragment_path)
+        : vPath(vertex_path != nullptr ? vertex_path : ""),
+          fPath(fragment_path != nullptr ? fragment_path : "")
+    {
+    }
+
+    Shader(const std::string& vertex_path, const std::string& fragment_path)
+        : vPath(vertex_path), fPath(fragment_path)
+    {
+    }
+
     void recompile()
     {
         if (loaded)
             glDeleteProgram(programID);
-        programID = LoadShader(vPath, fPath);
+        programID = LoadShader(vPath.c_str(), fPath.c_str());
         loaded = true;
     }
 
@@ -41,6 +52,26 @@ public:
     void Upload(IUniform * u)
     {
         u -> upload(programID);
+    }
+
+    void setAssetPath(const std::string& assetPath)
+    {
+        m_assetPath = assetPath;
+    }
+
+    const std::string& getAssetPath() const
+    {
+        return m_assetPath;
+    }
+
+    const std::string& getVertexPath() const
+    {
+        return vPath;
+    }
+
+    const std::string& getFragmentPath() const
+    {
+        return fPath;
     }
 
 
