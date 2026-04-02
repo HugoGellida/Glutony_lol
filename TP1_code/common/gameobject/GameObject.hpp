@@ -106,6 +106,39 @@ public:
         return m_component[index];
     }
 
+    bool removeComponentAt(size_t index)
+    {
+        if (index >= m_componentStride)
+            return false;
+
+        Component* removedComponent = m_component[index];
+        const unsigned int newStride = m_componentStride - 1;
+        Component** newComponentArray = newStride > 0 ? new Component*[newStride] : nullptr;
+
+        for (unsigned int sourceIndex = 0, targetIndex = 0; sourceIndex < m_componentStride; ++sourceIndex)
+        {
+            if (sourceIndex == index)
+                continue;
+
+            newComponentArray[targetIndex++] = m_component[sourceIndex];
+        }
+
+        delete[] m_component;
+        m_component = newComponentArray;
+        m_componentStride = newStride;
+
+        if (removedComponent != nullptr)
+        {
+            if (removedComponent->ownerCount > 0)
+                removedComponent->ownerCount--;
+
+            if (removedComponent->ownerCount == 0)
+                delete removedComponent;
+        }
+
+        return true;
+    }
+
     void setPosition(glm::vec3 wPos)
     {
         transform.setPosition(wPos);

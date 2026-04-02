@@ -102,6 +102,25 @@ const char* kEditorLayoutDocument = R"RML(
             height: 100%;
             display: flex;
             flex-direction: column;
+            overflow: hidden;
+        }
+
+        .inspector_shell {
+            position: relative;
+        }
+
+        .inspector_overlay {
+            position: absolute;
+            left: 0px;
+            top: 0px;
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+            pointer-events: none;
+        }
+
+        .inspector_overlay .hierarchy_context_menu {
+            pointer-events: auto;
         }
 
         .hierarchy_shell {
@@ -109,6 +128,11 @@ const char* kEditorLayoutDocument = R"RML(
         }
 
         .panel_header {
+            display: block;
+            position: relative;
+            z-index: 1;
+            flex-shrink: 0;
+            width: 100%;
             height: 34px;
             line-height: 34px;
             padding-left: 12px;
@@ -118,6 +142,7 @@ const char* kEditorLayoutDocument = R"RML(
             letter-spacing: 1.2px;
             text-transform: uppercase;
             color: #8ea0b0;
+            box-sizing: border-box;
         }
 
         .panel_header_with_action {
@@ -126,6 +151,40 @@ const char* kEditorLayoutDocument = R"RML(
             justify-content: space-between;
             padding-right: 8px;
             box-sizing: border-box;
+        }
+
+        .panel_header_tabs {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            padding-right: 8px;
+            box-sizing: border-box;
+        }
+
+        .panel_tabs {
+            display: flex;
+            align-items: center;
+        }
+
+        .panel_tab_button {
+            min-width: 110px;
+            margin-right: 8px;
+            padding: 0px 10px;
+            color: #94a6b4;
+            background-color: #151d23;
+            border: 1px #2a3640;
+            text-align: center;
+        }
+
+        .panel_tab_button.active {
+            color: #dce5ec;
+            background-color: #25323b;
+            border-color: #566f81;
+        }
+
+        .panel_tab_button:hover {
+            background-color: #202b33;
         }
 
         .panel_header_action {
@@ -145,12 +204,15 @@ const char* kEditorLayoutDocument = R"RML(
 
         .panel_body {
             flex: 1;
+            min-height: 0px;
             padding: 12px;
             overflow: auto;
         }
 
         .panel_body_no_padding {
             padding: 0px;
+            overflow: hidden;
+            position: relative;
         }
 
         .hierarchy_body,
@@ -349,6 +411,10 @@ const char* kEditorLayoutDocument = R"RML(
             z-index: 70;
         }
 
+        .inspector_component_context_menu {
+            z-index: 70;
+        }
+
         .inspector_field_input option {
             background-color: #11181d;
             color: #e3ebf2;
@@ -479,9 +545,12 @@ const char* kEditorLayoutDocument = R"RML(
         .hierarchy_context_menu {
             position: absolute;
             min-width: 144px;
+            max-height: 320px;
             background-color: #1b2329;
             border: 1px #33414c;
             z-index: 40;
+            overflow-x: hidden;
+            overflow-y: auto;
         }
 
         .hierarchy_context_item {
@@ -794,19 +863,165 @@ const char* kEditorLayoutDocument = R"RML(
         }
 
         .asset_browser_workspace {
+            position: relative;
             width: 100%;
             height: 100%;
-            display: flex;
-            align-items: stretch;
-            position: relative;
             background-color: #11171c;
         }
 
+        .asset_browser_overlay {
+            position: absolute;
+            left: 0px;
+            top: 0px;
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+            pointer-events: none;
+            z-index: 25;
+        }
+
+        .asset_browser_overlay .hierarchy_context_menu {
+            pointer-events: auto;
+        }
+
+        .console_workspace {
+            display: block;
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-width: 0px;
+            min-height: 0px;
+            overflow: hidden;
+            background-color: #0f151a;
+        }
+
+        .console_output {
+            display: block;
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-width: 0px;
+            min-height: 0px;
+            padding: 10px 18px 10px 12px;
+            scrollbar-margin: 14px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            background-color: #0f151a;
+            box-sizing: border-box;
+        }
+
+        .console_output scrollbarvertical {
+            display: block;
+            flex: 0 0 12px;
+            width: 12px;
+            max-width: 12px;
+            min-width: 12px;
+        }
+
+        .console_output scrollbarvertical slidertrack {
+            display: block;
+            width: 12px;
+            max-width: 12px;
+            min-width: 12px;
+            background-color: #141b21;
+            border-left: 1px #25323b;
+        }
+
+        .console_output scrollbarvertical sliderbar {
+            display: block;
+            width: 12px;
+            max-width: 12px;
+            min-width: 12px;
+            min-height: 28px;
+            margin-left: 1px;
+            background-color: #4a6273;
+        }
+
+        .console_output scrollbarvertical sliderbar:hover {
+            background-color: #6f8a9c;
+        }
+
+        .console_line {
+            display: block;
+            margin-bottom: 4px;
+            padding: 2px 0px;
+            font-size: 12px;
+            color: #d8e1e8;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .console_line_segment {
+            color: #d8e1e8;
+            white-space: pre-wrap;
+        }
+
+        .console_line_bold {
+            font-weight: bold;
+        }
+
+        .console_line_info {
+            color: #8fc4ff;
+        }
+
+        .console_line_warning {
+            color: #f0c56d;
+        }
+
+        .console_line_error {
+            color: #f08d8d;
+        }
+
+        .console_line_success {
+            color: #80d69e;
+        }
+
+        .console_line_neutral {
+            color: #d8e1e8;
+        }
+
+        .console_ansi_black {
+            color: #798892;
+        }
+
+        .console_ansi_red {
+            color: #f08d8d;
+        }
+
+        .console_ansi_green {
+            color: #80d69e;
+        }
+
+        .console_ansi_yellow {
+            color: #f0c56d;
+        }
+
+        .console_ansi_blue {
+            color: #7fbfff;
+        }
+
+        .console_ansi_magenta {
+            color: #d1a1f3;
+        }
+
+        .console_ansi_cyan {
+            color: #83d7dc;
+        }
+
+        .console_ansi_white {
+            color: #f1f6fb;
+        }
+
         .asset_browser_pane {
+            position: absolute;
+            top: 0px;
+            bottom: 0px;
             height: 100%;
             display: flex;
             flex-direction: column;
             min-width: 0px;
+            min-height: 0px;
+            overflow: hidden;
         }
 
         .asset_browser_files_pane {
@@ -815,11 +1030,12 @@ const char* kEditorLayoutDocument = R"RML(
 
         .asset_browser_tree_pane {
             background-color: #171e24;
-            border-left: 1px #2a353e;
+            border-right: 1px #2a353e;
         }
 
         .asset_browser_section_header {
             display: block;
+            flex: 0 0 auto;
             min-height: 34px;
             padding: 10px 12px;
             background-color: #1c242b;
@@ -828,6 +1044,7 @@ const char* kEditorLayoutDocument = R"RML(
             font-size: 12px;
             letter-spacing: 0.9px;
             text-transform: uppercase;
+            box-sizing: border-box;
         }
 
         .asset_browser_section_path {
@@ -841,9 +1058,11 @@ const char* kEditorLayoutDocument = R"RML(
 
         .asset_browser_section_body {
             flex: 1;
+            min-height: 0px;
             padding: 10px;
             overflow-x: hidden;
             overflow-y: auto;
+            box-sizing: border-box;
         }
 
         .asset_browser_tree_body scrollbarvertical,

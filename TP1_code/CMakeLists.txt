@@ -139,14 +139,23 @@ add_definitions(
 )
 
 option(ENABLE_LSAN "Enable LeakSanitizer (LSan) for TP1" OFF)
+option(GLUTONY_BUILD_GAMEPLAY "Build gameplay root sources" ON)
 
-# TP1
-add_executable(TP1
-    TP1/TP1.cpp
+set(GLUTONY_GAMEPLAY_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/gameplay/sources.cmake" CACHE FILEPATH "Gameplay manifest listing root cpp sources")
+
+set(GLUTONY_APP_COMMON_SOURCES
+    common/app/RuntimeWindow.cpp
+)
+
+set(GLUTONY_RUNTIME_SOURCES
     common/gameobject/Transform.cpp
     common/gameobject/component/MeshRenderer.cpp
     common/physics/PhysicEngine.cpp
     common/physics/RigidBody.cpp
+    common/stb_image_impl.cpp
+)
+
+set(GLUTONY_EDITOR_SUPPORT_SOURCES
     common/platform/NativeFileDialog.cpp
     common/ui/EditorUi.cpp
     common/ui/EditorUiCommon.cpp
@@ -154,6 +163,7 @@ add_executable(TP1
     common/ui/EditorUiDocuments.cpp
     common/ui/EditorUiPreviewDocument.cpp
     common/ui/SceneEditorController.cpp
+    common/ui/SceneViewportOverlay.cpp
     common/ui/UIRenderer.cpp
     common/ui/UiBuilderController.cpp
     common/ui/widget/Widget.cpp
@@ -167,7 +177,163 @@ add_executable(TP1
     common/ui/widget/ScrollRegionWidget.cpp
     external/RmlUi/Backends/RmlUi_Platform_GLFW.cpp
     external/RmlUi/Backends/RmlUi_Renderer_GL3.cpp
-    common/stb_image_impl.cpp
+)
+
+set(GLUTONY_GAMEPLAY_ROOT_SOURCES)
+if(GLUTONY_BUILD_GAMEPLAY AND EXISTS "${GLUTONY_GAMEPLAY_MANIFEST}")
+    include("${GLUTONY_GAMEPLAY_MANIFEST}")
+endif()
+
+add_library(app_common STATIC
+    ${GLUTONY_APP_COMMON_SOURCES}
+)
+
+target_include_directories(app_common
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw-3.1.2/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/glew-1.13.0/include
+)
+
+target_link_libraries(app_common
+    PUBLIC
+        ${OPENGL_LIBRARY}
+        glfw
+        GLEW_1130
+)
+
+add_library(engine_core STATIC
+    ${GLUTONY_RUNTIME_SOURCES}
+)
+
+target_include_directories(engine_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw-3.1.2/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/glm-0.9.7.1
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/glew-1.13.0/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/stb_image
+)
+
+target_link_libraries(engine_core
+    PUBLIC
+        ${OPENGL_LIBRARY}
+        glfw
+        GLEW_1130
+)
+
+add_library(editor_support STATIC
+    ${GLUTONY_EDITOR_SUPPORT_SOURCES}
+)
+
+target_include_directories(editor_support
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/RmlUi/Backends
+)
+
+target_link_libraries(editor_support
+    PUBLIC
+        engine_core
+        RmlUi::RmlUi
+)
+
+add_library(gameplay_sources STATIC
+    ${GLUTONY_GAMEPLAY_ROOT_SOURCES}
+)
+
+target_include_directories(gameplay_sources
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(gameplay_sources
+    PUBLIC
+        engine_core
+)
+
+target_compile_definitions(editor_support PRIVATE
+    RMLUI_GL3_CUSTOM_LOADER=<GL/glew.h>
+)
+
+if(NOT BUILD_SHARED_LIBS)
+    target_compile_definitions(editor_support PRIVATE RMLUI_STATIC_LIB)
+endif()
+
+function(glutony_configure_runtime_assets target_name)
+    set_target_properties(${target_name} PROPERTIES
+        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
+        XCODE_ATTRIBUTE_CONFIGURATION_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
+    )
+
+    if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
+        add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy
+                    "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/$<TARGET_FILE_NAME:${target_name}>"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
+        )
+
+        add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/img"
+                    "${CMAKE_CURRENT_BINARY_DIR}/img"
+        )
+
+        add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/vertex_shader.glsl"
+                    "${CMAKE_CURRENT_BINARY_DIR}/vertex_shader.glsl"
+        )
+
+        add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/fragment_shader.glsl"
+                    "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
+        )
+
+        add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${CMAKE_CURRENT_BINARY_DIR}/Assets"
+        )
+
+        add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in"
+                "${CMAKE_CURRENT_BINARY_DIR}/built-in"
+        )
+
+        add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E rm -f
+                "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/lit_default.material.json"
+                "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/selection_highlight.material.json"
+        )
+
+        # A activer plus tard quand tu auras créé un dossier TP1/ui
+        # add_custom_command(
+        #     TARGET ${target_name} POST_BUILD
+        #     COMMAND ${CMAKE_COMMAND} -E copy_directory
+        #             "${CMAKE_CURRENT_SOURCE_DIR}/TP1/ui"
+        #             "${CMAKE_CURRENT_BINARY_DIR}/ui"
+        # )
+    endif()
+endfunction()
+
+# TP1
+add_executable(TP1
+    TP1/TP1.cpp
+    TP1/vertex_shader.glsl
+    TP1/fragment_shader.glsl
+)
+
+add_executable(runtime_game
+    TP1/player_main.cpp
     TP1/vertex_shader.glsl
     TP1/fragment_shader.glsl
 )
@@ -181,90 +347,21 @@ if(ENABLE_LSAN)
     endif()
 endif()
 
-target_link_libraries(TP1 PRIVATE
-    ${ALL_LIBS}
-)
+target_link_libraries(TP1 PRIVATE app_common editor_support gameplay_sources)
+target_link_libraries(runtime_game PRIVATE app_common engine_core gameplay_sources)
 
 if(WIN32)
     target_link_libraries(TP1 PRIVATE Comdlg32)
+    target_link_libraries(runtime_game PRIVATE Comdlg32)
 endif()
-
-# Comme tu utilises GLEW, on dit au renderer GL3 de RmlUi d'utiliser GLEW
-target_compile_definitions(TP1 PRIVATE
-    RMLUI_GL3_CUSTOM_LOADER=<GL/glew.h>
-)
 
 # Si RmlUi est lié statiquement, il faut cette définition côté client
 if(NOT BUILD_SHARED_LIBS)
     target_compile_definitions(TP1 PRIVATE RMLUI_STATIC_LIB)
 endif()
 
-# Xcode and Visual working directories
-set_target_properties(TP1 PROPERTIES
-    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
-    XCODE_ATTRIBUTE_CONFIGURATION_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
-)
+glutony_configure_runtime_assets(TP1)
+glutony_configure_runtime_assets(runtime_game)
 
 SOURCE_GROUP(common REGULAR_EXPRESSION ".*/common/.*")
 SOURCE_GROUP(shaders REGULAR_EXPRESSION ".*/.*shader$")
-
-if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
-    add_custom_command(
-        TARGET TP1 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy
-                "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/TP1${CMAKE_EXECUTABLE_SUFFIX}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
-    )
-
-    add_custom_command(
-        TARGET TP1 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/img"
-                "${CMAKE_CURRENT_BINARY_DIR}/img"
-    )
-
-    add_custom_command(
-        TARGET TP1 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/vertex_shader.glsl"
-                "${CMAKE_CURRENT_BINARY_DIR}/vertex_shader.glsl"
-    )
-
-    add_custom_command(
-        TARGET TP1 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/fragment_shader.glsl"
-                "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
-    )
-
-    add_custom_command(
-        TARGET TP1 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory
-            "${CMAKE_CURRENT_BINARY_DIR}/Assets"
-        )
-
-        add_custom_command(
-        TARGET TP1 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in"
-            "${CMAKE_CURRENT_BINARY_DIR}/built-in"
-    )
-
-    add_custom_command(
-        TARGET TP1 POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E rm -f
-            "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/lit_default.material.json"
-            "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/selection_highlight.material.json"
-    )
-
-    # A activer plus tard quand tu auras créé un dossier TP1/ui
-    # add_custom_command(
-    #     TARGET TP1 POST_BUILD
-    #     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    #             "${CMAKE_CURRENT_SOURCE_DIR}/TP1/ui"
-    #             "${CMAKE_CURRENT_BINARY_DIR}/ui"
-    # )
-
-elseif(${CMAKE_GENERATOR} MATCHES "Xcode")
-
-endif()

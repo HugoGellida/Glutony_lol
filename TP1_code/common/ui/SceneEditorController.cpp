@@ -2,12 +2,15 @@
 
 #include "EditorUiDocuments.hpp"
 
+#include <common/app/RuntimePreviewSession.hpp>
 #include <common/platform/NativeFileDialog.hpp>
 #include <common/Scene.hpp>
 
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <iomanip>
@@ -16,11 +19,79 @@
 #include <system_error>
 #include <unordered_set>
 
+#ifndef _WIN32
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 using namespace editor_ui;
 
 namespace
 {
 constexpr int MinAssetBrowserPaneWidth = 160;
+constexpr size_t MaxConsoleLines = 256;
+constexpr int kContextMenuMinWidth = 144;
+constexpr int kContextMenuEstimatedRowHeight = 34;
+constexpr int kContextMenuVerticalPadding = 8;
+
+struct MenuPosition
+{
+    int x = 0;
+    int y = 0;
+};
+
+MenuPosition clampMenuPosition(Rml::Element* container, int x, int y, int menuWidth, int menuHeight)
+{
+    if (container == nullptr)
+        return {x, y};
+
+    const int containerWidth = static_cast<int>(std::lround(container->GetOffsetWidth()));
+    const int containerHeight = static_cast<int>(std::lround(container->GetOffsetHeight()));
+    if (containerWidth <= 0 || containerHeight <= 0)
+        return {x, y};
+
+    const int maxX = std::max(0, containerWidth - menuWidth - kContextMenuVerticalPadding);
+    const int maxY = std::max(0, containerHeight - menuHeight - kContextMenuVerticalPadding);
+
+    return {
+        std::clamp(x, 0, maxX),
+        std::clamp(y, 0, maxY)
+    };
+}
+
+int estimateSingleActionMenuHeight(int itemCount)
+{
+    return std::max(1, itemCount) * kContextMenuEstimatedRowHeight + 2;
+}
+
+int estimateAddComponentMenuHeight()
+{
+    int descriptorCount = 0;
+    for (const auto& entry : component_meta::componentDescriptorRegistry())
+    {
+        if (entry.second != nullptr)
+            ++descriptorCount;
+    }
+
+    return estimateSingleActionMenuHeight(descriptorCount);
+}
+
+std::string shellQuote(const std::string& value)
+{
+    std::string quoted = "'";
+    for (char character : value)
+    {
+        if (character == '\'')
+            quoted += "'\\''";
+        else
+            quoted += character;
+    }
+    quoted += "'";
+    return quoted;
+}
 
 std::string trimCopy(const std::string& value)
 {
@@ -34,6 +105,347 @@ std::string trimCopy(const std::string& value)
 
     return value.substr(start, end - start);
 }
+
+std::string lowercaseCopy(const std::string& value)
+{
+    std::string lowered = value;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return lowered;
+}
+
+std::string classifyConsoleLine(const std::string& line, const std::string& sourceClass)
+{
+    if (!sourceClass.empty())
+        return sourceClass;
+
+    const std::string lowered = lowercaseCopy(line);
+    if (lowered.find("error") != std::string::npos || lowered.find("failed") != std::string::npos)
+        return "console_line_error";
+    if (lowered.find("warning") != std::string::npos)
+        return "console_line_warning";
+    if (lowered.find("success") != std::string::npos || lowered.find("built target") != std::string::npos)
+        return "console_line_success";
+    return "console_line_neutral";
+}
+
+std::string ansiClassFromCode(int code)
+{
+    switch (code)
+    {
+    case 30:
+    case 90:
+        return "console_ansi_black";
+    case 31:
+    case 91:
+        return "console_ansi_red";
+    case 32:
+    case 92:
+        return "console_ansi_green";
+    case 33:
+    case 93:
+        return "console_ansi_yellow";
+    case 34:
+    case 94:
+        return "console_ansi_blue";
+    case 35:
+    case 95:
+        return "console_ansi_magenta";
+    case 36:
+    case 96:
+        return "console_ansi_cyan";
+    case 37:
+    case 97:
+        return "console_ansi_white";
+    default:
+        return "";
+    }
+}
+
+std::string renderConsoleLineMarkup(const std::string& line, const std::string& fallbackClass)
+{
+    std::ostringstream stream;
+    std::string activeClass = fallbackClass;
+    bool activeBold = false;
+    bool wroteSegment = false;
+
+    auto appendSegment = [&](const std::string& segment) {
+        if (segment.empty())
+            return;
+
+        stream << "<span class='console_line_segment";
+        if (!activeClass.empty())
+            stream << " " << activeClass;
+        if (activeBold)
+            stream << " console_line_bold";
+        stream << "'>" << escapeRmlText(segment) << "</span>";
+        wroteSegment = true;
+    };
+
+    size_t cursor = 0;
+    while (cursor < line.size())
+    {
+        const size_t escapePosition = line.find("\x1b[", cursor);
+        if (escapePosition == std::string::npos)
+        {
+            appendSegment(line.substr(cursor));
+            break;
+        }
+
+        appendSegment(line.substr(cursor, escapePosition - cursor));
+        const size_t commandEnd = line.find('m', escapePosition + 2);
+        if (commandEnd == std::string::npos)
+        {
+            appendSegment(line.substr(escapePosition));
+            break;
+        }
+
+        const std::string codeList = line.substr(escapePosition + 2, commandEnd - (escapePosition + 2));
+        std::stringstream codeStream(codeList);
+        std::string codeToken;
+        bool sawCode = false;
+        while (std::getline(codeStream, codeToken, ';'))
+        {
+            sawCode = true;
+            const int code = codeToken.empty() ? 0 : std::stoi(codeToken);
+            if (code == 0)
+            {
+                activeClass = fallbackClass;
+                activeBold = false;
+            }
+            else if (code == 1)
+            {
+                activeBold = true;
+            }
+            else if (code == 22)
+            {
+                activeBold = false;
+            }
+            else
+            {
+                const std::string ansiClass = ansiClassFromCode(code);
+                if (!ansiClass.empty())
+                    activeClass = ansiClass;
+            }
+        }
+
+        if (!sawCode)
+        {
+            activeClass = fallbackClass;
+            activeBold = false;
+        }
+
+        cursor = commandEnd + 1;
+    }
+
+    if (!wroteSegment)
+        appendSegment(line.empty() ? std::string(" ") : line);
+
+    return stream.str();
+}
+
+bool writeRuntimePreviewSequenceFile(const std::filesystem::path& tempPath, const std::filesystem::path& targetPath, uint64_t sequence)
+{
+    std::error_code errorCode;
+    std::filesystem::create_directories(targetPath.parent_path(), errorCode);
+    if (errorCode)
+        return false;
+
+    std::ofstream output(tempPath, std::ios::trunc);
+    if (!output)
+        return false;
+
+    output << sequence << '\n';
+    output.close();
+
+    std::filesystem::rename(tempPath, targetPath, errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(tempPath, errorCode);
+        return false;
+    }
+
+    return true;
+}
+
+bool writeRuntimePreviewPauseStateFile(
+    const std::filesystem::path& tempPath,
+    const std::filesystem::path& targetPath,
+    uint64_t sequence,
+    bool paused)
+{
+    std::error_code errorCode;
+    std::filesystem::create_directories(targetPath.parent_path(), errorCode);
+    if (errorCode)
+        return false;
+
+    std::ofstream output(tempPath, std::ios::trunc);
+    if (!output)
+        return false;
+
+    output << sequence << ' ' << (paused ? 1 : 0) << '\n';
+    output.close();
+
+    std::filesystem::rename(tempPath, targetPath, errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(tempPath, errorCode);
+        return false;
+    }
+
+    return true;
+}
+
+bool writeRuntimePreviewGameObjectFile(
+    const std::filesystem::path& tempPath,
+    const std::filesystem::path& targetPath,
+    uint64_t sequence,
+    const scene_serialization::GameObjectSnapshot& snapshot)
+{
+    std::error_code errorCode;
+    std::filesystem::create_directories(targetPath.parent_path(), errorCode);
+    if (errorCode)
+        return false;
+
+    std::ofstream output(tempPath, std::ios::trunc);
+    if (!output)
+        return false;
+
+    output << sequence << '\n';
+    if (!scene_serialization::detail::saveGameObjectSnapshotToStream(output, snapshot))
+        return false;
+    output.close();
+
+    std::filesystem::rename(tempPath, targetPath, errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(tempPath, errorCode);
+        return false;
+    }
+
+    return true;
+}
+
+#ifndef _WIN32
+bool spawnShellProcess(const std::string& workingDirectory, const std::string& command, int& pid, int& outputFd)
+{
+    int pipeFds[2] = {-1, -1};
+    if (pipe(pipeFds) != 0)
+        return false;
+
+    const pid_t childPid = fork();
+    if (childPid < 0)
+    {
+        close(pipeFds[0]);
+        close(pipeFds[1]);
+        return false;
+    }
+
+    if (childPid == 0)
+    {
+        dup2(pipeFds[1], STDOUT_FILENO);
+        dup2(pipeFds[1], STDERR_FILENO);
+        close(pipeFds[0]);
+        close(pipeFds[1]);
+
+        if (!workingDirectory.empty())
+            chdir(workingDirectory.c_str());
+
+        execl("/bin/sh", "sh", "-lc", command.c_str(), static_cast<char*>(nullptr));
+        _exit(127);
+    }
+
+    close(pipeFds[1]);
+    const int flags = fcntl(pipeFds[0], F_GETFL, 0);
+    fcntl(pipeFds[0], F_SETFL, flags | O_NONBLOCK);
+    pid = static_cast<int>(childPid);
+    outputFd = pipeFds[0];
+    return true;
+}
+
+bool spawnCapturedProcess(const std::string& workingDirectory, const std::filesystem::path& executablePath, const std::vector<std::string>& arguments, int& pid, int& outputFd)
+{
+    int pipeFds[2] = {-1, -1};
+    if (pipe(pipeFds) != 0)
+        return false;
+
+    const pid_t childPid = fork();
+    if (childPid < 0)
+    {
+        close(pipeFds[0]);
+        close(pipeFds[1]);
+        return false;
+    }
+
+    if (childPid == 0)
+    {
+        dup2(pipeFds[1], STDOUT_FILENO);
+        dup2(pipeFds[1], STDERR_FILENO);
+        close(pipeFds[0]);
+        close(pipeFds[1]);
+
+        if (!workingDirectory.empty())
+            chdir(workingDirectory.c_str());
+
+        std::vector<std::string> ownedArguments;
+        ownedArguments.push_back(executablePath.string());
+        ownedArguments.insert(ownedArguments.end(), arguments.begin(), arguments.end());
+
+        std::vector<char*> argv;
+        argv.reserve(ownedArguments.size() + 1);
+        for (std::string& argument : ownedArguments)
+            argv.push_back(argument.data());
+        argv.push_back(nullptr);
+
+        execv(executablePath.c_str(), argv.data());
+        _exit(127);
+    }
+
+    close(pipeFds[1]);
+    const int flags = fcntl(pipeFds[0], F_GETFL, 0);
+    fcntl(pipeFds[0], F_SETFL, flags | O_NONBLOCK);
+    pid = static_cast<int>(childPid);
+    outputFd = pipeFds[0];
+    return true;
+}
+
+bool spawnDetachedProcess(const std::string& workingDirectory, const std::filesystem::path& executablePath, const std::vector<std::string>& arguments)
+{
+    const pid_t childPid = fork();
+    if (childPid < 0)
+        return false;
+
+    if (childPid > 0)
+        return true;
+
+    setsid();
+
+    if (!workingDirectory.empty())
+        chdir(workingDirectory.c_str());
+
+    FILE* nullFile = fopen("/dev/null", "w");
+    if (nullFile != nullptr)
+    {
+        dup2(fileno(nullFile), STDOUT_FILENO);
+        dup2(fileno(nullFile), STDERR_FILENO);
+        dup2(fileno(nullFile), STDIN_FILENO);
+    }
+
+    std::vector<std::string> ownedArguments;
+    ownedArguments.push_back(executablePath.string());
+    ownedArguments.insert(ownedArguments.end(), arguments.begin(), arguments.end());
+
+    std::vector<char*> argv;
+    argv.reserve(ownedArguments.size() + 1);
+    for (std::string& argument : ownedArguments)
+        argv.push_back(argument.data());
+    argv.push_back(nullptr);
+
+    execv(executablePath.c_str(), argv.data());
+    _exit(127);
+}
+#endif
 
 std::string formatFloat(float value)
 {
@@ -493,6 +905,7 @@ void SceneEditorController::activate()
 void SceneEditorController::deactivate()
 {
     detachListeners();
+    stopExternalProcess(false);
 
     if (m_context != nullptr && m_document != nullptr)
         m_context->UnloadDocument(m_document);
@@ -526,10 +939,14 @@ void SceneEditorController::deactivate()
     m_assetBrowserContextMenuOpen = false;
     m_hierarchyContextMenuOpen = false;
     m_addComponentMenuOpen = false;
+    m_inspectorComponentContextMenuOpen = false;
     m_sceneSavePromptOpen = false;
     m_pendingSceneAction = PendingSceneAction::None;
     m_pendingSceneTargetPath.clear();
     m_hoveredInspectorFieldId.clear();
+    m_pendingLaunchAction = PendingLaunchAction::None;
+    m_pendingLaunchScenePath.clear();
+    m_consolePartialLine.clear();
 }
 
 void SceneEditorController::setModeChangeCallback(const std::function<void(EditorMode)>& callback)
@@ -564,8 +981,12 @@ void SceneEditorController::sync(Scene& scene)
     if (findHierarchyNodeById(m_selectedHierarchyNodeId) == nullptr)
         m_selectedHierarchyNodeId = m_hierarchyRoot.id;
 
-    if (!hierarchyNodesEqual(previousHierarchy, m_hierarchyRoot) || previousSelectedHierarchyNodeId != m_selectedHierarchyNodeId)
+    const bool hierarchyChanged = !hierarchyNodesEqual(previousHierarchy, m_hierarchyRoot);
+    const bool selectionChanged = previousSelectedHierarchyNodeId != m_selectedHierarchyNodeId;
+    if (hierarchyChanged)
         requestHierarchyRefresh();
+    else if (selectionChanged)
+        requestSelectionRefresh();
 }
 
 void SceneEditorController::setShowStylePanel(bool showStylePanel)
@@ -578,10 +999,25 @@ void SceneEditorController::update()
     if (m_context == nullptr || m_document == nullptr)
         return;
 
+    pollExternalProcess();
+    syncRuntimePreviewGameObjectIfNeeded();
+    syncRuntimePreviewSceneIfNeeded();
+
     if (m_hierarchyRefreshPending)
     {
         refreshPresentation();
         m_hierarchyRefreshPending = false;
+    }
+    else if (m_selectionRefreshPending)
+    {
+        refreshHierarchyPresentation();
+        refreshInspectorPresentation();
+        m_selectionRefreshPending = false;
+    }
+    else if (m_consoleRefreshPending)
+    {
+        refreshBottomPanelPresentation(true);
+        m_consoleRefreshPending = false;
     }
     else if (shouldRefreshInspectorPresentation())
     {
@@ -614,6 +1050,11 @@ bool SceneEditorController::isDragging() const
     return m_dragTarget != DragTarget::None;
 }
 
+bool SceneEditorController::isExternalPreviewActive() const
+{
+    return m_activeProcessKind != ActiveProcessKind::None || m_pendingLaunchAction != PendingLaunchAction::None;
+}
+
 void SceneEditorController::ProcessEvent(Rml::Event& event)
 {
     if (m_root == nullptr)
@@ -634,15 +1075,39 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String stopButtonElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_stop_button"; });
+    const Rml::String buildButtonElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_build_button"; });
+    const Rml::String buildRunButtonElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_build_run_button"; });
+    const Rml::String assetBrowserTabElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_bottom_tab_asset_browser"; });
+    const Rml::String consoleTabElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_bottom_tab_console"; });
+    const Rml::String clearConsoleElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_console_clear"; });
     const Rml::String fileMenuButtonElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_menu_file_button"; });
+    const Rml::String editMenuButtonElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_menu_edit_button"; });
     const Rml::String saveSceneAsElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_menu_save_as"; });
     const Rml::String loadSceneElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_menu_load_save"; });
+    const Rml::String buildMenuItemElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_menu_build"; });
+    const Rml::String buildRunMenuItemElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_menu_build_run"; });
     const Rml::String windowMenuButtonElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "builder_menu_window_button"; });
@@ -655,6 +1120,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String assetDirectoryElementId = ::findAncestorElementId(
         targetElement,
         [&](const Rml::String& candidateId) { return parseAssetDirectoryElementId(candidateId).has_value(); });
+    const Rml::String assetDirectoryToggleElementId = ::findAncestorElementId(
+        targetElement,
+        [&](const Rml::String& candidateId) { return parseAssetDirectoryToggleElementId(candidateId).has_value(); });
     const Rml::String assetFileElementId = ::findAncestorElementId(
         targetElement,
         [&](const Rml::String& candidateId) { return parseAssetFileElementId(candidateId).has_value(); });
@@ -663,7 +1131,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         [](const Rml::Element& candidate) { return candidate.GetId() == "scene_asset_browser_workspace"; });
     const Rml::String inspectorGroupElementId = ::findAncestorElementId(
         targetElement,
-        [](const Rml::String& candidateId) { return startsWith(std::string(candidateId), "scene_inspector_group_"); });
+        [&](const Rml::String& candidateId) { return parseInspectorGroupElementId(candidateId).has_value(); });
     const Rml::String inspectorFieldElementId = ::findAncestorElementId(
         targetElement,
         [&](const Rml::String& candidateId) { return parseInspectorFieldElementId(candidateId).has_value(); });
@@ -688,6 +1156,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String addComponentItemElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return startsWith(std::string(candidateId), "scene_add_component_"); });
+    const Rml::String deleteInspectorComponentElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_inspector_component_delete"; });
 
     if (m_sceneSavePromptOpen)
     {
@@ -748,7 +1219,8 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
         if (applyInspectorFieldValue(*inspectorField, formControl->GetValue().c_str()))
         {
-            markSceneDirty();
+            markSceneDirty(false);
+            queueRuntimeGameObjectSync(inspectorField->nodeId);
             refreshInspectorValuesPresentation();
         }
 
@@ -760,40 +1232,67 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     {
         if (!playButtonElementId.empty())
         {
-            if (m_scene != nullptr && m_playbackState == PlaybackState::Stopped)
-                m_runtimeSceneSnapshot = scene_serialization::captureScene(*m_scene);
-            if (m_scene != nullptr)
-                m_scene->setPhysicsSimulationEnabled(true);
-            m_playbackState = PlaybackState::Playing;
-            refreshPresentation();
+            if (m_activeProcessKind == ActiveProcessKind::Player && m_playbackState == PlaybackState::Paused)
+                resumePreviewPlayer();
+            else if (m_activeProcessKind == ActiveProcessKind::None)
+                startBuild(PendingLaunchAction::PlayPreview);
+            refreshViewportPresentation();
             event.StopPropagation();
             return;
         }
 
         if (!pauseButtonElementId.empty())
         {
-            if (m_scene != nullptr)
-                m_scene->setPhysicsSimulationEnabled(false);
-            m_playbackState = PlaybackState::Paused;
-            refreshPresentation();
+            pausePreviewPlayer();
+            refreshViewportPresentation();
             event.StopPropagation();
             return;
         }
 
         if (!stopButtonElementId.empty())
         {
-            if (m_scene != nullptr)
-            {
-                m_scene->setPhysicsSimulationEnabled(false);
-                if (m_runtimeSceneSnapshot.has_value())
-                {
-                    scene_serialization::applySceneSnapshot(*m_scene, *m_runtimeSceneSnapshot);
-                    sync(*m_scene);
-                    m_runtimeSceneSnapshot.reset();
-                }
-            }
-            m_playbackState = PlaybackState::Stopped;
-            refreshPresentation();
+            stopExternalProcess();
+            refreshViewportPresentation();
+            event.StopPropagation();
+            return;
+        }
+
+        if (!buildButtonElementId.empty())
+        {
+            startBuild(PendingLaunchAction::None);
+            refreshViewportPresentation();
+            event.StopPropagation();
+            return;
+        }
+
+        if (!buildRunButtonElementId.empty())
+        {
+            startBuild(PendingLaunchAction::RunDetached);
+            refreshViewportPresentation();
+            event.StopPropagation();
+            return;
+        }
+
+        if (!assetBrowserTabElementId.empty())
+        {
+            m_bottomPanelTab = BottomPanelTab::AssetBrowser;
+            refreshBottomPanelPresentation(true);
+            event.StopPropagation();
+            return;
+        }
+
+        if (!consoleTabElementId.empty())
+        {
+            m_bottomPanelTab = BottomPanelTab::Console;
+            refreshBottomPanelPresentation(true);
+            event.StopPropagation();
+            return;
+        }
+
+        if (!clearConsoleElementId.empty())
+        {
+            clearConsole();
+            refreshBottomPanelPresentation(true);
             event.StopPropagation();
             return;
         }
@@ -801,6 +1300,17 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         if (!fileMenuButtonElementId.empty())
         {
             m_isFileMenuOpen = !m_isFileMenuOpen;
+            m_isEditMenuOpen = false;
+            m_isWindowMenuOpen = false;
+            refreshPresentation();
+            event.StopPropagation();
+            return;
+        }
+
+        if (!editMenuButtonElementId.empty())
+        {
+            m_isFileMenuOpen = false;
+            m_isEditMenuOpen = !m_isEditMenuOpen;
             m_isWindowMenuOpen = false;
             refreshPresentation();
             event.StopPropagation();
@@ -820,6 +1330,24 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         {
             closeHeaderMenus();
             beginPendingSceneAction(PendingSceneAction::LoadFromDialog);
+            refreshPresentation();
+            event.StopPropagation();
+            return;
+        }
+
+        if (!buildMenuItemElementId.empty())
+        {
+            closeHeaderMenus();
+            startBuild(PendingLaunchAction::None);
+            refreshPresentation();
+            event.StopPropagation();
+            return;
+        }
+
+        if (!buildRunMenuItemElementId.empty())
+        {
+            closeHeaderMenus();
+            startBuild(PendingLaunchAction::RunDetached);
             refreshPresentation();
             event.StopPropagation();
             return;
@@ -862,11 +1390,17 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             m_addComponentMenuOpen = !m_addComponentMenuOpen;
             if (m_rightPanel != nullptr)
             {
-                m_addComponentMenuX = static_cast<int>(std::lround(mouseX - m_rightPanel->GetAbsoluteLeft())) - 12;
-                m_addComponentMenuY = static_cast<int>(std::lround(mouseY - m_rightPanel->GetAbsoluteTop())) + 8;
+                const MenuPosition position = clampMenuPosition(
+                    m_rightPanel,
+                    static_cast<int>(std::lround(mouseX - m_rightPanel->GetAbsoluteLeft())) - 12,
+                    static_cast<int>(std::lround(mouseY - m_rightPanel->GetAbsoluteTop())) + 8,
+                    220,
+                    estimateAddComponentMenuHeight());
+                m_addComponentMenuX = position.x;
+                m_addComponentMenuY = position.y;
             }
 
-            requestHierarchyRefresh();
+            refreshInspectorOverlayPresentation();
             event.StopPropagation();
             return;
         }
@@ -887,6 +1421,26 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
                     gameObject->addComponent(component);
                     markSceneDirty();
                     sync(*m_scene);
+                    requestSelectionRefresh();
+                }
+            }
+
+            event.StopPropagation();
+            return;
+        }
+
+        if (!deleteInspectorComponentElementId.empty())
+        {
+            m_inspectorComponentContextMenuOpen = false;
+            if (m_scene != nullptr)
+            {
+                UiGOHierarchyNode* node = findHierarchyNodeById(m_inspectorComponentContextMenuNodeId);
+                GameObject* gameObject = node != nullptr ? const_cast<GameObject*>(node->gameObject) : nullptr;
+                if (gameObject != nullptr && gameObject->removeComponentAt(m_inspectorComponentContextMenuIndex))
+                {
+                    markSceneDirty();
+                    sync(*m_scene);
+                    requestSelectionRefresh();
                 }
             }
 
@@ -898,7 +1452,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         {
             m_assetBrowserContextMenuOpen = false;
             rescanAssetBrowser();
-            requestHierarchyRefresh();
+            refreshAssetBrowserWorkspacePresentation(true);
             event.StopPropagation();
             return;
         }
@@ -906,7 +1460,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         if (!inspectorGroupElementId.empty())
         {
             toggleInspectorGroup(inspectorGroupElementId);
-            refreshInspectorPresentation();
+            refreshInspectorPresentation(true);
             event.StopPropagation();
             return;
         }
@@ -914,6 +1468,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         if (!windowMenuButtonElementId.empty())
         {
             m_isFileMenuOpen = false;
+            m_isEditMenuOpen = false;
             m_isWindowMenuOpen = !m_isWindowMenuOpen;
             refreshPresentation();
             event.StopPropagation();
@@ -930,19 +1485,28 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
-        if (const std::optional<std::string> directoryId = parseAssetDirectoryElementId(assetDirectoryElementId))
+        if (const std::optional<std::string> directoryId = parseAssetDirectoryToggleElementId(assetDirectoryToggleElementId))
         {
-            m_assetBrowserContextMenuOpen = false;
-            m_hierarchyContextMenuOpen = false;
-            selectAssetDirectory(*directoryId);
-
             if (const AssetBrowserDirectoryNode* directory = findAssetDirectoryById(*directoryId))
             {
                 if (!directory->children.empty())
                     toggleAssetDirectoryExpansion(*directoryId);
             }
 
-            requestHierarchyRefresh();
+            refreshAssetBrowserTreePresentation(true);
+            event.StopPropagation();
+            return;
+        }
+
+        if (const std::optional<std::string> directoryId = parseAssetDirectoryElementId(assetDirectoryElementId))
+        {
+            m_assetBrowserContextMenuOpen = false;
+            m_hierarchyContextMenuOpen = false;
+            const std::string previousDirectoryId = m_selectedAssetDirectoryId;
+            selectAssetDirectory(*directoryId);
+            refreshAssetBrowserDirectorySelectionPresentation(previousDirectoryId);
+            refreshAssetBrowserFilesPresentation(false);
+            refreshAssetBrowserOverlayPresentation();
             event.StopPropagation();
             return;
         }
@@ -951,7 +1515,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         {
             m_assetBrowserContextMenuOpen = false;
             m_hierarchyContextMenuOpen = false;
+            const std::string previousFileId = m_selectedAssetFileId;
             m_selectedAssetFileId = *fileId;
+            refreshAssetBrowserFileSelectionPresentation(previousFileId);
             event.StopPropagation();
             return;
         }
@@ -978,7 +1544,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
-        if (m_isFileMenuOpen || m_isWindowMenuOpen)
+        if (m_isFileMenuOpen || m_isEditMenuOpen || m_isWindowMenuOpen)
         {
             const Rml::String menuHit = ::findAncestorElementId(targetElement, [](const Rml::String& candidateId) {
                 return candidateId == "scene_editor_menu_bar";
@@ -993,7 +1559,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         if (m_assetBrowserContextMenuOpen && assetBrowserWorkspaceElement == nullptr)
         {
             m_assetBrowserContextMenuOpen = false;
-            requestHierarchyRefresh();
+            refreshAssetBrowserOverlayPresentation();
         }
 
         if (m_hierarchyContextMenuOpen && deleteHierarchyElementId.empty() && hierarchyNodeElementId.empty())
@@ -1005,7 +1571,13 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         if (m_addComponentMenuOpen && addComponentButtonElementId.empty() && addComponentItemElementId.empty())
         {
             m_addComponentMenuOpen = false;
-            requestHierarchyRefresh();
+            refreshInspectorOverlayPresentation();
+        }
+
+        if (m_inspectorComponentContextMenuOpen && deleteInspectorComponentElementId.empty() && inspectorGroupElementId.empty())
+        {
+            m_inspectorComponentContextMenuOpen = false;
+            refreshInspectorOverlayPresentation();
         }
         return;
     }
@@ -1065,8 +1637,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         if (inspectorField.has_value() && applyDraggedAssetToInspectorField(*inspectorField))
         {
             m_hoveredInspectorFieldId.clear();
-            markSceneDirty();
-            requestHierarchyRefresh();
+            markSceneDirty(false);
+            queueRuntimeGameObjectSync(inspectorField->nodeId);
+            requestSelectionRefresh();
             event.StopPropagation();
             return;
         }
@@ -1089,10 +1662,17 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             closeHeaderMenus();
             m_hierarchyContextMenuOpen = false;
             m_addComponentMenuOpen = false;
+            m_inspectorComponentContextMenuOpen = false;
             m_assetBrowserContextMenuOpen = true;
-            m_assetBrowserContextMenuX = static_cast<int>(std::lround(mouseX - assetBrowserWorkspaceElement->GetAbsoluteLeft()));
-            m_assetBrowserContextMenuY = static_cast<int>(std::lround(mouseY - assetBrowserWorkspaceElement->GetAbsoluteTop()));
-            requestHierarchyRefresh();
+            const MenuPosition position = clampMenuPosition(
+                assetBrowserWorkspaceElement,
+                static_cast<int>(std::lround(mouseX - assetBrowserWorkspaceElement->GetAbsoluteLeft())),
+                static_cast<int>(std::lround(mouseY - assetBrowserWorkspaceElement->GetAbsoluteTop())),
+                kContextMenuMinWidth,
+                estimateSingleActionMenuHeight(1));
+            m_assetBrowserContextMenuX = position.x;
+            m_assetBrowserContextMenuY = position.y;
+            refreshAssetBrowserOverlayPresentation();
             event.StopPropagation();
             return;
         }
@@ -1103,10 +1683,17 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             {
                 m_assetBrowserContextMenuOpen = false;
                 m_addComponentMenuOpen = false;
+                m_inspectorComponentContextMenuOpen = false;
                 m_hierarchyContextMenuOpen = true;
                 m_hierarchyContextMenuNodeId = *hierarchyNodeId;
-                m_hierarchyContextMenuX = static_cast<int>(std::lround(mouseX - m_leftPanel->GetAbsoluteLeft()));
-                m_hierarchyContextMenuY = static_cast<int>(std::lround(mouseY - m_leftPanel->GetAbsoluteTop()));
+                const MenuPosition position = clampMenuPosition(
+                    m_leftPanel,
+                    static_cast<int>(std::lround(mouseX - m_leftPanel->GetAbsoluteLeft())),
+                    static_cast<int>(std::lround(mouseY - m_leftPanel->GetAbsoluteTop())),
+                    kContextMenuMinWidth,
+                    estimateSingleActionMenuHeight(1));
+                m_hierarchyContextMenuX = position.x;
+                m_hierarchyContextMenuY = position.y;
 
                 const UiGOHierarchyNode* hierarchyNode = findHierarchyNodeById(*hierarchyNodeId);
                 if (hierarchyNode != nullptr && m_scene != nullptr)
@@ -1115,7 +1702,28 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
                     m_selectedHierarchyNodeId = *hierarchyNodeId;
                 }
 
-                requestHierarchyRefresh();
+                requestSelectionRefresh();
+                event.StopPropagation();
+                return;
+            }
+
+            if (const std::optional<InspectorGroupBinding> inspectorGroup = parseInspectorGroupElementId(inspectorGroupElementId))
+            {
+                m_assetBrowserContextMenuOpen = false;
+                m_hierarchyContextMenuOpen = false;
+                m_addComponentMenuOpen = false;
+                m_inspectorComponentContextMenuOpen = true;
+                m_inspectorComponentContextMenuNodeId = inspectorGroup->nodeId;
+                m_inspectorComponentContextMenuIndex = inspectorGroup->componentIndex;
+                const MenuPosition position = clampMenuPosition(
+                    m_rightPanel,
+                    static_cast<int>(std::lround(mouseX - m_rightPanel->GetAbsoluteLeft())),
+                    static_cast<int>(std::lround(mouseY - m_rightPanel->GetAbsoluteTop())),
+                    kContextMenuMinWidth,
+                    estimateSingleActionMenuHeight(1));
+                m_inspectorComponentContextMenuX = position.x;
+                m_inspectorComponentContextMenuY = position.y;
+                refreshInspectorOverlayPresentation();
                 event.StopPropagation();
                 return;
             }
@@ -1129,7 +1737,13 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             if (m_addComponentMenuOpen && addComponentButtonElementId.empty() && addComponentItemElementId.empty())
             {
                 m_addComponentMenuOpen = false;
-                requestHierarchyRefresh();
+                refreshInspectorOverlayPresentation();
+            }
+
+            if (m_inspectorComponentContextMenuOpen && deleteInspectorComponentElementId.empty() && inspectorGroupElementId.empty())
+            {
+                m_inspectorComponentContextMenuOpen = false;
+                refreshInspectorOverlayPresentation();
             }
         }
 
@@ -1199,9 +1813,8 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     {
         const int totalWidth = std::max(static_cast<int>(std::lround(m_bottomPanel->GetClientWidth())), 1);
         const int localX = static_cast<int>(std::lround(mouseX)) - static_cast<int>(std::lround(m_bottomPanel->GetAbsoluteLeft()));
-        const int maxFilesWidth = totalWidth - MinAssetBrowserPaneWidth - SplitterThickness;
-        const int filesWidth = clampInt(localX, MinAssetBrowserPaneWidth, maxFilesWidth);
-        const int treeWidth = totalWidth - filesWidth - SplitterThickness;
+        const int maxTreeWidth = totalWidth - MinAssetBrowserPaneWidth - SplitterThickness;
+        const int treeWidth = clampInt(localX, MinAssetBrowserPaneWidth, maxTreeWidth);
         m_bottomBrowserTreeRatio = static_cast<float>(treeWidth) / static_cast<float>(totalWidth);
         applyLayout();
         event.StopPropagation();
@@ -1348,9 +1961,20 @@ void SceneEditorController::applyLayout()
             totalBrowserWidth - MinAssetBrowserPaneWidth - SplitterThickness);
         const int filesWidth = totalBrowserWidth - treeWidth - SplitterThickness;
 
-        m_bottomBrowserFilesPane->SetProperty("width", pixels(filesWidth));
+        m_bottomBrowserTreePane->SetProperty("left", pixels(0));
+        m_bottomBrowserTreePane->SetProperty("top", pixels(0));
         m_bottomBrowserTreePane->SetProperty("width", pixels(treeWidth));
+        m_bottomBrowserTreePane->SetProperty("height", pixels(bottomHeight));
+
+        m_bottomBrowserSplitter->SetProperty("left", pixels(treeWidth));
+        m_bottomBrowserSplitter->SetProperty("top", pixels(0));
         m_bottomBrowserSplitter->SetProperty("width", pixels(SplitterThickness));
+        m_bottomBrowserSplitter->SetProperty("height", pixels(bottomHeight));
+
+        m_bottomBrowserFilesPane->SetProperty("left", pixels(treeWidth + SplitterThickness));
+        m_bottomBrowserFilesPane->SetProperty("top", pixels(0));
+        m_bottomBrowserFilesPane->SetProperty("width", pixels(filesWidth));
+        m_bottomBrowserFilesPane->SetProperty("height", pixels(bottomHeight));
     }
 }
 
@@ -1365,6 +1989,11 @@ void SceneEditorController::refreshPresentation()
     headerStream << "<div id='scene_menu_file_dropdown' class='builder_menu_dropdown' style='display: " << (m_isFileMenuOpen ? "block" : "none") << ";'>";
     headerStream << "<div id='scene_menu_save_as' class='builder_menu_item'>Save Scene As</div>";
     headerStream << "<div id='scene_menu_load_save' class='builder_menu_item'>Load Save</div>";
+    headerStream << "</div></div>";
+    headerStream << "<div id='scene_menu_edit' class='builder_menu'><div id='scene_menu_edit_button' class='builder_menu_button'>Edit</div>";
+    headerStream << "<div id='scene_menu_edit_dropdown' class='builder_menu_dropdown' style='display: " << (m_isEditMenuOpen ? "block" : "none") << ";'>";
+    headerStream << "<div id='scene_menu_build' class='builder_menu_item'>Build</div>";
+    headerStream << "<div id='scene_menu_build_run' class='builder_menu_item'>Build &amp; Run</div>";
     headerStream << "</div></div>";
     headerStream << "<div id='builder_menu_window' class='builder_menu'><div id='builder_menu_window_button' class='builder_menu_button'>Window</div>";
     headerStream << "<div id='builder_menu_window_dropdown' class='builder_menu_dropdown' style='display: " << (m_isWindowMenuOpen ? "block" : "none") << ";'>";
@@ -1386,12 +2015,276 @@ void SceneEditorController::refreshPresentation()
     m_bottomBrowserTreePane = m_document->GetElementById("scene_asset_browser_tree_pane");
 }
 
-void SceneEditorController::refreshInspectorPresentation()
+void SceneEditorController::refreshHierarchyPresentation()
+{
+    if (m_leftPanel == nullptr)
+        return;
+
+    m_leftPanel->SetInnerRML(buildHierarchyMarkup());
+}
+
+void SceneEditorController::refreshViewportPresentation()
+{
+    if (m_viewportPanel == nullptr)
+        return;
+
+    m_viewportPanel->SetInnerRML(buildViewportMarkup());
+    m_viewportSurface = m_document != nullptr ? m_document->GetElementById("scene_viewport_surface") : nullptr;
+}
+
+void SceneEditorController::refreshInspectorPresentation(bool preserveScroll)
 {
     if (m_rightPanel == nullptr)
         return;
 
+    float previousScrollTop = 0.0f;
+    float previousScrollLeft = 0.0f;
+    if (preserveScroll && m_document != nullptr)
+    {
+        if (Rml::Element* inspectorBody = m_document->GetElementById("scene_inspector_panel_body"))
+        {
+            previousScrollTop = inspectorBody->GetScrollTop();
+            previousScrollLeft = inspectorBody->GetScrollLeft();
+        }
+    }
+
     m_rightPanel->SetInnerRML(buildInspectorMarkup());
+
+    if (preserveScroll && m_document != nullptr)
+    {
+        if (Rml::Element* inspectorBody = m_document->GetElementById("scene_inspector_panel_body"))
+        {
+            inspectorBody->SetScrollTop(previousScrollTop);
+            inspectorBody->SetScrollLeft(previousScrollLeft);
+        }
+    }
+}
+
+void SceneEditorController::refreshInspectorOverlayPresentation()
+{
+    if (m_document == nullptr)
+        return;
+
+    if (Rml::Element* overlay = m_document->GetElementById("scene_inspector_overlay"))
+        overlay->SetInnerRML(buildInspectorOverlayMarkup());
+}
+
+void SceneEditorController::refreshBottomPanelPresentation(bool preserveScroll)
+{
+    if (m_bottomPanel == nullptr)
+        return;
+
+    float previousFilesScrollTop = 0.0f;
+    float previousFilesScrollLeft = 0.0f;
+    float previousTreeScrollTop = 0.0f;
+    float previousTreeScrollLeft = 0.0f;
+
+    if (preserveScroll)
+    {
+        if (m_bottomBrowserFilesPane != nullptr)
+        {
+            previousFilesScrollTop = m_bottomBrowserFilesPane->GetScrollTop();
+            previousFilesScrollLeft = m_bottomBrowserFilesPane->GetScrollLeft();
+        }
+
+        if (m_bottomBrowserTreePane != nullptr)
+        {
+            previousTreeScrollTop = m_bottomBrowserTreePane->GetScrollTop();
+            previousTreeScrollLeft = m_bottomBrowserTreePane->GetScrollLeft();
+        }
+    }
+
+    m_bottomPanel->SetInnerRML(buildAssetBrowserMarkup());
+    m_bottomBrowserFilesPane = m_document != nullptr ? m_document->GetElementById("scene_asset_browser_files_pane") : nullptr;
+    m_bottomBrowserSplitter = m_document != nullptr ? m_document->GetElementById("scene_asset_browser_splitter") : nullptr;
+    m_bottomBrowserTreePane = m_document != nullptr ? m_document->GetElementById("scene_asset_browser_tree_pane") : nullptr;
+
+    if (!preserveScroll)
+        return;
+
+    if (m_bottomBrowserFilesPane != nullptr)
+    {
+        m_bottomBrowserFilesPane->SetScrollTop(previousFilesScrollTop);
+        m_bottomBrowserFilesPane->SetScrollLeft(previousFilesScrollLeft);
+    }
+
+    if (m_bottomBrowserTreePane != nullptr)
+    {
+        m_bottomBrowserTreePane->SetScrollTop(previousTreeScrollTop);
+        m_bottomBrowserTreePane->SetScrollLeft(previousTreeScrollLeft);
+    }
+}
+
+void SceneEditorController::refreshAssetBrowserWorkspacePresentation(bool preserveScroll)
+{
+    if (m_document == nullptr)
+        return;
+
+    float previousFilesScrollTop = 0.0f;
+    float previousFilesScrollLeft = 0.0f;
+    float previousTreeScrollTop = 0.0f;
+    float previousTreeScrollLeft = 0.0f;
+
+    if (preserveScroll)
+    {
+        if (m_bottomBrowserFilesPane != nullptr)
+        {
+            previousFilesScrollTop = m_bottomBrowserFilesPane->GetScrollTop();
+            previousFilesScrollLeft = m_bottomBrowserFilesPane->GetScrollLeft();
+        }
+
+        if (m_bottomBrowserTreePane != nullptr)
+        {
+            previousTreeScrollTop = m_bottomBrowserTreePane->GetScrollTop();
+            previousTreeScrollLeft = m_bottomBrowserTreePane->GetScrollLeft();
+        }
+    }
+
+    Rml::Element* workspace = m_document->GetElementById("scene_asset_browser_workspace");
+    if (workspace == nullptr)
+        return;
+
+    workspace->SetInnerRML(buildAssetBrowserWorkspaceMarkup());
+    m_bottomBrowserFilesPane = m_document->GetElementById("scene_asset_browser_files_pane");
+    m_bottomBrowserSplitter = m_document->GetElementById("scene_asset_browser_splitter");
+    m_bottomBrowserTreePane = m_document->GetElementById("scene_asset_browser_tree_pane");
+
+    if (!preserveScroll)
+        return;
+
+    if (m_bottomBrowserFilesPane != nullptr)
+    {
+        m_bottomBrowserFilesPane->SetScrollTop(previousFilesScrollTop);
+        m_bottomBrowserFilesPane->SetScrollLeft(previousFilesScrollLeft);
+    }
+
+    if (m_bottomBrowserTreePane != nullptr)
+    {
+        m_bottomBrowserTreePane->SetScrollTop(previousTreeScrollTop);
+        m_bottomBrowserTreePane->SetScrollLeft(previousTreeScrollLeft);
+    }
+}
+
+void SceneEditorController::refreshAssetBrowserTreePresentation(bool preserveScroll)
+{
+    if (m_document == nullptr)
+        return;
+
+    float previousScrollTop = 0.0f;
+    float previousScrollLeft = 0.0f;
+    if (preserveScroll && m_bottomBrowserTreePane != nullptr)
+    {
+        previousScrollTop = m_bottomBrowserTreePane->GetScrollTop();
+        previousScrollLeft = m_bottomBrowserTreePane->GetScrollLeft();
+    }
+
+    if (Rml::Element* treePane = m_document->GetElementById("scene_asset_browser_tree_pane"))
+        treePane->SetInnerRML(buildAssetBrowserTreePaneMarkup());
+
+    m_bottomBrowserTreePane = m_document->GetElementById("scene_asset_browser_tree_pane");
+    if (preserveScroll && m_bottomBrowserTreePane != nullptr)
+    {
+        m_bottomBrowserTreePane->SetScrollTop(previousScrollTop);
+        m_bottomBrowserTreePane->SetScrollLeft(previousScrollLeft);
+    }
+}
+
+void SceneEditorController::refreshAssetBrowserFilesPresentation(bool preserveScroll)
+{
+    if (m_document == nullptr)
+        return;
+
+    float previousScrollTop = 0.0f;
+    float previousScrollLeft = 0.0f;
+    if (preserveScroll && m_bottomBrowserFilesPane != nullptr)
+    {
+        previousScrollTop = m_bottomBrowserFilesPane->GetScrollTop();
+        previousScrollLeft = m_bottomBrowserFilesPane->GetScrollLeft();
+    }
+
+    if (Rml::Element* filesPane = m_document->GetElementById("scene_asset_browser_files_pane"))
+        filesPane->SetInnerRML(buildAssetBrowserFilesPaneMarkup());
+
+    m_bottomBrowserFilesPane = m_document->GetElementById("scene_asset_browser_files_pane");
+    if (preserveScroll && m_bottomBrowserFilesPane != nullptr)
+    {
+        m_bottomBrowserFilesPane->SetScrollTop(previousScrollTop);
+        m_bottomBrowserFilesPane->SetScrollLeft(previousScrollLeft);
+    }
+}
+
+void SceneEditorController::refreshAssetBrowserOverlayPresentation()
+{
+    if (m_document == nullptr)
+        return;
+
+    if (Rml::Element* overlay = m_document->GetElementById("scene_asset_browser_overlay"))
+        overlay->SetInnerRML(buildAssetBrowserOverlayMarkup());
+}
+
+void SceneEditorController::refreshAssetBrowserFileSelectionPresentation(const std::string& previousFileId)
+{
+    if (m_document == nullptr)
+        return;
+
+    auto updateFileElementClass = [&](const std::string& fileId) {
+        if (fileId.empty())
+            return;
+
+        const AssetBrowserFileEntry* file = findAssetFileById(fileId);
+        if (file == nullptr)
+            return;
+
+        Rml::Element* element = m_document->GetElementById(makeAssetFileElementId(fileId));
+        if (element == nullptr)
+            return;
+
+        std::string classNames = "asset_browser_file_card ";
+        classNames += assetBrowserRootClass(file->rootKind);
+        classNames += " ";
+        classNames += assetBrowserFileKindClass(file->fileKind);
+        if (fileId == m_selectedAssetFileId)
+            classNames += " selected";
+        if (fileId == m_draggedAssetFileId)
+            classNames += " dragging";
+
+        element->SetClassNames(classNames);
+    };
+
+    if (previousFileId != m_selectedAssetFileId)
+        updateFileElementClass(previousFileId);
+    updateFileElementClass(m_selectedAssetFileId);
+}
+
+void SceneEditorController::refreshAssetBrowserDirectorySelectionPresentation(const std::string& previousDirectoryId)
+{
+    if (m_document == nullptr)
+        return;
+
+    auto updateDirectoryElementClass = [&](const std::string& directoryId) {
+        if (directoryId.empty())
+            return;
+
+        const AssetBrowserDirectoryNode* directory = findAssetDirectoryById(directoryId);
+        if (directory == nullptr)
+            return;
+
+        Rml::Element* element = m_document->GetElementById(makeAssetDirectoryElementId(directoryId));
+        if (element == nullptr)
+            return;
+
+        std::string classNames = "asset_browser_tree_row ";
+        classNames += assetBrowserRootClass(directory->rootKind);
+        if (directoryId == m_selectedAssetDirectoryId)
+            classNames += " selected";
+        if (isAssetDirectoryExpanded(*directory))
+            classNames += " expanded";
+        element->SetClassNames(classNames);
+    };
+
+    if (previousDirectoryId != m_selectedAssetDirectoryId)
+        updateDirectoryElementClass(previousDirectoryId);
+    updateDirectoryElementClass(m_selectedAssetDirectoryId);
 }
 
 void SceneEditorController::refreshInspectorValuesPresentation()
@@ -1549,7 +2442,7 @@ std::string SceneEditorController::buildInspectorMarkup() const
     const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
     if (selectedNode == nullptr || selectedNode->gameObject == nullptr)
     {
-        return R"RML(<div class='panel_shell'><div class='panel_header'>Inspector</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>Inspector</div><div class='placeholder_text'>Select a game object in the scene hierarchy.</div></div></div></div>)RML";
+        return R"RML(<div class='panel_shell inspector_shell'><div class='panel_header'>Inspector</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>Inspector</div><div class='placeholder_text'>Select a game object in the scene hierarchy.</div></div></div><div id='scene_inspector_overlay' class='inspector_overlay'></div></div>)RML";
     }
 
     const glm::vec3& position = selectedNode->gameObject->transform.getPosition();
@@ -1557,7 +2450,7 @@ std::string SceneEditorController::buildInspectorMarkup() const
     const glm::vec3& scale = selectedNode->gameObject->transform.getScale();
 
     std::ostringstream stream;
-    stream << "<div class='panel_shell'><div class='panel_header'>Inspector</div><div class='panel_body inspector_panel_body'>";
+    stream << "<div class='panel_shell inspector_shell'><div class='panel_header'>Inspector</div><div id='scene_inspector_panel_body' class='panel_body inspector_panel_body'>";
     stream << "<div class='inspector_summary'>";
     stream << "<div class='inspector_summary_title'>" << escapeRmlText(selectedNode->label) << "</div>";
     stream << "<div class='inspector_summary_text'>GameObject</div>";
@@ -1636,10 +2529,15 @@ std::string SceneEditorController::buildInspectorMarkup() const
     }
 
     stream << "<div class='inspector_add_component_row'><div id='scene_inspector_add_component' class='panel_header_action inspector_add_component_button'>Add Component</div></div>";
-    stream << buildInspectorAddComponentMenuMarkup();
-
+    stream << "</div><div id='scene_inspector_overlay' class='inspector_overlay'>";
+    stream << buildInspectorOverlayMarkup();
     stream << "</div></div>";
     return stream.str();
+}
+
+std::string SceneEditorController::buildInspectorOverlayMarkup() const
+{
+    return buildInspectorAddComponentMenuMarkup() + buildInspectorComponentContextMenuMarkup();
 }
 
 std::string SceneEditorController::buildInspectorAddComponentMenuMarkup() const
@@ -1672,30 +2570,107 @@ std::string SceneEditorController::buildInspectorAddComponentMenuMarkup() const
 
 std::string SceneEditorController::buildAssetBrowserMarkup() const
 {
+    const bool showAssetBrowser = m_bottomPanelTab == BottomPanelTab::AssetBrowser;
+
+    std::ostringstream stream;
+    stream << "<div class='panel_shell'><div class='panel_header panel_header_tabs'>";
+    stream << "<div class='panel_tabs'>";
+    stream << "<div id='scene_bottom_tab_asset_browser' class='panel_tab_button" << (showAssetBrowser ? " active" : "") << "'>Asset Browser</div>";
+    stream << "<div id='scene_bottom_tab_console' class='panel_tab_button" << (!showAssetBrowser ? " active" : "") << "'>Console</div>";
+    stream << "</div>";
+    if (!showAssetBrowser)
+        stream << "<div id='scene_console_clear' class='panel_header_action'>Clear</div>";
+    stream << "</div><div class='panel_body panel_body_no_padding'>";
+
+    if (!showAssetBrowser)
+    {
+        stream << buildConsoleMarkup();
+        stream << "</div></div>";
+        return stream.str();
+    }
+
+    stream << "<div id='scene_asset_browser_workspace' class='asset_browser_workspace'>";
+    stream << buildAssetBrowserWorkspaceMarkup();
+    stream << "</div></div></div>";
+    return stream.str();
+}
+
+std::string SceneEditorController::buildAssetBrowserWorkspaceMarkup() const
+{
+    std::ostringstream stream;
+    stream << "<div id='scene_asset_browser_tree_pane' class='asset_browser_pane asset_browser_tree_pane'>";
+    stream << buildAssetBrowserTreePaneMarkup();
+    stream << "</div>";
+
+    stream << "<div id='scene_asset_browser_splitter' class='splitter splitter_vertical_nested'></div>";
+
+    stream << "<div id='scene_asset_browser_files_pane' class='asset_browser_pane asset_browser_files_pane'>";
+    stream << buildAssetBrowserFilesPaneMarkup();
+    stream << "</div>";
+
+    stream << "<div id='scene_asset_browser_overlay' class='asset_browser_overlay'>";
+    stream << buildAssetBrowserOverlayMarkup();
+    stream << "</div>";
+    return stream.str();
+}
+
+std::string SceneEditorController::buildAssetBrowserTreePaneMarkup() const
+{
+    std::ostringstream stream;
+    stream << "<div class='asset_browser_section_header'>Folders</div><div class='asset_browser_section_body asset_browser_tree_body'>";
+    for (const AssetBrowserDirectoryNode& root : m_assetBrowserRoots)
+        stream << buildAssetBrowserDirectoryMarkup(root, 0);
+    stream << "</div>";
+    return stream.str();
+}
+
+std::string SceneEditorController::buildAssetBrowserFilesPaneMarkup() const
+{
     const AssetBrowserDirectoryNode* selectedDirectory = findSelectedAssetDirectory();
 
     std::ostringstream stream;
-    stream << "<div class='panel_shell'><div class='panel_header'>Asset Browser</div><div class='panel_body panel_body_no_padding'>";
-    stream << "<div id='scene_asset_browser_workspace' class='asset_browser_workspace'>";
-
-    stream << "<div id='scene_asset_browser_files_pane' class='asset_browser_pane asset_browser_files_pane'>";
     stream << "<div class='asset_browser_section_header'>Files";
     if (selectedDirectory != nullptr)
         stream << "<span class='asset_browser_section_path'>" << escapeRmlText(selectedDirectory->runtimePath) << "</span>";
     stream << "</div><div class='asset_browser_section_body asset_browser_files_body'>";
     stream << buildAssetBrowserFileGridMarkup(selectedDirectory);
+    stream << "</div>";
+    return stream.str();
+}
+
+std::string SceneEditorController::buildAssetBrowserOverlayMarkup() const
+{
+    return buildAssetBrowserContextMenuMarkup();
+}
+
+std::string SceneEditorController::buildInspectorComponentContextMenuMarkup() const
+{
+    if (!m_inspectorComponentContextMenuOpen)
+        return "";
+
+    std::ostringstream stream;
+    stream << "<div class='hierarchy_context_menu inspector_component_context_menu' style='left: " << m_inspectorComponentContextMenuX << "px; top: " << m_inspectorComponentContextMenuY << "px;'>";
+    stream << "<div id='scene_inspector_component_delete' class='hierarchy_context_item danger'>Delete component</div>";
+    stream << "</div>";
+    return stream.str();
+}
+
+std::string SceneEditorController::buildConsoleMarkup() const
+{
+    std::ostringstream stream;
+    stream << "<div class='console_workspace'><div class='console_output'>";
+
+    if (m_consoleLines.empty())
+    {
+        stream << "<div class='placeholder_block'><div class='placeholder_title'>Console</div><div class='placeholder_text'>Build output and player logs will appear here.</div></div>";
+    }
+    else
+    {
+        for (const std::string& lineMarkup : m_consoleLines)
+            stream << "<div class='console_line'>" << lineMarkup << "</div>";
+    }
+
     stream << "</div></div>";
-
-    stream << "<div id='scene_asset_browser_splitter' class='splitter splitter_vertical_nested'></div>";
-
-    stream << "<div id='scene_asset_browser_tree_pane' class='asset_browser_pane asset_browser_tree_pane'>";
-    stream << "<div class='asset_browser_section_header'>Folders</div><div class='asset_browser_section_body asset_browser_tree_body'>";
-    for (const AssetBrowserDirectoryNode& root : m_assetBrowserRoots)
-        stream << buildAssetBrowserDirectoryMarkup(root, 0);
-    stream << "</div></div>";
-
-    stream << buildAssetBrowserContextMenuMarkup();
-    stream << "</div></div></div>";
     return stream.str();
 }
 
@@ -1713,7 +2688,7 @@ std::string SceneEditorController::buildAssetBrowserDirectoryMarkup(const AssetB
     if (expanded)
         stream << " expanded";
     stream << "'>";
-    stream << "<div class='asset_browser_tree_toggle'>" << (node.children.empty() ? "-" : (expanded ? "v" : ">")) << "</div>";
+    stream << "<div id='" << makeAssetDirectoryToggleElementId(node.id) << "' class='asset_browser_tree_toggle'>" << (node.children.empty() ? "-" : (expanded ? "v" : ">")) << "</div>";
     stream << "<div class='asset_browser_tree_label'>" << escapeRmlText(node.label) << "</div>";
     stream << "<div class='asset_browser_tree_meta'>" << escapeRmlText(assetBrowserRootLabel(node.rootKind)) << "</div>";
     stream << "</div>";
@@ -1776,18 +2751,23 @@ std::string SceneEditorController::buildAssetBrowserContextMenuMarkup() const
 
 std::string SceneEditorController::buildViewportMarkup() const
 {
-    const bool physicsRunning = m_playbackState == PlaybackState::Playing;
+    const bool buildRunning = m_activeProcessKind == ActiveProcessKind::Build;
+    const bool previewPlayerRunning = m_activeProcessKind == ActiveProcessKind::Player;
 
     std::ostringstream stream;
     stream << "<div class='scene_viewport_shell'>";
     stream << "<div class='scene_viewport_toolbar'><div class='preview_toolbar_group'>";
 
-    if (m_playbackState == PlaybackState::Playing)
+    if (buildRunning)
+    {
+        stream << "<div id='scene_stop_button' class='preview_toolbar_button'>Stop</div>";
+    }
+    else if (previewPlayerRunning && m_playbackState == PlaybackState::Playing)
     {
         stream << "<div id='scene_pause_button' class='preview_toolbar_button'>Pause</div>";
         stream << "<div id='scene_stop_button' class='preview_toolbar_button'>Stop</div>";
     }
-    else if (m_playbackState == PlaybackState::Paused)
+    else if (previewPlayerRunning && m_playbackState == PlaybackState::Paused)
     {
         stream << "<div id='scene_play_button' class='preview_toolbar_button'>Resume</div>";
         stream << "<div id='scene_stop_button' class='preview_toolbar_button'>Stop</div>";
@@ -1803,15 +2783,16 @@ std::string SceneEditorController::buildViewportMarkup() const
         stream << "Untitled scene";
     else
         stream << escapeRmlText(m_currentSceneFilePath);
-    if (m_sceneDirty)
-        stream << " *";
     stream << "</div>";
-    if (m_playbackState == PlaybackState::Playing)
-        stream << "<div class='scene_playback_status'>Physics running</div>";
-    else if (m_playbackState == PlaybackState::Paused)
-        stream << "<div class='scene_playback_status'>Physics paused</div>";
+
+    if (buildRunning)
+        stream << "<div class='scene_playback_status'>Building player</div>";
+    else if (previewPlayerRunning && m_playbackState == PlaybackState::Playing)
+        stream << "<div class='scene_playback_status'>Player running</div>";
+    else if (previewPlayerRunning && m_playbackState == PlaybackState::Paused)
+        stream << "<div class='scene_playback_status'>Player paused</div>";
     else
-        stream << "<div class='scene_playback_status'>Physics stopped</div>";
+        stream << "<div class='scene_playback_status'>Player stopped</div>";
     stream << "</div></div>";
     stream << "<div id='scene_viewport_surface' class='scene_viewport_surface'></div>";
     stream << buildSceneDirtyPromptMarkup();
@@ -1846,6 +2827,11 @@ std::string SceneEditorController::makeAssetDirectoryElementId(const std::string
     return "asset_directory_" + encodeElementToken(directoryId);
 }
 
+std::string SceneEditorController::makeAssetDirectoryToggleElementId(const std::string& directoryId)
+{
+    return "asset_directory_toggle_" + encodeElementToken(directoryId);
+}
+
 std::string SceneEditorController::makeAssetFileElementId(const std::string& fileId)
 {
     return "asset_file_" + encodeElementToken(fileId);
@@ -1866,6 +2852,23 @@ std::string SceneEditorController::makeInspectorGroupElementId(int nodeId, size_
     return makeSceneInspectorGroupElementId(nodeId, componentIndex);
 }
 
+std::optional<SceneEditorController::InspectorGroupBinding> SceneEditorController::parseInspectorGroupElementId(const Rml::String& elementId)
+{
+    const std::string value = elementId;
+    const std::string prefix = "scene_inspector_group_";
+    if (!startsWith(value, prefix))
+        return std::nullopt;
+
+    const size_t separator = value.find("__", prefix.size());
+    if (separator == std::string::npos)
+        return std::nullopt;
+
+    InspectorGroupBinding binding;
+    binding.nodeId = std::stoi(value.substr(prefix.size(), separator - prefix.size()));
+    binding.componentIndex = static_cast<size_t>(std::stoul(value.substr(separator + 2)));
+    return binding;
+}
+
 std::optional<int> SceneEditorController::parseHierarchyNodeId(const Rml::String& elementId)
 {
     const std::string value = elementId;
@@ -1879,6 +2882,11 @@ std::optional<int> SceneEditorController::parseHierarchyNodeId(const Rml::String
 std::optional<std::string> SceneEditorController::parseAssetDirectoryElementId(const Rml::String& elementId)
 {
     return parseEncodedElementId(elementId, "asset_directory_", [](const std::string& value) { return !value.empty(); });
+}
+
+std::optional<std::string> SceneEditorController::parseAssetDirectoryToggleElementId(const Rml::String& elementId)
+{
+    return parseEncodedElementId(elementId, "asset_directory_toggle_", [](const std::string& value) { return !value.empty(); });
 }
 
 std::optional<std::string> SceneEditorController::parseAssetFileElementId(const Rml::String& elementId)
@@ -2123,18 +3131,24 @@ bool SceneEditorController::applyInspectorFieldValue(const InspectorFieldBinding
 
         if (binding.fieldKey == "position")
         {
+            if (formatSerializedValue(gameObject->transform.getPosition()) == formatSerializedValue(parsedValue))
+                return false;
             gameObject->transform.setPosition(parsedValue);
             return true;
         }
 
         if (binding.fieldKey == "rotation")
         {
+            if (formatSerializedValue(gameObject->transform.getRotation()) == formatSerializedValue(parsedValue))
+                return false;
             gameObject->transform.setRotation(parsedValue);
             return true;
         }
 
         if (binding.fieldKey == "scale")
         {
+            if (formatSerializedValue(gameObject->transform.getScale()) == formatSerializedValue(parsedValue))
+                return false;
             gameObject->transform.setScale(parsedValue);
             return true;
         }
@@ -2156,6 +3170,9 @@ bool SceneEditorController::applyInspectorFieldValue(const InspectorFieldBinding
 
     component_meta::SerializedValue parsedValue;
     if (!parseSerializedValue(field->kind, value, parsedValue))
+        return false;
+
+    if (field->read && formatSerializedValue(field->read(*component)) == formatSerializedValue(parsedValue))
         return false;
 
     return field->write(*component, parsedValue);
@@ -2212,13 +3229,23 @@ bool SceneEditorController::isInspectorGroupCollapsed(const std::string& groupId
     return m_collapsedInspectorGroups.count(groupId) > 0;
 }
 
-void SceneEditorController::markSceneDirty()
+void SceneEditorController::markSceneDirty(bool requestFullRuntimeSync)
 {
+    if (requestFullRuntimeSync)
+        m_runtimeSceneSyncPending = true;
     if (!m_sceneDirty)
     {
         m_sceneDirty = true;
         requestHierarchyRefresh();
     }
+}
+
+void SceneEditorController::queueRuntimeGameObjectSync(int nodeId)
+{
+    if (nodeId <= 0)
+        return;
+
+    m_runtimeGameObjectSyncId = nodeId;
 }
 
 void SceneEditorController::clearSceneDirty()
@@ -2350,7 +3377,485 @@ void SceneEditorController::rescanAssetBrowser()
 void SceneEditorController::closeHeaderMenus()
 {
     m_isFileMenuOpen = false;
+    m_isEditMenuOpen = false;
     m_isWindowMenuOpen = false;
+}
+
+bool SceneEditorController::prepareRuntimeSceneFile(std::string& outputPath)
+{
+    if (m_scene == nullptr)
+        return false;
+
+    std::error_code errorCode;
+    const std::filesystem::path sessionDirectory = runtime_preview::sessionDirectory();
+    std::filesystem::create_directories(sessionDirectory, errorCode);
+    if (errorCode)
+        return false;
+
+    std::filesystem::remove(runtime_preview::frameMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::frameDataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::frameMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::frameDataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::resizeMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::resizeMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::inputMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::inputMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::clickMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::clickMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::selectionMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::selectionMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::sceneSyncMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::sceneSyncMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::objectPatchPath(), errorCode);
+    std::filesystem::remove(runtime_preview::objectPatchTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::objectStatePath(), errorCode);
+    std::filesystem::remove(runtime_preview::objectStateTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::pauseMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::pauseMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::stateMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::stateMetadataTempPath(), errorCode);
+
+    const std::filesystem::path scenePath = runtime_preview::previewScenePath();
+    if (!scene_serialization::saveSceneToFile(*m_scene, scenePath.string()))
+        return false;
+
+    m_runtimeSceneSyncPending = false;
+    outputPath = scenePath.string();
+    return true;
+}
+
+bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
+{
+    m_bottomPanelTab = BottomPanelTab::Console;
+
+    if (launchAction == PendingLaunchAction::PlayPreview && m_scene != nullptr && !m_runtimeSceneSnapshot.has_value())
+        m_runtimeSceneSnapshot = scene_serialization::captureScene(*m_scene);
+
+    std::string scenePath;
+    if (launchAction != PendingLaunchAction::None && !prepareRuntimeSceneFile(scenePath))
+    {
+        appendConsoleSystemMessage("[editor] Failed to prepare runtime scene snapshot.", "console_line_error");
+        requestHierarchyRefresh();
+        return false;
+    }
+
+    stopExternalProcess(false);
+
+    const std::filesystem::path buildDirectory = std::filesystem::current_path().parent_path() / "build";
+    if (!std::filesystem::exists(buildDirectory))
+    {
+        appendConsoleSystemMessage("[editor] Build directory not found: " + buildDirectory.string(), "console_line_error");
+        requestHierarchyRefresh();
+        return false;
+    }
+
+#ifdef _WIN32
+    appendConsoleSystemMessage("[editor] External runtime build is not implemented on Windows yet.", "console_line_warning");
+    requestHierarchyRefresh();
+    return false;
+#else
+    const std::string command =
+        std::string("cmake --build ") + shellQuote(buildDirectory.string()) +
+        " --target runtime_game --parallel 4";
+
+    int childPid = -1;
+    int outputFd = -1;
+    if (!spawnShellProcess(buildDirectory.parent_path().string(), command, childPid, outputFd))
+    {
+        appendConsoleSystemMessage("[editor] Failed to start build process.", "console_line_error");
+        requestHierarchyRefresh();
+        return false;
+    }
+
+    m_activeProcessPid = childPid;
+    m_activeProcessOutputFd = outputFd;
+    m_activeProcessKind = ActiveProcessKind::Build;
+    m_pendingLaunchAction = launchAction;
+    m_pendingLaunchScenePath = scenePath;
+    m_playbackState = PlaybackState::Stopped;
+    appendConsoleSystemMessage("[build] Building runtime_game...", "console_line_info");
+    requestHierarchyRefresh();
+    return true;
+#endif
+}
+
+bool SceneEditorController::startPreviewPlayer(const std::string& scenePath)
+{
+#ifdef _WIN32
+    (void)scenePath;
+    appendConsoleSystemMessage("[editor] External preview player is not implemented on Windows yet.", "console_line_warning");
+    return false;
+#else
+    const std::filesystem::path runtimeRoot = std::filesystem::current_path();
+    const std::filesystem::path playerPath = runtimeRoot / "runtime_game";
+    if (!std::filesystem::exists(playerPath))
+    {
+        appendConsoleSystemMessage("[editor] runtime_game executable not found: " + playerPath.string(), "console_line_error");
+        return false;
+    }
+
+    const int previewWidth = std::max(m_viewportRect.width, 1);
+    const int previewHeight = std::max(m_viewportRect.height, 1);
+
+    int childPid = -1;
+    int outputFd = -1;
+    if (!spawnCapturedProcess(
+            runtimeRoot.string(),
+            playerPath,
+            {"--scene", scenePath, "--preview-width", std::to_string(previewWidth), "--preview-height", std::to_string(previewHeight), "--hidden-preview"},
+            childPid,
+            outputFd))
+    {
+        appendConsoleSystemMessage("[editor] Failed to launch runtime_game.", "console_line_error");
+        return false;
+    }
+
+    m_activeProcessPid = childPid;
+    m_activeProcessOutputFd = outputFd;
+    m_activeProcessKind = ActiveProcessKind::Player;
+    m_playbackState = PlaybackState::Playing;
+    appendConsoleSystemMessage("[play] runtime_game started.", "console_line_success");
+    requestHierarchyRefresh();
+    return true;
+#endif
+}
+
+bool SceneEditorController::startDetachedPlayer(const std::string& scenePath)
+{
+#ifdef _WIN32
+    (void)scenePath;
+    appendConsoleSystemMessage("[editor] Detached runtime launch is not implemented on Windows yet.", "console_line_warning");
+    return false;
+#else
+    const std::filesystem::path runtimeRoot = std::filesystem::current_path();
+    const std::filesystem::path playerPath = runtimeRoot / "runtime_game";
+    if (!std::filesystem::exists(playerPath))
+    {
+        appendConsoleSystemMessage("[editor] runtime_game executable not found: " + playerPath.string(), "console_line_error");
+        return false;
+    }
+
+    if (!spawnDetachedProcess(runtimeRoot.string(), playerPath, {"--scene", scenePath}))
+    {
+        appendConsoleSystemMessage("[editor] Failed to launch detached runtime_game.", "console_line_error");
+        return false;
+    }
+
+    appendConsoleSystemMessage("[run] runtime_game launched in a detached process.", "console_line_success");
+    requestHierarchyRefresh();
+    return true;
+#endif
+}
+
+void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
+{
+    const ActiveProcessKind stoppedKind = m_activeProcessKind;
+#ifndef _WIN32
+    if (m_activeProcessPid > 0)
+    {
+        kill(static_cast<pid_t>(m_activeProcessPid), SIGTERM);
+
+        int status = 0;
+        for (int attempt = 0; attempt < 10; ++attempt)
+        {
+            const pid_t result = waitpid(static_cast<pid_t>(m_activeProcessPid), &status, WNOHANG);
+            if (result == static_cast<pid_t>(m_activeProcessPid))
+                break;
+            usleep(20000);
+        }
+
+        if (waitpid(static_cast<pid_t>(m_activeProcessPid), &status, WNOHANG) == 0)
+        {
+            kill(static_cast<pid_t>(m_activeProcessPid), SIGKILL);
+            waitpid(static_cast<pid_t>(m_activeProcessPid), &status, 0);
+        }
+    }
+#endif
+
+    if (m_activeProcessOutputFd >= 0)
+    {
+        if (!m_consolePartialLine.empty())
+        {
+            appendConsoleLine(m_consolePartialLine);
+            m_consolePartialLine.clear();
+        }
+#ifndef _WIN32
+        close(m_activeProcessOutputFd);
+#endif
+    }
+
+    if (m_activeProcessKind != ActiveProcessKind::None)
+        appendConsoleSystemMessage("[editor] External process stopped.", "console_line_warning");
+
+    m_activeProcessPid = -1;
+    m_activeProcessOutputFd = -1;
+    m_activeProcessKind = ActiveProcessKind::None;
+    m_pendingLaunchAction = PendingLaunchAction::None;
+    m_pendingLaunchScenePath.clear();
+    m_playbackState = PlaybackState::Stopped;
+    m_runtimeGameObjectSyncId = -1;
+    m_runtimePauseSequence = 0;
+    m_runtimeSceneSyncPending = false;
+
+    std::error_code errorCode;
+    std::filesystem::remove(runtime_preview::frameMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::frameDataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::frameMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::frameDataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::resizeMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::resizeMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::inputMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::inputMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::clickMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::clickMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::selectionMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::selectionMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::sceneSyncMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::sceneSyncMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::objectPatchPath(), errorCode);
+    std::filesystem::remove(runtime_preview::objectPatchTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::objectStatePath(), errorCode);
+    std::filesystem::remove(runtime_preview::objectStateTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::pauseMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::pauseMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::stateMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::stateMetadataTempPath(), errorCode);
+
+    if (restoreEditorScene && stoppedKind == ActiveProcessKind::Player && m_scene != nullptr && m_runtimeSceneSnapshot.has_value())
+    {
+        if (scene_serialization::applySceneSnapshot(*m_scene, *m_runtimeSceneSnapshot))
+        {
+            m_scene->setPhysicsSimulationEnabled(false);
+            clearSceneDirty();
+            sync(*m_scene);
+            requestHierarchyRefresh();
+        }
+    }
+
+    if (stoppedKind == ActiveProcessKind::Player)
+        m_runtimeSceneSnapshot.reset();
+}
+
+void SceneEditorController::syncRuntimePreviewSceneIfNeeded()
+{
+    if (m_scene == nullptr || !isExternalPreviewActive() || !m_runtimeSceneSyncPending)
+        return;
+
+    const std::filesystem::path scenePath = runtime_preview::previewScenePath();
+    if (!scene_serialization::saveSceneToFile(*m_scene, scenePath.string()))
+        return;
+
+    if (!writeRuntimePreviewSequenceFile(
+            runtime_preview::sceneSyncMetadataTempPath(),
+            runtime_preview::sceneSyncMetadataPath(),
+            m_runtimeSceneSyncSequence + 1))
+    {
+        return;
+    }
+
+    ++m_runtimeSceneSyncSequence;
+    m_runtimeSceneSyncPending = false;
+}
+
+void SceneEditorController::syncRuntimePreviewGameObjectIfNeeded()
+{
+    if (m_scene == nullptr || !isExternalPreviewActive() || m_runtimeSceneSyncPending || m_runtimeGameObjectSyncId <= 0)
+        return;
+
+    GameObject* gameObject = m_scene->getGameObjectById(m_runtimeGameObjectSyncId);
+    if (gameObject == nullptr)
+    {
+        m_runtimeGameObjectSyncId = -1;
+        return;
+    }
+
+    const scene_serialization::GameObjectSnapshot snapshot = scene_serialization::captureGameObject(*gameObject);
+    if (!writeRuntimePreviewGameObjectFile(
+            runtime_preview::objectPatchTempPath(),
+            runtime_preview::objectPatchPath(),
+            m_runtimeGameObjectSyncSequence + 1,
+            snapshot))
+    {
+        return;
+    }
+
+    ++m_runtimeGameObjectSyncSequence;
+    m_runtimeGameObjectSyncId = -1;
+}
+
+void SceneEditorController::pausePreviewPlayer()
+{
+    if (m_activeProcessKind == ActiveProcessKind::Player && m_activeProcessPid > 0 && m_playbackState == PlaybackState::Playing)
+    {
+        if (!writeRuntimePreviewPauseStateFile(
+                runtime_preview::pauseMetadataTempPath(),
+                runtime_preview::pauseMetadataPath(),
+                m_runtimePauseSequence + 1,
+                true))
+        {
+            appendConsoleSystemMessage("[play] Failed to pause player simulation.", "console_line_error");
+            return;
+        }
+
+        ++m_runtimePauseSequence;
+        m_playbackState = PlaybackState::Paused;
+        appendConsoleSystemMessage("[play] Player paused.", "console_line_info");
+        refreshViewportPresentation();
+    }
+}
+
+void SceneEditorController::resumePreviewPlayer()
+{
+    if (m_activeProcessKind == ActiveProcessKind::Player && m_activeProcessPid > 0 && m_playbackState == PlaybackState::Paused)
+    {
+        if (!writeRuntimePreviewPauseStateFile(
+                runtime_preview::pauseMetadataTempPath(),
+                runtime_preview::pauseMetadataPath(),
+                m_runtimePauseSequence + 1,
+                false))
+        {
+            appendConsoleSystemMessage("[play] Failed to resume player simulation.", "console_line_error");
+            return;
+        }
+
+        ++m_runtimePauseSequence;
+        m_playbackState = PlaybackState::Playing;
+        appendConsoleSystemMessage("[play] Player resumed.", "console_line_info");
+        refreshViewportPresentation();
+    }
+}
+
+void SceneEditorController::pollExternalProcess()
+{
+#ifndef _WIN32
+    if (m_activeProcessOutputFd >= 0)
+    {
+        char buffer[4096] = {};
+        while (true)
+        {
+            const ssize_t readCount = read(m_activeProcessOutputFd, buffer, sizeof(buffer));
+            if (readCount > 0)
+            {
+                appendConsoleOutput(std::string(buffer, static_cast<size_t>(readCount)));
+                continue;
+            }
+
+            if (readCount == 0 || (readCount < 0 && errno != EAGAIN && errno != EWOULDBLOCK))
+                break;
+
+            break;
+        }
+    }
+
+    if (m_activeProcessPid <= 0)
+        return;
+
+    int status = 0;
+    const pid_t waitResult = waitpid(static_cast<pid_t>(m_activeProcessPid), &status, WNOHANG);
+    if (waitResult != static_cast<pid_t>(m_activeProcessPid))
+        return;
+
+    if (m_activeProcessOutputFd >= 0)
+    {
+        char buffer[4096] = {};
+        ssize_t readCount = 0;
+        while ((readCount = read(m_activeProcessOutputFd, buffer, sizeof(buffer))) > 0)
+            appendConsoleOutput(std::string(buffer, static_cast<size_t>(readCount)));
+        close(m_activeProcessOutputFd);
+    }
+
+    const ActiveProcessKind completedKind = m_activeProcessKind;
+    const PendingLaunchAction launchAction = m_pendingLaunchAction;
+    const std::string launchScenePath = m_pendingLaunchScenePath;
+    const bool succeeded = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+
+    m_activeProcessPid = -1;
+    m_activeProcessOutputFd = -1;
+    m_activeProcessKind = ActiveProcessKind::None;
+    m_pendingLaunchAction = PendingLaunchAction::None;
+    m_pendingLaunchScenePath.clear();
+
+    if (completedKind == ActiveProcessKind::Build)
+    {
+        appendConsoleSystemMessage(
+            succeeded ? "[build] runtime_game build completed." : "[build] runtime_game build failed.",
+            succeeded ? "console_line_success" : "console_line_error");
+
+        if (succeeded)
+        {
+            if (launchAction == PendingLaunchAction::PlayPreview)
+            {
+                if (!startPreviewPlayer(launchScenePath))
+                    m_playbackState = PlaybackState::Stopped;
+            }
+            else if (launchAction == PendingLaunchAction::RunDetached)
+            {
+                startDetachedPlayer(launchScenePath);
+                m_playbackState = PlaybackState::Stopped;
+            }
+        }
+        else
+        {
+            m_playbackState = PlaybackState::Stopped;
+        }
+
+        requestHierarchyRefresh();
+        return;
+    }
+
+    if (completedKind == ActiveProcessKind::Player)
+    {
+        m_playbackState = PlaybackState::Stopped;
+        appendConsoleSystemMessage(
+            succeeded ? "[play] Player exited normally." : "[play] Player exited with an error.",
+            succeeded ? "console_line_info" : "console_line_error");
+        requestHierarchyRefresh();
+    }
+#endif
+}
+
+void SceneEditorController::appendConsoleOutput(const std::string& text, const std::string& sourceClass)
+{
+    std::string buffer = m_consolePartialLine + text;
+    m_consolePartialLine.clear();
+
+    size_t lineStart = 0;
+    while (lineStart < buffer.size())
+    {
+        const size_t lineEnd = buffer.find('\n', lineStart);
+        if (lineEnd == std::string::npos)
+        {
+            m_consolePartialLine = buffer.substr(lineStart);
+            break;
+        }
+
+        std::string line = buffer.substr(lineStart, lineEnd - lineStart);
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        appendConsoleLine(line, sourceClass);
+        lineStart = lineEnd + 1;
+    }
+}
+
+void SceneEditorController::appendConsoleLine(const std::string& line, const std::string& sourceClass)
+{
+    const std::string lineClass = classifyConsoleLine(line, sourceClass);
+    m_consoleLines.push_back(renderConsoleLineMarkup(line, lineClass));
+    if (m_consoleLines.size() > MaxConsoleLines)
+        m_consoleLines.erase(m_consoleLines.begin(), m_consoleLines.begin() + static_cast<long>(m_consoleLines.size() - MaxConsoleLines));
+    m_consoleRefreshPending = true;
+}
+
+void SceneEditorController::appendConsoleSystemMessage(const std::string& message, const std::string& sourceClass)
+{
+    appendConsoleLine(message, sourceClass);
+}
+
+void SceneEditorController::clearConsole()
+{
+    m_consoleLines.clear();
+    m_consolePartialLine.clear();
+    m_consoleRefreshPending = true;
 }
 
 bool SceneEditorController::saveSceneAs()
@@ -2398,6 +3903,7 @@ bool SceneEditorController::loadSceneFromFilePath(const std::string& filePath)
     if (m_scene == nullptr)
         return false;
 
+    stopExternalProcess(false);
     m_scene->setPhysicsSimulationEnabled(false);
     m_playbackState = PlaybackState::Stopped;
     m_runtimeSceneSnapshot.reset();
@@ -2497,7 +4003,6 @@ bool SceneEditorController::hierarchyNodesEqual(const UiGOHierarchyNode& lhs, co
 void SceneEditorController::rebuildHierarchyFromScene(const Scene& scene)
 {
     m_hierarchyRoot.children.clear();
-    m_nextHierarchyNodeId = m_hierarchyRoot.id + 1;
 
     std::unordered_set<const GameObject*> childObjects;
     for (size_t index = 0; index < scene.getGameObjectCount(); ++index)
@@ -2525,7 +4030,7 @@ void SceneEditorController::rebuildHierarchyFromScene(const Scene& scene)
 
 void SceneEditorController::appendHierarchyNodeFromGameObject(UiGOHierarchyNode& parentNode, const GameObject& gameObject)
 {
-    parentNode.children.push_back({m_nextHierarchyNodeId++, gameObject.getName(), "gameobject", &gameObject, {}});
+    parentNode.children.push_back({gameObject.getId(), gameObject.getName(), "gameobject", &gameObject, {}});
     UiGOHierarchyNode& newNode = parentNode.children.back();
 
     for (size_t childIndex = 0; childIndex < gameObject.transform.getChildCount(); ++childIndex)
@@ -2539,4 +4044,9 @@ void SceneEditorController::appendHierarchyNodeFromGameObject(UiGOHierarchyNode&
 void SceneEditorController::requestHierarchyRefresh()
 {
     m_hierarchyRefreshPending = true;
+}
+
+void SceneEditorController::requestSelectionRefresh()
+{
+    m_selectionRefreshPending = true;
 }

@@ -2,7 +2,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <algorithm>
+#include <array>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <memory>
+#include <string>
 #include <vector>
 #include <iostream>
 
@@ -22,10 +27,14 @@ using namespace glm;
 
 
 #include <common/geometry/Plane.hpp>
+#include <common/app/RuntimePreviewSession.hpp>
+#include <common/app/RuntimeWindow.hpp>
 #include <common/shader/Shader.hpp>
 #include <common/meshRenderer/simpleMeshrenderer.hpp>
 #include <common/Scene.hpp>
+#include <common/scene/SceneSerialization.hpp>
 #include <common/ui/EditorUi.hpp>
+#include <common/ui/SceneViewportOverlay.hpp>
 
 #include <RmlUi/Core.h>
 #include <RmlUi/Debugger.h>
@@ -51,6 +60,24 @@ glm::dvec2 windowToFramebufferCoords(GLFWwindow* glfwWindow, double x, double y)
     return glm::dvec2(
         x * static_cast<double>(framebufferWidth) / static_cast<double>(windowWidth),
         y * static_cast<double>(framebufferHeight) / static_cast<double>(windowHeight)
+    );
+}
+
+glm::dvec2 framebufferToWindowCoords(GLFWwindow* glfwWindow, double x, double y)
+{
+    int windowWidth = 1;
+    int windowHeight = 1;
+    int framebufferWidth = 1;
+    int framebufferHeight = 1;
+    glfwGetWindowSize(glfwWindow, &windowWidth, &windowHeight);
+    glfwGetFramebufferSize(glfwWindow, &framebufferWidth, &framebufferHeight);
+
+    if (framebufferWidth <= 0 || framebufferHeight <= 0)
+        return glm::dvec2(0.0);
+
+    return glm::dvec2(
+        x * static_cast<double>(windowWidth) / static_cast<double>(framebufferWidth),
+        y * static_cast<double>(windowHeight) / static_cast<double>(framebufferHeight)
     );
 }
 
@@ -83,6 +110,7 @@ std::unique_ptr<SystemInterface_GLFW> g_rmlSystemInterface;
 std::unique_ptr<RenderInterface_GL3> g_rmlRenderInterface;
 Rml::Context* g_rmlContext = nullptr;
 EditorUiController g_editorUi;
+SceneViewportOverlay g_sceneViewportOverlay;
 
 struct ViewportFramebuffer
 {
@@ -360,6 +388,310 @@ struct ViewportTexturePresenter
 
 ViewportTexturePresenter g_viewportTexturePresenter;
 
+struct RemotePreviewTexture
+{
+    GLuint texture = 0;
+    int width = 0;
+    int height = 0;
+    uint64_t sequence = 0;
+
+    void destroy()
+    {
+        if (texture != 0)
+        {
+            glDeleteTextures(1, &texture);
+            texture = 0;
+        }
+
+        width = 0;
+        height = 0;
+        sequence = 0;
+    }
+
+    bool ensureTextureSize(int targetWidth, int targetHeight)
+    {
+        targetWidth = std::max(targetWidth, 1);
+        targetHeight = std::max(targetHeight, 1);
+
+        if (texture != 0 && width == targetWidth && height == targetHeight)
+            return true;
+
+        if (texture == 0)
+            glGenTextures(1, &texture);
+        if (texture == 0)
+            return false;
+
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, targetWidth, targetHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        width = targetWidth;
+        height = targetHeight;
+        return true;
+    }
+
+    bool poll()
+    {
+        std::ifstream metaInput(runtime_preview::frameMetadataPath());
+        if (!metaInput)
+            return false;
+
+        uint64_t nextSequence = 0;
+        int nextWidth = 0;
+        int nextHeight = 0;
+        if (!(metaInput >> nextSequence >> nextWidth >> nextHeight) || nextSequence == 0 || nextWidth <= 0 || nextHeight <= 0)
+            return false;
+
+        if (nextSequence == sequence)
+            return texture != 0;
+
+        const size_t byteCount = static_cast<size_t>(nextWidth) * static_cast<size_t>(nextHeight) * 4u;
+        std::vector<unsigned char> pixelBuffer(byteCount);
+        std::ifstream dataInput(runtime_preview::frameDataPath(), std::ios::binary);
+        if (!dataInput)
+            return false;
+
+        dataInput.read(reinterpret_cast<char*>(pixelBuffer.data()), static_cast<std::streamsize>(pixelBuffer.size()));
+        if (dataInput.gcount() != static_cast<std::streamsize>(pixelBuffer.size()))
+            return false;
+
+        if (!ensureTextureSize(nextWidth, nextHeight))
+            return false;
+
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, nextWidth, nextHeight, GL_RGBA, GL_UNSIGNED_BYTE, pixelBuffer.data());
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        sequence = nextSequence;
+        return true;
+    }
+
+    bool isReady() const
+    {
+        return texture != 0 && width > 0 && height > 0;
+    }
+};
+
+RemotePreviewTexture g_remotePreviewTexture;
+uint64_t g_remotePreviewResizeSequence = 0;
+uint64_t g_remotePreviewInputSequence = 0;
+uint64_t g_remotePreviewClickSequence = 0;
+uint64_t g_remotePreviewSelectionSequence = 0;
+uint64_t g_remotePreviewObjectStateSequence = 0;
+uint64_t g_remotePreviewStateSequence = 0;
+int g_remotePreviewRequestedWidth = 0;
+int g_remotePreviewRequestedHeight = 0;
+bool g_remotePreviewInputCapture = false;
+bool g_remotePreviewSessionActive = false;
+int g_remotePreviewLastSentSelectionId = -2;
+
+void resetRemotePreviewSessionState()
+{
+    g_remotePreviewTexture.destroy();
+    g_remotePreviewResizeSequence = 0;
+    g_remotePreviewInputSequence = 0;
+    g_remotePreviewClickSequence = 0;
+    g_remotePreviewSelectionSequence = 0;
+    g_remotePreviewObjectStateSequence = 0;
+    g_remotePreviewStateSequence = 0;
+    g_remotePreviewRequestedWidth = 0;
+    g_remotePreviewRequestedHeight = 0;
+    g_remotePreviewInputCapture = false;
+    g_remotePreviewSessionActive = false;
+    g_remotePreviewLastSentSelectionId = -2;
+}
+
+void clearRemotePreviewSessionFiles()
+{
+    std::error_code previewCleanupError;
+    std::filesystem::remove(runtime_preview::frameMetadataPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::frameDataPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::frameMetadataTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::frameDataTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::resizeMetadataPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::resizeMetadataTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::inputMetadataPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::inputMetadataTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::clickMetadataPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::clickMetadataTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::selectionMetadataPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::selectionMetadataTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::sceneSyncMetadataPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::sceneSyncMetadataTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::objectPatchPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::objectPatchTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::objectStatePath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::objectStateTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::stateMetadataPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::stateMetadataTempPath(), previewCleanupError);
+}
+
+constexpr std::array<int, 12> g_remotePreviewForwardedKeys = {
+    GLFW_KEY_W,
+    GLFW_KEY_S,
+    GLFW_KEY_A,
+    GLFW_KEY_D,
+    GLFW_KEY_E,
+    GLFW_KEY_Q,
+    GLFW_KEY_C,
+    GLFW_KEY_P,
+    GLFW_KEY_UP,
+    GLFW_KEY_DOWN,
+    GLFW_KEY_V,
+    GLFW_KEY_Z,
+};
+
+bool writeRemotePreviewFile(const std::filesystem::path& tempPath, const std::filesystem::path& targetPath, const std::string& payload)
+{
+    std::error_code errorCode;
+    std::filesystem::create_directories(runtime_preview::sessionDirectory(), errorCode);
+    if (errorCode)
+        return false;
+
+    std::ofstream output(tempPath, std::ios::trunc);
+    if (!output)
+        return false;
+
+    output << payload;
+    output.close();
+
+    std::filesystem::rename(tempPath, targetPath, errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(tempPath, errorCode);
+        return false;
+    }
+
+    return true;
+}
+
+void writeRemotePreviewResizeRequest(int width, int height)
+{
+    if (width <= 0 || height <= 0)
+        return;
+
+    std::error_code errorCode;
+    std::filesystem::create_directories(runtime_preview::sessionDirectory(), errorCode);
+    if (errorCode)
+        return;
+
+    std::ofstream output(runtime_preview::resizeMetadataTempPath(), std::ios::trunc);
+    if (!output)
+        return;
+
+    output << (g_remotePreviewResizeSequence + 1) << ' ' << width << ' ' << height << '\n';
+    output.close();
+
+    std::filesystem::rename(runtime_preview::resizeMetadataTempPath(), runtime_preview::resizeMetadataPath(), errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(runtime_preview::resizeMetadataTempPath(), errorCode);
+        return;
+    }
+
+    ++g_remotePreviewResizeSequence;
+    g_remotePreviewRequestedWidth = width;
+    g_remotePreviewRequestedHeight = height;
+}
+
+bool writeRemotePreviewInputStateFile(GLFWwindow* glfwWindow, bool captureEnabled, double mouseDeltaX, double mouseDeltaY)
+{
+    std::string payload = std::to_string(g_remotePreviewInputSequence + 1) + " " +
+        std::to_string(captureEnabled ? 1 : 0) + " " +
+        std::to_string(mouseDeltaX) + " " +
+        std::to_string(mouseDeltaY) + " " +
+        std::to_string(g_remotePreviewForwardedKeys.size());
+
+    for (const int key : g_remotePreviewForwardedKeys)
+        payload += " " + std::to_string(key) + " " + std::to_string(glfwGetKey(glfwWindow, key) == GLFW_PRESS ? 1 : 0);
+    payload += "\n";
+
+    if (!writeRemotePreviewFile(runtime_preview::inputMetadataTempPath(), runtime_preview::inputMetadataPath(), payload))
+        return false;
+
+    ++g_remotePreviewInputSequence;
+    return true;
+}
+
+void writeRemotePreviewClick(double clickX, double clickY)
+{
+    const std::string payload = std::to_string(g_remotePreviewClickSequence + 1) + " " +
+        std::to_string(clickX) + " " + std::to_string(clickY) + "\n";
+    if (writeRemotePreviewFile(runtime_preview::clickMetadataTempPath(), runtime_preview::clickMetadataPath(), payload))
+        ++g_remotePreviewClickSequence;
+}
+
+void writeRemotePreviewSelection(int selectedGameObjectId)
+{
+    if (selectedGameObjectId == g_remotePreviewLastSentSelectionId)
+        return;
+
+    const std::string payload = std::to_string(g_remotePreviewSelectionSequence + 1) + " " +
+        std::to_string(selectedGameObjectId) + "\n";
+    if (!writeRemotePreviewFile(runtime_preview::selectionMetadataTempPath(), runtime_preview::selectionMetadataPath(), payload))
+        return;
+
+    ++g_remotePreviewSelectionSequence;
+    g_remotePreviewLastSentSelectionId = selectedGameObjectId;
+}
+
+void setRemotePreviewInputCapture(GLFWwindow* glfwWindow, bool enabled, const UiRect& viewportRect)
+{
+    g_remotePreviewInputCapture = enabled;
+    glfwSetInputMode(glfwWindow, GLFW_CURSOR, enabled ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_NORMAL);
+
+    if (enabled && viewportRect.isValid())
+    {
+        const glm::dvec2 centerWindow = framebufferToWindowCoords(glfwWindow, viewportRect.centerX(), viewportRect.centerY());
+        glfwSetCursorPos(glfwWindow, centerWindow.x, centerWindow.y);
+    }
+}
+
+void pollRemotePreviewState(Scene& currentScene)
+{
+    if (!g_remotePreviewSessionActive)
+        return;
+
+    std::ifstream input(runtime_preview::stateMetadataPath());
+    if (!input)
+        return;
+
+    uint64_t nextSequence = 0;
+    int selectedGameObjectId = -1;
+    int captureEnabled = 0;
+    if (!(input >> nextSequence >> selectedGameObjectId >> captureEnabled) || nextSequence <= g_remotePreviewStateSequence)
+        return;
+
+    currentScene.setSelectedGameObjectById(selectedGameObjectId);
+    g_remotePreviewStateSequence = nextSequence;
+    (void)captureEnabled;
+}
+
+void pollRemotePreviewObjectState(Scene& currentScene)
+{
+    if (!g_remotePreviewSessionActive)
+        return;
+
+    std::ifstream input(runtime_preview::objectStatePath());
+    if (!input)
+        return;
+
+    uint64_t nextSequence = 0;
+    if (!(input >> nextSequence) || nextSequence <= g_remotePreviewObjectStateSequence)
+        return;
+
+    scene_serialization::GameObjectSnapshot snapshot;
+    if (!scene_serialization::detail::loadGameObjectSnapshotFromStream(input, snapshot))
+        return;
+
+    if (scene_serialization::applyGameObjectSnapshot(currentScene, snapshot))
+        g_remotePreviewObjectStateSequence = nextSequence;
+}
+
 int mousePX = 0;
 int mousePY = 0;
 bool fpsControl = false;
@@ -455,9 +787,20 @@ void setup_glfw_callbacks(GLFWwindow* glfwWindow)
 
             if (shouldDispatchToScene)
             {
-                g_sceneClickPending = true;
-                g_sceneClickX = clickPosition.x;
-                g_sceneClickY = clickPosition.y;
+                if (g_editorModeEnabled && g_editorUi.isExternalPreviewActive())
+                {
+                    if (!g_remotePreviewInputCapture)
+                    {
+                        const UiRect viewportRect = g_editorUi.getViewportRect();
+                        writeRemotePreviewClick(clickPosition.x - viewportRect.x, clickPosition.y - viewportRect.y);
+                    }
+                }
+                else
+                {
+                    g_sceneClickPending = true;
+                    g_sceneClickX = clickPosition.x;
+                    g_sceneClickY = clickPosition.y;
+                }
             }
         }
     });
@@ -478,68 +821,24 @@ void setup_glfw_callbacks(GLFWwindow* glfwWindow)
 
 int main( void )
 {
-    // Initialise GLFW
-    if( !glfwInit() )
+    runtime_app::RuntimeWindow runtimeWindow;
+    if (!runtime_app::initializeWindow(
+            runtimeWindow,
+            "glutglut",
+            "Failed to open GLFW window. If you have an Intel GPU, they are not 3.3 compatible. Try the 2.1 version of the tutorials."))
     {
-        fprintf( stderr, "Failed to initialize GLFW\n" );
-        getchar();
         return -1;
     }
 
-    glfwWindowHint(GLFW_SAMPLES, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); // To make MacOS happy; should not be needed
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-    
-
-    // Open a window and create its OpenGL context
-    window = glfwCreateWindow( 1024, 768, "glutglut", NULL, NULL);
-    if( window == NULL ){
-        fprintf( stderr, "Failed to open GLFW window. If you have an Intel GPU, they are not 3.3 compatible. Try the 2.1 version of the tutorials.\n" );
-        getchar();
-        glfwTerminate();
-        return -1;
-    }
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);
-
-    // Initialize GLEW
-    glewExperimental = true; // Needed for core profile
-    if (glewInit() != GLEW_OK) {
-        fprintf(stderr, "Failed to initialize GLEW\n");
-        getchar();
-        glfwTerminate();
-        return -1;
-    }
-
-    // Ensure we can capture the escape key being pressed below
-    glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
-    // Hide the mouse and enable unlimited mouvement
-    //  glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-    // Set the mouse at the center of the screen
-    glfwPollEvents();
-    glfwSetCursorPos(window, 1024/2, 768/2);
-    glfwGetFramebufferSize(window, &g_windowFramebufferWidth, &g_windowFramebufferHeight);
-
-    // Dark blue background
-    glClearColor(0.8f, 0.8f, 0.8f, 0.0f);
-    glGetIntegerv(GL_SAMPLES, &g_defaultFramebufferSamples);
+    window = runtimeWindow.handle;
+    g_windowFramebufferWidth = runtimeWindow.framebufferWidth;
+    g_windowFramebufferHeight = runtimeWindow.framebufferHeight;
+    g_defaultFramebufferSamples = runtimeWindow.defaultFramebufferSamples;
 
     if (!g_viewportTexturePresenter.initialize())
     {
         std::cerr << "Failed to initialize viewport texture presenter, falling back to direct scene rendering." << std::endl;
     }
-
-    // Enable depth test
-    glEnable(GL_DEPTH_TEST);
-    // Accept fragment if it closer to the camera than the former one
-    glDepthFunc(GL_LEQUAL);
-
-    // Cull triangles which normal is not towards the camera
-    //glEnable(GL_CULL_FACE);
 
     // LOAD SCENE    
     scene = new Scene();
@@ -551,7 +850,7 @@ int main( void )
         {
             std::cerr << "Failed to initialize RmlUi GL3 renderer" << std::endl;
             delete scene;
-            glfwTerminate();
+            runtime_app::shutdownWindow(runtimeWindow);
             return -1;
         }
 
@@ -564,7 +863,7 @@ int main( void )
             delete scene;
             g_rmlSystemInterface.reset();
             RmlGL3::Shutdown();
-            glfwTerminate();
+            runtime_app::shutdownWindow(runtimeWindow);
             return -1;
         }
 
@@ -598,13 +897,13 @@ int main( void )
             g_rmlSystemInterface.reset();
             RmlGL3::Shutdown();
             delete scene;
-            glfwTerminate();
+            runtime_app::shutdownWindow(runtimeWindow);
             return -1;
         }
 
         g_editorUi.setUiBuilderEnabled(g_uiBuilderEnabled);
 
-        scene->setUiContext(g_rmlContext);
+        g_sceneViewportOverlay.setUiContext(g_rmlContext);
     }
     
 
@@ -652,6 +951,34 @@ int main( void )
             g_editorUi.syncToWindow(g_windowFramebufferWidth, g_windowFramebufferHeight);
             g_editorUi.update();
 
+            const bool externalPreviewActive = g_editorUi.isExternalPreviewActive();
+            if (externalPreviewActive)
+                pollRemotePreviewState(*scene);
+
+            if (externalPreviewActive)
+                pollRemotePreviewObjectState(*scene);
+
+            if (externalPreviewActive)
+                g_remotePreviewTexture.poll();
+
+            if (!externalPreviewActive && g_remotePreviewInputCapture)
+                setRemotePreviewInputCapture(window, false, {});
+
+            if (externalPreviewActive != g_remotePreviewSessionActive)
+            {
+                if (!externalPreviewActive)
+                {
+                    clearRemotePreviewSessionFiles();
+                    resetRemotePreviewSessionState();
+                    gWasPressed = false;
+                }
+                else
+                {
+                    g_remotePreviewSessionActive = true;
+                    g_remotePreviewLastSentSelectionId = -2;
+                }
+            }
+
             g_uiBuilderEnabled = g_editorUi.isUiBuilderEnabled();
 
             if (g_editorUi.isUiBuilderEnabled())
@@ -677,34 +1004,77 @@ int main( void )
             glfwGetCursorPos(window, &cursorWindowX, &cursorWindowY);
             const glm::dvec2 cursorPosition = windowToFramebufferCoords(window, cursorWindowX, cursorWindowY);
 
+            if (externalPreviewActive)
+            {
+                const bool controlPressed =
+                    glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                    glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+                const bool togglePressed = controlPressed && glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS;
+                if (togglePressed && !gWasPressed)
+                    setRemotePreviewInputCapture(window, !g_remotePreviewInputCapture, viewportRect);
+                gWasPressed = togglePressed;
+
+                double remoteMouseDeltaX = 0.0;
+                double remoteMouseDeltaY = 0.0;
+                if (g_remotePreviewInputCapture && viewportRect.isValid())
+                {
+                    remoteMouseDeltaX = cursorPosition.x - viewportRect.centerX();
+                    remoteMouseDeltaY = viewportRect.centerY() - cursorPosition.y;
+
+                    const glm::dvec2 centerWindow = framebufferToWindowCoords(window, viewportRect.centerX(), viewportRect.centerY());
+                    glfwSetCursorPos(window, centerWindow.x, centerWindow.y);
+                }
+
+                writeRemotePreviewInputStateFile(window, g_remotePreviewInputCapture, remoteMouseDeltaX, remoteMouseDeltaY);
+
+                const GameObject* selectedGameObject = scene->getSelectedGameObject();
+                writeRemotePreviewSelection(selectedGameObject != nullptr ? selectedGameObject->getId() : -1);
+            }
+            else
+            {
+                gWasPressed = false;
+            }
+
             const bool viewportHovered = viewportRect.isValid() && g_editorUi.isViewportHovered(cursorPosition.x, cursorPosition.y);
             const bool sceneInputEnabled =
                 (viewportHovered && !g_editorUi.isDragging()) ||
                 scene->isFpsControlEnabled() ||
                 scene->isOrbitModeEnabled() ||
                 g_sceneClickPending;
+            const bool renderExternalPreview = externalPreviewActive && g_remotePreviewTexture.isReady();
             const bool viewportFramebufferReady = viewportRect.isValid() && g_viewportFramebuffer.ensureSize(viewportRect.width, viewportRect.height);
-            const bool useViewportFramebuffer = viewportFramebufferReady && static_cast<bool>(g_viewportTexturePresenter);
+            const bool useViewportFramebuffer = !externalPreviewActive && viewportFramebufferReady && static_cast<bool>(g_viewportTexturePresenter);
 
             if (viewportRect.isValid())
-                scene->setUiViewportRect(viewportRect.x, viewportRect.y, viewportRect.width, viewportRect.height);
+                g_sceneViewportOverlay.setViewportRect(viewportRect);
             else
-                scene->setUiViewportRect(0, 0, 0, 0);
+                g_sceneViewportOverlay.setViewportRect({});
 
-            if (viewportRect.isValid())
+            if (externalPreviewActive && viewportRect.isValid() &&
+                (viewportRect.width != g_remotePreviewRequestedWidth || viewportRect.height != g_remotePreviewRequestedHeight))
+            {
+                writeRemotePreviewResizeRequest(viewportRect.width, viewportRect.height);
+            }
+
+            if (viewportRect.isValid() && !externalPreviewActive)
                 scene->updateCamSettings((float)viewportRect.width / (float)std::max(viewportRect.height, 1));
 
-            scene->update(
-                deltaTime,
-                window,
-                sceneInputEnabled,
-                true,
-                viewportRect.centerX(),
-                viewportRect.centerY(),
-                g_sceneClickPending,
-                g_sceneClickX,
-                g_sceneClickY
-            );
+            if (!externalPreviewActive && g_sceneClickPending && !scene->isFpsControlEnabled() && viewportRect.isValid())
+                scene->setSelectedGameObject(g_sceneViewportOverlay.pickGameObject(*scene, window, g_sceneClickX, g_sceneClickY, true));
+
+            if (!externalPreviewActive)
+            {
+                scene->update(
+                    deltaTime,
+                    window,
+                    sceneInputEnabled,
+                    true,
+                    viewportRect.centerX(),
+                    viewportRect.centerY()
+                );
+            }
+
+            g_sceneViewportOverlay.update(deltaTime);
 
             g_sceneClickPending = false;
 
@@ -722,7 +1092,33 @@ int main( void )
             glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            if (useViewportFramebuffer)
+            if (externalPreviewActive)
+            {
+                if (viewportRect.isValid())
+                {
+                    const int glViewportY = g_windowFramebufferHeight - viewportRect.y - viewportRect.height;
+                    glEnable(GL_SCISSOR_TEST);
+                    glViewport(viewportRect.x, glViewportY, viewportRect.width, viewportRect.height);
+                    glScissor(viewportRect.x, glViewportY, viewportRect.width, viewportRect.height);
+                    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+                    glDisable(GL_SCISSOR_TEST);
+                    glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
+
+                    if (renderExternalPreview)
+                    {
+                        const int destinationY = g_windowFramebufferHeight - viewportRect.y - viewportRect.height;
+                        g_viewportTexturePresenter.render(
+                            g_remotePreviewTexture.texture,
+                            viewportRect.x,
+                            destinationY,
+                            viewportRect.width,
+                            viewportRect.height
+                        );
+                        glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
+                    }
+                }
+            }
+            else if (useViewportFramebuffer)
             {
                 const int destinationY = g_windowFramebufferHeight - viewportRect.y - viewportRect.height;
                 g_viewportTexturePresenter.render(
@@ -734,7 +1130,7 @@ int main( void )
                 );
                 glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
             }
-            else if (viewportRect.isValid())
+            else if (viewportRect.isValid() && !externalPreviewActive)
             {
                 const int glViewportY = g_windowFramebufferHeight - viewportRect.y - viewportRect.height;
                 glEnable(GL_SCISSOR_TEST);
@@ -757,17 +1153,21 @@ int main( void )
         }
         else
         {
-            scene -> update(deltaTime, window, true, false, 0.0, 0.0, g_sceneClickPending, g_sceneClickX, g_sceneClickY);
+            if (g_sceneClickPending && !scene->isFpsControlEnabled())
+                scene->setSelectedGameObject(g_sceneViewportOverlay.pickGameObject(*scene, window, g_sceneClickX, g_sceneClickY, false));
+
+            scene -> update(deltaTime, window, true, false, 0.0, 0.0);
+            g_sceneViewportOverlay.update(deltaTime);
             g_sceneClickPending = false;
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
             scene -> renderSceneWithSelectionHighlight();
 
-            if (scene->hasUiRenderers())
+            if (g_sceneViewportOverlay.hasUiRenderers())
             {
-                scene->setUiViewportRect(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
+                g_sceneViewportOverlay.setViewportRect({0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight});
                 g_rmlContext->Update();
                 g_rmlRenderInterface->BeginFrame();
-                scene->renderUi();
+                g_sceneViewportOverlay.render();
                 g_rmlContext->Render();
                 g_rmlRenderInterface->EndFrame();
             }
@@ -783,12 +1183,15 @@ int main( void )
 
     delete scene;
 
+    resetRemotePreviewSessionState();
     g_viewportFramebuffer.destroy();
     g_viewportTexturePresenter.destroy();
+    clearRemotePreviewSessionFiles();
 
     if (g_rmlContext != nullptr)
     {
         g_editorUi.shutdown();
+        g_sceneViewportOverlay.clearUiRenderers();
         Rml::Shutdown();
         g_rmlContext = nullptr;
         g_rmlRenderInterface.reset();
@@ -797,7 +1200,7 @@ int main( void )
     }
 
     // Close OpenGL window and terminate GLFW
-    glfwTerminate();
+    runtime_app::shutdownWindow(runtimeWindow);
 
     return 0;
 }

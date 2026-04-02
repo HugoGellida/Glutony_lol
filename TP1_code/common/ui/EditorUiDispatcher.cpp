@@ -99,6 +99,13 @@ bool EditorUiDispatcher::isDragging() const
     return false;
 }
 
+bool EditorUiDispatcher::isExternalPreviewActive() const
+{
+    if (const EditorUiModeController* controller = activeController())
+        return controller->isExternalPreviewActive();
+    return false;
+}
+
 void EditorUiDispatcher::ProcessEvent(Rml::Event& event)
 {
     if (EditorUiModeController* controller = activeController())

@@ -76,6 +76,11 @@ bool EditorUiController::isDragging() const
     return m_dispatcher != nullptr && m_dispatcher->isDragging();
 }
 
+bool EditorUiController::isExternalPreviewActive() const
+{
+    return m_dispatcher != nullptr && m_dispatcher->isExternalPreviewActive();
+}
+
 void EditorUiController::ProcessEvent(Rml::Event& event)
 {
     if (m_dispatcher != nullptr)

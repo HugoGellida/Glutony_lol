@@ -32,6 +32,7 @@ public:
     UiRect getViewportRect() const;
     bool isViewportHovered(double mouseX, double mouseY) const;
     bool isDragging() const;
+    bool isExternalPreviewActive() const;
 
     void ProcessEvent(Rml::Event& event) override;
 

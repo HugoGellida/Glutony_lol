@@ -74,15 +74,16 @@ public:
     }
     void RemoveBody(PhysicBody body)
     {
-        std::vector<PhysicBody> n(m_bodies.size()-1);
-        size_t a = 0;
-        for (size_t i = 0; i < m_bodies.size(); i++)
-        {
-            if (m_bodies[i].collider == body.collider && m_bodies[i].rb == body.rb && m_bodies[i].transform == body.transform)
-                continue;
-            n[a++] = m_bodies[i];
-        }
-        m_bodies = n;
+        const auto it = std::find_if(m_bodies.begin(), m_bodies.end(), [&](const PhysicBody& candidate) {
+            return candidate.collider == body.collider
+                && candidate.rb == body.rb
+                && candidate.transform == body.transform;
+        });
+
+        if (it == m_bodies.end())
+            return;
+
+        m_bodies.erase(it);
     }
 
     void Step(float dt)

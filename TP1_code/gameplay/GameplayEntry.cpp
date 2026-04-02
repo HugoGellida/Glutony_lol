@@ -1,0 +1,4 @@
+namespace gameplay
+{
+void bootstrap() {}
+}

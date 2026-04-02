@@ -49,31 +49,8 @@ namespace Raycast
         glm::vec3 d;
     };
 
-    inline Ray getRayFromClick(bool editorMode, int m_uiViewportX, int m_uiViewportY, int m_uiViewportWidth, int m_uiViewportHeight, int sceneClickX, int sceneClickY, Camera& m_camera, GLFWwindow* window)
+    inline Ray getRayFromClick(int viewportX, int viewportY, int viewportWidth, int viewportHeight, double sceneClickX, double sceneClickY, const Camera& m_camera)
     {
-        int viewportX = 0;
-        int viewportY = 0;
-        int viewportWidth = 0;
-        int viewportHeight = 0;
-
-        if (editorMode)
-        {
-            viewportX = m_uiViewportX;
-            viewportY = m_uiViewportY;
-            viewportWidth = m_uiViewportWidth;
-            viewportHeight = m_uiViewportHeight;
-        }
-        else
-        {
-            glfwGetWindowSize(window, &viewportWidth, &viewportHeight);
-        }
-
-        const bool insideViewport =
-            sceneClickX >= viewportX &&
-            sceneClickX < viewportX + viewportWidth &&
-            sceneClickY >= viewportY &&
-            sceneClickY < viewportY + viewportHeight;
-
         glm::vec2 screenCoords = Raycast::WindowSpaceToScreenSpace(
             sceneClickX,
             sceneClickY,

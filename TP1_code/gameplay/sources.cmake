@@ -1,0 +1,3 @@
+set(GLUTONY_GAMEPLAY_ROOT_SOURCES
+    ${CMAKE_CURRENT_LIST_DIR}/GameplayEntry.cpp
+)

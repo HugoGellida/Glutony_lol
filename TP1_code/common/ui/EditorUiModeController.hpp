@@ -21,4 +21,8 @@ public:
     virtual UiRect getViewportRect() const = 0;
     virtual bool isViewportHovered(double mouseX, double mouseY) const = 0;
     virtual bool isDragging() const = 0;
+    virtual bool isExternalPreviewActive() const
+    {
+        return false;
+    }
 };

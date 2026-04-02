@@ -31,6 +31,7 @@ public:
     UiRect getViewportRect() const override;
     bool isViewportHovered(double mouseX, double mouseY) const override;
     bool isDragging() const override;
+    bool isExternalPreviewActive() const override;
     void ProcessEvent(Rml::Event& event) override;
 
 private:
@@ -46,6 +47,26 @@ private:
         None,
         LoadFromDialog,
         OpenFile,
+    };
+
+    enum class BottomPanelTab
+    {
+        AssetBrowser,
+        Console,
+    };
+
+    enum class ActiveProcessKind
+    {
+        None,
+        Build,
+        Player,
+    };
+
+    enum class PendingLaunchAction
+    {
+        None,
+        PlayPreview,
+        RunDetached,
     };
 
 public:
@@ -123,12 +144,28 @@ private:
         std::string fieldKey;
     };
 
+    struct InspectorGroupBinding
+    {
+        int nodeId = 0;
+        size_t componentIndex = 0;
+    };
+
     void attachListeners();
     void detachListeners();
     void applyLayout();
+    void refreshHierarchyPresentation();
+    void refreshViewportPresentation();
     void refreshPresentation();
-    void refreshInspectorPresentation();
+    void refreshInspectorPresentation(bool preserveScroll = false);
     void refreshInspectorValuesPresentation();
+    void refreshInspectorOverlayPresentation();
+    void refreshBottomPanelPresentation(bool preserveScroll = false);
+    void refreshAssetBrowserWorkspacePresentation(bool preserveScroll = false);
+    void refreshAssetBrowserTreePresentation(bool preserveScroll = false);
+    void refreshAssetBrowserFilesPresentation(bool preserveScroll = false);
+    void refreshAssetBrowserOverlayPresentation();
+    void refreshAssetBrowserDirectorySelectionPresentation(const std::string& previousDirectoryId);
+    void refreshAssetBrowserFileSelectionPresentation(const std::string& previousFileId);
     void refreshCachedRects();
     void rescanAssetBrowser();
     void rebuildHierarchyFromScene(const Scene& scene);
@@ -138,24 +175,35 @@ private:
     std::string buildHierarchyNodeMarkup(const UiGOHierarchyNode& node, int depth) const;
     std::string buildHierarchyContextMenuMarkup() const;
     std::string buildInspectorMarkup() const;
+    std::string buildInspectorOverlayMarkup() const;
     std::string buildInspectorAddComponentMenuMarkup() const;
+    std::string buildInspectorComponentContextMenuMarkup() const;
     std::string buildAssetBrowserMarkup() const;
+    std::string buildAssetBrowserWorkspaceMarkup() const;
+    std::string buildAssetBrowserTreePaneMarkup() const;
+    std::string buildAssetBrowserFilesPaneMarkup() const;
+    std::string buildConsoleMarkup() const;
+    std::string buildAssetBrowserOverlayMarkup() const;
     std::string buildAssetBrowserDirectoryMarkup(const AssetBrowserDirectoryNode& node, int depth) const;
     std::string buildAssetBrowserFileGridMarkup(const AssetBrowserDirectoryNode* directory) const;
     std::string buildAssetBrowserContextMenuMarkup() const;
     std::string buildViewportMarkup() const;
     std::string buildSceneDirtyPromptMarkup() const;
     void requestHierarchyRefresh();
+    void requestSelectionRefresh();
     static std::string makeHierarchyNodeElementId(int nodeId);
     static std::string makeAssetDirectoryElementId(const std::string& directoryId);
+    static std::string makeAssetDirectoryToggleElementId(const std::string& directoryId);
     static std::string makeAssetFileElementId(const std::string& fileId);
     static std::optional<int> parseHierarchyNodeId(const Rml::String& elementId);
     static std::optional<std::string> parseAssetDirectoryElementId(const Rml::String& elementId);
+    static std::optional<std::string> parseAssetDirectoryToggleElementId(const Rml::String& elementId);
     static std::optional<std::string> parseAssetFileElementId(const Rml::String& elementId);
     static std::string makeTransformFieldElementId(int nodeId, const std::string& fieldKey);
     static std::string makeInspectorFieldElementId(int nodeId, size_t componentIndex, const std::string& fieldKey);
     static std::optional<InspectorFieldBinding> parseInspectorFieldElementId(const Rml::String& elementId);
     static std::string makeInspectorGroupElementId(int nodeId, size_t componentIndex);
+    static std::optional<InspectorGroupBinding> parseInspectorGroupElementId(const Rml::String& elementId);
     UiGOHierarchyNode* findHierarchyNodeById(int nodeId);
     const UiGOHierarchyNode* findHierarchyNodeById(int nodeId) const;
     UiGOHierarchyNode* findHierarchyNodeByGameObject(const GameObject* gameObject);
@@ -175,7 +223,8 @@ private:
     bool applyDraggedAssetToInspectorField(const InspectorFieldBinding& binding);
     void toggleInspectorGroup(const std::string& groupId);
     bool isInspectorGroupCollapsed(const std::string& groupId) const;
-    void markSceneDirty();
+    void markSceneDirty(bool requestFullRuntimeSync = true);
+    void queueRuntimeGameObjectSync(int nodeId);
     void clearSceneDirty();
     bool saveScene();
     bool saveSceneAs();
@@ -185,6 +234,20 @@ private:
     bool executePendingSceneAction();
     void closePendingSceneActionPrompt();
     void closeHeaderMenus();
+    bool prepareRuntimeSceneFile(std::string& outputPath);
+    bool startBuild(PendingLaunchAction launchAction);
+    bool startPreviewPlayer(const std::string& scenePath);
+    bool startDetachedPlayer(const std::string& scenePath);
+    void stopExternalProcess(bool restoreEditorScene = true);
+    void pausePreviewPlayer();
+    void resumePreviewPlayer();
+    void syncRuntimePreviewGameObjectIfNeeded();
+    void syncRuntimePreviewSceneIfNeeded();
+    void pollExternalProcess();
+    void appendConsoleOutput(const std::string& text, const std::string& sourceClass = "");
+    void appendConsoleLine(const std::string& line, const std::string& sourceClass = "");
+    void appendConsoleSystemMessage(const std::string& message, const std::string& sourceClass = "console_line_info");
+    void clearConsole();
 
     Rml::Context* m_context = nullptr;
     Rml::ElementDocument* m_document = nullptr;
@@ -209,19 +272,26 @@ private:
     float m_rightRatio = 0.22f;
     float m_viewportRatio = 0.78f;
     float m_bottomBrowserTreeRatio = 0.34f;
+    BottomPanelTab m_bottomPanelTab = BottomPanelTab::AssetBrowser;
     bool m_isFileMenuOpen = false;
+    bool m_isEditMenuOpen = false;
     bool m_isWindowMenuOpen = false;
     bool m_assetBrowserContextMenuOpen = false;
     bool m_hierarchyContextMenuOpen = false;
     bool m_addComponentMenuOpen = false;
+    bool m_inspectorComponentContextMenuOpen = false;
     bool m_sceneDirty = false;
     bool m_sceneSavePromptOpen = false;
     Scene* m_scene = nullptr;
     PlaybackState m_playbackState = PlaybackState::Stopped;
     PendingSceneAction m_pendingSceneAction = PendingSceneAction::None;
+    ActiveProcessKind m_activeProcessKind = ActiveProcessKind::None;
+    PendingLaunchAction m_pendingLaunchAction = PendingLaunchAction::None;
     std::optional<scene_serialization::SceneSnapshot> m_runtimeSceneSnapshot;
     std::string m_currentSceneFilePath;
     std::string m_pendingSceneTargetPath;
+    std::string m_pendingLaunchScenePath;
+    std::string m_consolePartialLine;
     DragTarget m_dragTarget = DragTarget::None;
     DragPayloadKind m_dragPayloadKind = DragPayloadKind::None;
     std::string m_draggedAssetFileId;
@@ -229,10 +299,10 @@ private:
     std::string m_hoveredInspectorFieldId;
     UiRect m_viewportRect;
     UiRect m_centerRect;
-    int m_selectedHierarchyNodeId = 1;
-    int m_nextHierarchyNodeId = 2;
+    int m_selectedHierarchyNodeId = 0;
     bool m_hierarchyRefreshPending = false;
-    UiGOHierarchyNode m_hierarchyRoot = {1, "Root", "scene", nullptr, {}};
+    bool m_selectionRefreshPending = false;
+    UiGOHierarchyNode m_hierarchyRoot = {0, "Root", "scene", nullptr, {}};
     std::vector<AssetBrowserDirectoryNode> m_assetBrowserRoots;
     std::unordered_set<std::string> m_expandedAssetDirectoryIds;
     std::string m_selectedAssetDirectoryId;
@@ -244,5 +314,18 @@ private:
     int m_hierarchyContextMenuNodeId = 0;
     int m_addComponentMenuX = 0;
     int m_addComponentMenuY = 0;
+    int m_inspectorComponentContextMenuX = 0;
+    int m_inspectorComponentContextMenuY = 0;
+    int m_inspectorComponentContextMenuNodeId = 0;
+    size_t m_inspectorComponentContextMenuIndex = 0;
     std::unordered_set<std::string> m_collapsedInspectorGroups;
+    std::vector<std::string> m_consoleLines;
+    int m_activeProcessPid = -1;
+    int m_activeProcessOutputFd = -1;
+    int m_runtimeGameObjectSyncId = -1;
+    uint64_t m_runtimePauseSequence = 0;
+    uint64_t m_runtimeGameObjectSyncSequence = 0;
+    uint64_t m_runtimeSceneSyncSequence = 0;
+    bool m_runtimeSceneSyncPending = false;
+    bool m_consoleRefreshPending = false;
 };

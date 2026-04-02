@@ -18,12 +18,8 @@
 #include "physics/PlaneCollider.hpp"
 #include "geometry/Plane.hpp"
 #include "asset/AssetManager.hpp"
-#include "ui/UIRenderer.hpp"
-#include "utils/Raycast.hpp"
 
-#include <memory>
 #include <string>
-#include <vector>
 
 
 class Scene
@@ -53,12 +49,6 @@ private:
     float m_orbitSpeed = 20.0f;
 
     float m_anim_angle = 0.0f;
-    Rml::Context* m_uiContext = nullptr;
-    int m_uiViewportX = 0;
-    int m_uiViewportY = 0;
-    int m_uiViewportWidth = 0;
-    int m_uiViewportHeight = 0;
-    std::vector<std::unique_ptr<UIRenderer>> m_uiRenderers;
     asset::SceneAssetRegistry m_sceneAssetRegistry;
 
     static std::string proceduralPlaneAssetPath()
@@ -103,12 +93,6 @@ private:
             m_meshs[1] = plane;
 
         return plane;
-    }
-
-    void updateUiRenderers(double deltaTime)
-    {
-        for (const std::unique_ptr<UIRenderer>& renderer : m_uiRenderers)
-            renderer->update(deltaTime);
     }
 
     void renderGameObject(GameObject* gameObject)
@@ -194,6 +178,39 @@ private:
     }
 
 public:
+    void setFpsControlEnabled(bool enabled, GLFWwindow* window = nullptr, bool lockMouseToAnchor = false, double mouseAnchorX = 0.0, double mouseAnchorY = 0.0)
+    {
+        m_fpsControl = enabled;
+        if (window == nullptr)
+            return;
+
+        int width = 0;
+        int height = 0;
+        glfwGetWindowSize(window, &width, &height);
+        const double resetX = lockMouseToAnchor ? mouseAnchorX : static_cast<double>(width / 2);
+        const double resetY = lockMouseToAnchor ? mouseAnchorY : static_cast<double>(height / 2);
+
+        glfwSetInputMode(window, GLFW_CURSOR, enabled ? (lockMouseToAnchor ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_DISABLED) : GLFW_CURSOR_NORMAL);
+        glfwSetCursorPos(window, resetX, resetY);
+        m_inputProcessor.resetMouseState(resetX, resetY);
+    }
+
+    void enterPlayMode(GLFWwindow* window, bool captureMouse, bool lockMouseToAnchor = false, double mouseAnchorX = 0.0, double mouseAnchorY = 0.0)
+    {
+        setPhysicsSimulationEnabled(true);
+        setFpsControlEnabled(captureMouse, window, lockMouseToAnchor, mouseAnchorX, mouseAnchorY);
+    }
+
+    inputProcessor::InputProcessor& getInputProcessor()
+    {
+        return m_inputProcessor;
+    }
+
+    const inputProcessor::InputProcessor& getInputProcessor() const
+    {
+        return m_inputProcessor;
+    }
+
     Scene()
     {
         using namespace component;
@@ -212,14 +229,11 @@ public:
         m_meshs[1] = useProceduralPlaneAsset();
         m_meshs[2] = useMeshAsset("built-in/mesh/unit_sphere_n.off");
 
-
-        this -> m_materials = useMaterialAsset("built-in/materials/lit_default.mat");
+        this->m_materials = useMaterialAsset("built-in/materials/lit_default.mat");
         m_selectionHighlightShader = useShaderAsset("built-in/shaders/unlit");
         m_selectionHighlightMaterial = dynamic_cast<dataStruct::UnlitMaterial*>(useMaterialAsset("built-in/materials/selection_highlight.mat"));
         m_camera = Camera();
 
-
-        // input setup
         m_inputProcessor.registerKey(GLFW_KEY_W, inputProcessor::KeyState::HOLD);
         m_inputProcessor.registerKey(GLFW_KEY_S, inputProcessor::KeyState::HOLD);
         m_inputProcessor.registerKey(GLFW_KEY_A, inputProcessor::KeyState::HOLD);
@@ -227,116 +241,85 @@ public:
         m_inputProcessor.registerKey(GLFW_KEY_E, inputProcessor::KeyState::HOLD);
         m_inputProcessor.registerKey(GLFW_KEY_Q, inputProcessor::KeyState::HOLD);
         m_inputProcessor.registerKey(GLFW_KEY_G, inputProcessor::KeyState::ONCE);
-        m_inputProcessor.registerKey(GLFW_KEY_SEMICOLON, inputProcessor::KeyState::ONCE); // M
+        m_inputProcessor.registerKey(GLFW_KEY_SEMICOLON, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_P, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_C, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_UP, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_DOWN, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_V, inputProcessor::KeyState::ONCE);
-        m_inputProcessor.registerKey(GLFW_KEY_Z, inputProcessor::KeyState::ONCE); // w
+        m_inputProcessor.registerKey(GLFW_KEY_Z, inputProcessor::KeyState::ONCE);
         m_inputProcessor.registerKey(GLFW_KEY_Y, inputProcessor::KeyState::HOLD);
     }
 
     void update(
         double deltaTime,
-        GLFWwindow * window,
+        GLFWwindow* window,
         bool inputEnabled = true,
-        bool editorMode = false,
+        bool lockMouseToAnchor = false,
         double mouseAnchorX = 0.0,
-        double mouseAnchorY = 0.0,
-        bool sceneClickPending = false,
-        double sceneClickX = 0.0,
-        double sceneClickY = 0.0)
+        double mouseAnchorY = 0.0)
     {
         if (m_physicsSimulationEnabled)
-            PhysicEngine::getInstance() -> Step(deltaTime);
+            PhysicEngine::getInstance()->Step(deltaTime);
 
+        for (size_t i = 0; i < m_gameObjectCount; i++)
+            m_gameObjects[i]->update(deltaTime);
 
-
-        for (size_t i = 0; i < m_gameObjectCount; i++) 
-            m_gameObjects[i] -> update(deltaTime);
         m_inputProcessor.update(window, inputEnabled && m_fpsControl, mouseAnchorX, mouseAnchorY);
-        float sensitivity = 0.1f;
-        
-        if (!inputEnabled && !sceneClickPending)
-        {
-            updateUiRenderers(deltaTime);
+        const float sensitivity = 0.1f;
+
+        if (!inputEnabled)
             return;
-        }
 
         if (m_fpsControl)
         {
-            //Camera zoom in and out
-            float cameraSpeed = 2.5 * deltaTime;
             glm::vec3 move = glm::vec3(0, 0, 0);
-            unsigned int a = 0;
-            // CAMERA
+            unsigned int axisCount = 0;
+
             if (m_inputProcessor.queryKey(window, GLFW_KEY_W))
             {
-                move+=glm::vec3(0, 0, -1);
-                a++;
+                move += glm::vec3(0, 0, -1);
+                axisCount++;
             }
             if (m_inputProcessor.queryKey(window, GLFW_KEY_S))
             {
-                move+=glm::vec3(0, 0, 1);
-                a++;
+                move += glm::vec3(0, 0, 1);
+                axisCount++;
             }
             if (m_inputProcessor.queryKey(window, GLFW_KEY_A))
             {
-                move+=glm::vec3(-1, 0, 0);
-                a++;
+                move += glm::vec3(-1, 0, 0);
+                axisCount++;
             }
             if (m_inputProcessor.queryKey(window, GLFW_KEY_D))
             {
-                move+=glm::vec3(1, 0, 0);
-                a++;
+                move += glm::vec3(1, 0, 0);
+                axisCount++;
             }
             if (m_inputProcessor.queryKey(window, GLFW_KEY_E))
             {
-                move+=glm::vec3(0, 1, 0);
-                a++;
+                move += glm::vec3(0, 1, 0);
+                axisCount++;
             }
             if (m_inputProcessor.queryKey(window, GLFW_KEY_Q))
             {
-                move+=glm::vec3(0, -1, 0);
-                a++;
+                move += glm::vec3(0, -1, 0);
+                axisCount++;
             }
 
-            if (a>0)
-                move = ((float)deltaTime) * (move / (float)a);
+            if (axisCount > 0)
+                move = static_cast<float>(deltaTime) * (move / static_cast<float>(axisCount));
+
             updateCamera(move, glm::vec3(-m_inputProcessor.getMouseDeltaY() * sensitivity, m_inputProcessor.getMouseDeltaX() * sensitivity, 0.0f));
-            if (editorMode)
+            if (lockMouseToAnchor)
                 glfwSetCursorPos(window, mouseAnchorX, mouseAnchorY);
             else
             {
-                int scrWidth, scrHeight;
+                int scrWidth = 0;
+                int scrHeight = 0;
                 glfwGetWindowSize(window, &scrWidth, &scrHeight);
                 glfwSetCursorPos(window, scrWidth / 2, scrHeight / 2);
             }
-        }
-
-        if (sceneClickPending && !m_fpsControl)
-        {
-            Raycast::Ray ray = Raycast::getRayFromClick(editorMode, m_uiViewportX, m_uiViewportY, m_uiViewportWidth, m_uiViewportHeight, sceneClickX, sceneClickY, m_camera, window);
-            float m = MAXFLOAT;
-            GameObject* selectedGameObject = nullptr;
-            for (size_t i = 0; i < m_gameObjectCount; i++)
-            {
-                float t = MAXFLOAT;
-                if (m_gameObjects[i] -> getComponent<Mesh>() != nullptr)
-                {
-                    Raycast::raycastTransformedAABB(m_gameObjects[i]->transform, m_gameObjects[i] -> getComponent<Mesh>() -> getAABB(), ray, &t);
-                } 
-                else if (m_gameObjects[i] -> getComponent<physics::RigidBody>() != nullptr)
-                    Raycast::raycastAABB(m_gameObjects[i] -> getComponent<physics::RigidBody>() -> getAABB(), ray, &t);
-                if (t < m && t > 0.0)
-                {
-                    selectedGameObject = m_gameObjects[i];
-                    m = t;
-                }
-            }
-
-            setSelectedGameObject(selectedGameObject);
         }
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_G))
@@ -346,18 +329,13 @@ public:
                 m_orbitMode = false;
                 std::cout << "orbitmode disabled" << std::endl;
             }
-            m_fpsControl = !m_fpsControl;
+
+            setFpsControlEnabled(!m_fpsControl, window, lockMouseToAnchor, mouseAnchorX, mouseAnchorY);
             std::cout << "FPS Camera control " << (m_fpsControl ? "enabled" : "disabled") << std::endl;
-            if (m_fpsControl)
-                glfwSetInputMode(window, GLFW_CURSOR, editorMode ? GLFW_CURSOR_HIDDEN : GLFW_CURSOR_DISABLED);
-            else
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         }
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_Y))
-            m_gameObjects[0] -> getComponent<physics::RigidBody>() -> Impulse(glm::vec3(9.81, 2 * 9.81f, 0) * (float)deltaTime);
-
-        
+            m_gameObjects[0]->getComponent<physics::RigidBody>()->Impulse(glm::vec3(9.81f, 2.0f * 9.81f, 0.0f) * static_cast<float>(deltaTime));
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_UP))
         {
@@ -374,52 +352,37 @@ public:
         {
             if (m_fpsControl)
             {
-                m_fpsControl = false;
+                setFpsControlEnabled(false, window, lockMouseToAnchor, mouseAnchorX, mouseAnchorY);
                 std::cout << "FPS Camera control disabled" << std::endl;
             }
+
             m_orbitMode = !m_orbitMode;
             std::cout << "orbitmode : " << (m_orbitMode ? "enabled" : "disabled") << std::endl;
             if (m_orbitMode)
-            {
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-                
-            }
         }
 
         if (m_inputProcessor.queryKey(window, GLFW_KEY_Z))
         {
             for (size_t i = 0; i < m_gameObjectCount; i++)
-                m_gameObjects[i] -> getComponent<MeshRenderer>()->toggleWireframe();
+                m_gameObjects[i]->getComponent<MeshRenderer>()->toggleWireframe();
         }
 
         if (m_orbitMode)
         {
-            m_orbitYangle += m_orbitSpeed * ((float)deltaTime);
+            m_orbitYangle += m_orbitSpeed * static_cast<float>(deltaTime);
             m_orbitYangle = m_orbitYangle > 360.0f ? m_orbitYangle - 360.0f : m_orbitYangle;
             m_orbitYangle = m_orbitYangle < 0.0f ? m_orbitYangle + 360.0f : m_orbitYangle;
-            glm::vec3 nCamPos = glm::quat(glm::radians(glm::vec3(0.0, m_orbitYangle, 0.0f))) * m_orbitPos;
+            const glm::vec3 nCamPos = glm::quat(glm::radians(glm::vec3(0.0f, m_orbitYangle, 0.0f))) * m_orbitPos;
             m_camera.m_position = nCamPos;
             m_camera.m_orientation = glm::vec3(-45.0f, m_orbitYangle + 180.0f, 0.0f);
-
         }
-
-
-       /*  m_anim_angle += 10.0f * deltaTime;
-        m_anim_angle = m_anim_angle > 360.0f ? m_anim_angle - 360.0f : m_anim_angle;
-
-        m_gameObjects[0] -> transform.setRotation(glm::vec3(0.0f, m_anim_angle + 30.0f, 20.0f));
-        m_gameObjects[1] -> transform.setRotation(glm::vec3(10.0f, -m_anim_angle, 40.0f)); */
-
-        updateUiRenderers(deltaTime);
-
     }
 
     void renderScene()
     {
         for (size_t i = 0; i < m_gameObjectCount; i++)
-        {
             renderGameObject(m_gameObjects[i]);
-        }
     }
 
     void renderSceneWithSelectionHighlight()
@@ -527,60 +490,6 @@ public:
         m_selectedGameObject = (m_selectedGameObject == gameObject) ? nullptr : gameObject;
     }
 
-    void setUiContext(Rml::Context* context)
-    {
-        m_uiContext = context;
-        for (const std::unique_ptr<UIRenderer>& renderer : m_uiRenderers)
-            renderer->initialize(m_uiContext);
-    }
-
-    UIRenderer* pushUiRenderer(std::unique_ptr<UIRenderer> renderer)
-    {
-        if (!renderer)
-            return nullptr;
-
-        renderer->initialize(m_uiContext);
-        m_uiRenderers.push_back(std::move(renderer));
-        return m_uiRenderers.back().get();
-    }
-
-    void clearUiRenderers()
-    {
-        for (const std::unique_ptr<UIRenderer>& renderer : m_uiRenderers)
-            renderer->shutdown();
-        m_uiRenderers.clear();
-    }
-
-    bool hasUiRenderers() const
-    {
-        return !m_uiRenderers.empty();
-    }
-
-    void setUiViewportRect(int x, int y, int width, int height)
-    {
-        m_uiViewportX = x;
-        m_uiViewportY = y;
-        m_uiViewportWidth = width;
-        m_uiViewportHeight = height;
-    }
-
-    void renderUi()
-    {
-        if (m_uiViewportWidth <= 0 || m_uiViewportHeight <= 0)
-        {
-            for (const std::unique_ptr<UIRenderer>& renderer : m_uiRenderers)
-                renderer->setVisible(false);
-            return;
-        }
-
-        for (size_t index = 0; index < m_uiRenderers.size(); ++index)
-        {
-            UIRenderer& renderer = *m_uiRenderers[index];
-            renderer.layoutFullscreen(m_uiViewportX, m_uiViewportY, m_uiViewportWidth, m_uiViewportHeight, static_cast<int>(index));
-            renderer.pullToFront();
-        }
-    }
-
     void updateCamera(glm::vec3 deltaPos, glm::vec3 deltaEuler)
     {
         glm::vec4 posRel = (Transform::rotationMatrix(glm::vec3(0.0f, m_camera.m_orientation.y, 0.0f)) * glm::vec4(deltaPos.x, deltaPos.y, deltaPos.z, 1.0f));
@@ -674,7 +583,6 @@ public:
 
     ~Scene()
     {
-        clearUiRenderers();
         destroyAllGameObjects();
         if (m_meshs != nullptr && m_meshsCount > 1 && m_meshs[1] != nullptr)
         {

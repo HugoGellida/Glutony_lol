@@ -223,6 +223,44 @@ inline bool saveSnapshotToStream(std::ostream& output, const SceneSnapshot& snap
     return static_cast<bool>(output);
 }
 
+inline bool saveGameObjectSnapshotToStream(std::ostream& output, const GameObjectSnapshot& gameObject)
+{
+    output << "BEGIN_GAME_OBJECT\n";
+    output << "ID " << gameObject.id << '\n';
+    output << "NAME " << std::quoted(gameObject.name) << '\n';
+    output << "PARENT_ID " << gameObject.parentId << '\n';
+    output << "POSITION ";
+    writeVec3(output, gameObject.position);
+    output << '\n';
+    output << "ROTATION ";
+    writeVec3(output, gameObject.rotation);
+    output << '\n';
+    output << "SCALE ";
+    writeVec3(output, gameObject.scale);
+    output << '\n';
+    output << "MESH_ASSET " << std::quoted(gameObject.meshAssetPath) << '\n';
+    output << "MATERIAL_ASSET " << std::quoted(gameObject.materialAssetPath) << '\n';
+    output << "COMPONENTS " << gameObject.components.size() << '\n';
+
+    for (const component_meta::ComponentSnapshot& component : gameObject.components)
+    {
+        output << "BEGIN_COMPONENT\n";
+        output << "TYPE " << std::quoted(component.typeKey) << '\n';
+        output << "VERSION " << component.version << '\n';
+        output << "FIELDS " << component.fields.size() << '\n';
+        for (const component_meta::SerializedField& field : component.fields)
+        {
+            output << "FIELD " << std::quoted(field.key) << ' ';
+            writeSerializedValue(output, field.value);
+            output << '\n';
+        }
+        output << "END_COMPONENT\n";
+    }
+
+    output << "END_GAME_OBJECT\n";
+    return static_cast<bool>(output);
+}
+
 inline bool loadSnapshotFromStream(std::istream& input, SceneSnapshot& snapshot)
 {
     std::string token;
@@ -350,6 +388,177 @@ inline bool loadSnapshotFromStream(std::istream& input, SceneSnapshot& snapshot)
 
     return (input >> token) && token == "END_SCENE";
 }
+
+inline bool loadGameObjectSnapshotFromStream(std::istream& input, GameObjectSnapshot& gameObject)
+{
+    std::string token;
+    if (!(input >> token) || token != "BEGIN_GAME_OBJECT")
+        return false;
+    if (!(input >> token >> gameObject.id) || token != "ID")
+        return false;
+    if (!(input >> token >> std::quoted(gameObject.name)) || token != "NAME")
+        return false;
+    if (!(input >> token >> gameObject.parentId) || token != "PARENT_ID")
+        return false;
+    if (!(input >> token) || token != "POSITION" || !readVec3(input, gameObject.position))
+        return false;
+    if (!(input >> token) || token != "ROTATION" || !readVec3(input, gameObject.rotation))
+        return false;
+    if (!(input >> token) || token != "SCALE" || !readVec3(input, gameObject.scale))
+        return false;
+    if (!(input >> token >> std::quoted(gameObject.meshAssetPath)) || token != "MESH_ASSET")
+        return false;
+    if (!(input >> token >> std::quoted(gameObject.materialAssetPath)) || token != "MATERIAL_ASSET")
+        return false;
+
+    size_t componentCount = 0;
+    if (!(input >> token >> componentCount) || token != "COMPONENTS")
+        return false;
+    gameObject.components.clear();
+    gameObject.components.reserve(componentCount);
+
+    for (size_t componentIndex = 0; componentIndex < componentCount; ++componentIndex)
+    {
+        component_meta::ComponentSnapshot componentSnapshot;
+        if (!(input >> token) || token != "BEGIN_COMPONENT")
+            return false;
+        if (!(input >> token >> std::quoted(componentSnapshot.typeKey)) || token != "TYPE")
+            return false;
+        if (!(input >> token >> componentSnapshot.version) || token != "VERSION")
+            return false;
+
+        size_t fieldCount = 0;
+        if (!(input >> token >> fieldCount) || token != "FIELDS")
+            return false;
+        componentSnapshot.fields.reserve(fieldCount);
+
+        for (size_t fieldIndex = 0; fieldIndex < fieldCount; ++fieldIndex)
+        {
+            component_meta::SerializedField field;
+            if (!(input >> token >> std::quoted(field.key)) || token != "FIELD")
+                return false;
+            if (!readSerializedValue(input, field.value))
+                return false;
+            componentSnapshot.fields.push_back(field);
+        }
+
+        if (!(input >> token) || token != "END_COMPONENT")
+            return false;
+        gameObject.components.push_back(componentSnapshot);
+    }
+
+    return (input >> token) && token == "END_GAME_OBJECT";
+}
+}
+
+inline GameObjectSnapshot captureGameObject(const GameObject& gameObject)
+{
+    GameObjectSnapshot snapshot;
+    snapshot.id = gameObject.getId();
+    snapshot.name = gameObject.getName();
+    if (const Transform* parent = gameObject.transform.getParent())
+    {
+        const GameObject* parentObject = parent->getGameObject();
+        snapshot.parentId = parentObject != nullptr ? parentObject->getId() : -1;
+    }
+    snapshot.position = gameObject.transform.getPosition();
+    snapshot.rotation = gameObject.transform.getRotation();
+    snapshot.scale = gameObject.transform.getScale();
+
+    if (const component::MeshRenderer* meshRenderer = detail::findComponent<component::MeshRenderer>(gameObject))
+    {
+        snapshot.meshAssetPath = meshRenderer->getMeshAssetPath();
+        snapshot.materialAssetPath = meshRenderer->getMaterialAssetPath();
+    }
+    else if (const component::Mesh* mesh = detail::findComponent<component::Mesh>(gameObject))
+    {
+        snapshot.meshAssetPath = mesh->getAssetPath();
+    }
+
+    for (size_t componentIndex = 0; componentIndex < gameObject.getComponentCount(); ++componentIndex)
+    {
+        const component::Component* component = gameObject.getComponentAt(componentIndex);
+        if (component == nullptr)
+            continue;
+        if (dynamic_cast<const component::Mesh*>(component) != nullptr)
+            continue;
+
+        const std::optional<component_meta::ComponentSnapshot> componentSnapshot = component_meta::trySerializeComponent(*component);
+        if (componentSnapshot.has_value())
+            snapshot.components.push_back(*componentSnapshot);
+    }
+
+    return snapshot;
+}
+
+inline bool applyGameObjectSnapshot(Scene& scene, const GameObjectSnapshot& snapshot)
+{
+    GameObject* gameObject = scene.getGameObjectById(snapshot.id);
+    if (gameObject == nullptr)
+        return false;
+
+    gameObject->setName(snapshot.name);
+    gameObject->transform.setPosition(snapshot.position);
+    gameObject->transform.setRotation(snapshot.rotation);
+    gameObject->transform.setScale(snapshot.scale);
+
+    if (!snapshot.meshAssetPath.empty() && !snapshot.materialAssetPath.empty())
+    {
+        component::Mesh* mesh = scene.resolveMeshAsset(snapshot.meshAssetPath);
+        dataStruct::Material* material = scene.resolveMaterialAsset(snapshot.materialAssetPath);
+        if (mesh != nullptr && material != nullptr)
+        {
+            component::MeshRenderer* meshRenderer = gameObject->getComponent<component::MeshRenderer>();
+            if (meshRenderer == nullptr)
+            {
+                meshRenderer = new component::MeshRenderer(mesh, material);
+                gameObject->addComponent(meshRenderer);
+            }
+            else
+            {
+                meshRenderer->setMesh(mesh);
+                meshRenderer->setMaterial(material);
+            }
+
+            meshRenderer->setMeshAssetPath(snapshot.meshAssetPath);
+            meshRenderer->setMaterialAssetPath(snapshot.materialAssetPath);
+        }
+    }
+
+    for (const component_meta::ComponentSnapshot& componentSnapshot : snapshot.components)
+    {
+        component::Component* matchingComponent = nullptr;
+        for (size_t componentIndex = 0; componentIndex < gameObject->getComponentCount(); ++componentIndex)
+        {
+            component::Component* component = gameObject->getComponentAt(componentIndex);
+            if (component == nullptr)
+                continue;
+
+            const component_meta::ComponentDescriptor* descriptor = component->getComponentDescriptor();
+            if (descriptor != nullptr && descriptor->typeKey == componentSnapshot.typeKey)
+            {
+                matchingComponent = component;
+                break;
+            }
+        }
+
+        if (matchingComponent != nullptr)
+        {
+            if (!component_meta::applyComponentSnapshot(*matchingComponent, componentSnapshot))
+                return false;
+            continue;
+        }
+
+        std::unique_ptr<component::Component> createdComponent = component_meta::createComponentFromSnapshot(componentSnapshot, gameObject);
+        if (!createdComponent)
+            return false;
+        gameObject->addComponent(createdComponent.release());
+    }
+
+    if (physics::RigidBody* rigidBody = gameObject->getComponent<physics::RigidBody>())
+        rigidBody->RefreshSerializedState();
+
+    return true;
 }
 
 inline SceneSnapshot captureScene(const Scene& scene)
@@ -372,43 +581,10 @@ inline SceneSnapshot captureScene(const Scene& scene)
         if (gameObject == nullptr)
             continue;
 
-        GameObjectSnapshot gameObjectSnapshot;
-        gameObjectSnapshot.id = gameObject->getId();
-        gameObjectSnapshot.name = gameObject->getName();
-        if (const Transform* parent = gameObject->transform.getParent())
-        {
-            const GameObject* parentObject = parent->getGameObject();
-            gameObjectSnapshot.parentId = parentObject != nullptr ? parentObject->getId() : -1;
-        }
-        gameObjectSnapshot.position = gameObject->transform.getPosition();
-        gameObjectSnapshot.rotation = gameObject->transform.getRotation();
-        gameObjectSnapshot.scale = gameObject->transform.getScale();
-
-        if (const component::MeshRenderer* meshRenderer = detail::findComponent<component::MeshRenderer>(*gameObject))
-        {
-            gameObjectSnapshot.meshAssetPath = meshRenderer->getMeshAssetPath();
-            gameObjectSnapshot.materialAssetPath = meshRenderer->getMaterialAssetPath();
-        }
-        else if (const component::Mesh* mesh = detail::findComponent<component::Mesh>(*gameObject))
-        {
-            gameObjectSnapshot.meshAssetPath = mesh->getAssetPath();
-        }
+        GameObjectSnapshot gameObjectSnapshot = captureGameObject(*gameObject);
 
         detail::appendUnique(snapshot.meshAssets, gameObjectSnapshot.meshAssetPath);
         detail::appendUnique(snapshot.materialAssets, gameObjectSnapshot.materialAssetPath);
-
-        for (size_t componentIndex = 0; componentIndex < gameObject->getComponentCount(); ++componentIndex)
-        {
-            const component::Component* component = gameObject->getComponentAt(componentIndex);
-            if (component == nullptr)
-                continue;
-            if (dynamic_cast<const component::Mesh*>(component) != nullptr)
-                continue;
-
-            const std::optional<component_meta::ComponentSnapshot> componentSnapshot = component_meta::trySerializeComponent(*component);
-            if (componentSnapshot.has_value())
-                gameObjectSnapshot.components.push_back(*componentSnapshot);
-        }
 
         snapshot.gameObjects.push_back(gameObjectSnapshot);
     }
