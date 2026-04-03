@@ -1,5 +1,7 @@
 {
   "type": "unlit",
   "shader": "built-in/shaders/unlit",
-  "mainColor": [1.0, 0.58, 0.14]
+  "uniforms": [
+    { "name": "_mainCol", "type": "vec3", "value": [1.0, 0.58, 0.14] }
+  ]
 }

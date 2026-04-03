@@ -1039,6 +1039,7 @@ void SceneEditorController::update()
 
     pollExternalProcess();
     pollRuntimePreviewState();
+    pollRuntimePreviewMaterialState();
     syncRuntimePreviewGameObjectIfNeeded();
     syncRuntimePreviewSceneIfNeeded();
 
@@ -1175,6 +1176,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String inspectorFieldElementId = ::findAncestorElementId(
         targetElement,
         [&](const Rml::String& candidateId) { return parseInspectorFieldElementId(candidateId).has_value(); });
+    const Rml::String materialAssetFieldElementId = ::findAncestorElementId(
+        targetElement,
+        [&](const Rml::String& candidateId) { return parseMaterialAssetEditorFieldElementId(candidateId).has_value(); });
     const Rml::String materialAssetGroupElementId = ::findAncestorElementId(
         targetElement,
         [&](const Rml::String& candidateId) { return parseMaterialAssetEditorGroupElementId(candidateId).has_value(); });
@@ -1693,9 +1697,13 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     if (eventId == Rml::EventId::Dragover)
     {
         const std::optional<InspectorFieldBinding> inspectorField = parseInspectorFieldElementId(inspectorFieldElementId);
-        const std::string nextHoveredFieldId = (inspectorField.has_value() && canDropDraggedAssetOnInspectorField(*inspectorField))
-            ? std::string(inspectorFieldElementId)
-            : std::string();
+        const std::optional<MaterialAssetEditorBinding> materialAssetField = parseMaterialAssetEditorFieldElementId(materialAssetFieldElementId);
+
+        std::string nextHoveredFieldId;
+        if (materialAssetField.has_value() && canDropDraggedAssetOnMaterialAssetEditorField(*materialAssetField))
+            nextHoveredFieldId = materialAssetFieldElementId;
+        else if (inspectorField.has_value() && canDropDraggedAssetOnInspectorField(*inspectorField))
+            nextHoveredFieldId = inspectorFieldElementId;
 
         if (nextHoveredFieldId != m_hoveredInspectorFieldId)
             m_hoveredInspectorFieldId = nextHoveredFieldId;
@@ -1709,6 +1717,15 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Dragdrop)
     {
+        const std::optional<MaterialAssetEditorBinding> materialAssetField = parseMaterialAssetEditorFieldElementId(materialAssetFieldElementId);
+        if (materialAssetField.has_value() && applyDraggedAssetToMaterialAssetEditorField(*materialAssetField))
+        {
+            m_hoveredInspectorFieldId.clear();
+            refreshMaterialAssetEditorPresentation(materialAssetField->parentField);
+            event.StopPropagation();
+            return;
+        }
+
         const std::optional<InspectorFieldBinding> inspectorField = parseInspectorFieldElementId(inspectorFieldElementId);
         if (inspectorField.has_value() && applyDraggedAssetToInspectorField(*inspectorField))
         {
@@ -3540,6 +3557,8 @@ bool SceneEditorController::prepareRuntimeSceneFile(std::string& outputPath)
     std::filesystem::remove(runtime_preview::stateMetadataTempPath(), errorCode);
     std::filesystem::remove(runtime_preview::materialMetadataPath(), errorCode);
     std::filesystem::remove(runtime_preview::materialMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::materialStatePath(), errorCode);
+    std::filesystem::remove(runtime_preview::materialStateTempPath(), errorCode);
 
     const std::filesystem::path scenePath = runtime_preview::previewScenePath();
     if (!scene_serialization::saveSceneToFile(*m_scene, scenePath.string()))
@@ -3642,6 +3661,7 @@ bool SceneEditorController::startPreviewPlayer(const std::string& scenePath)
     m_playbackState = PlaybackState::Playing;
     m_runtimePreviewFps = -1;
     m_runtimeStateSequence = 0;
+    m_runtimeMaterialStateSequence = 0;
     m_lastPlaybackStatusText.clear();
     appendConsoleSystemMessage("[play] runtime_game started.", "console_line_success");
     requestHierarchyRefresh();
@@ -3724,6 +3744,7 @@ void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
     m_playbackState = PlaybackState::Stopped;
     m_runtimePreviewFps = -1;
     m_runtimeStateSequence = 0;
+    m_runtimeMaterialStateSequence = 0;
     m_lastPlaybackStatusText.clear();
     m_runtimeGameObjectSyncId = -1;
     m_runtimePauseSequence = 0;
@@ -3754,6 +3775,8 @@ void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
     std::filesystem::remove(runtime_preview::stateMetadataTempPath(), errorCode);
     std::filesystem::remove(runtime_preview::materialMetadataPath(), errorCode);
     std::filesystem::remove(runtime_preview::materialMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::materialStatePath(), errorCode);
+    std::filesystem::remove(runtime_preview::materialStateTempPath(), errorCode);
 
     if (restoreEditorScene && stoppedKind == ActiveProcessKind::Player && m_scene != nullptr && m_runtimeSceneSnapshot.has_value())
     {

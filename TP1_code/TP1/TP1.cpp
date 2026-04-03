@@ -528,6 +528,10 @@ void clearRemotePreviewSessionFiles()
     std::filesystem::remove(runtime_preview::objectStateTempPath(), previewCleanupError);
     std::filesystem::remove(runtime_preview::stateMetadataPath(), previewCleanupError);
     std::filesystem::remove(runtime_preview::stateMetadataTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::materialMetadataPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::materialMetadataTempPath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::materialStatePath(), previewCleanupError);
+    std::filesystem::remove(runtime_preview::materialStateTempPath(), previewCleanupError);
 }
 
 constexpr std::array<int, 12> g_remotePreviewForwardedKeys = {

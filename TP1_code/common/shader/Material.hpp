@@ -1,8 +1,10 @@
 #pragma once
 #include "Shader.hpp"
 #include "../Camera.hpp"
+#include "../asset/MaterialAssetIO.hpp"
 #include <common/gameobject/Transform.hpp>
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -46,6 +48,67 @@ namespace dataStruct
         std::vector<std::pair<std::string, int>> m_dynamicIntUniforms;
         std::vector<std::pair<std::string, float>> m_dynamicFloatUniforms;
         std::vector<std::pair<std::string, glm::vec3>> m_dynamicVec3Uniforms;
+        asset::MaterialAssetDefinition m_runtimeDefinition;
+        bool m_runtimeDefinitionDirty = false;
+        bool m_runtimePreviewSyncEnabled = true;
+
+        static std::string normalizeAssetPathValue(const std::string& rawPath)
+        {
+            std::string normalized = rawPath;
+            std::replace(normalized.begin(), normalized.end(), '\\', '/');
+
+            while (normalized.rfind("./", 0) == 0)
+                normalized.erase(0, 2);
+
+            while (!normalized.empty() && normalized.front() == '/')
+                normalized.erase(normalized.begin());
+
+            return normalized;
+        }
+
+        template <typename T>
+        static void upsertNamedValue(std::vector<std::pair<std::string, T>>& values, const std::string& key, const T& value)
+        {
+            for (std::pair<std::string, T>& entry : values)
+            {
+                if (entry.first != key)
+                    continue;
+
+                entry.second = value;
+                return;
+            }
+
+            values.emplace_back(key, value);
+        }
+
+        asset::MaterialUniformDefinition* findRuntimeUniformDefinition(const std::string& uniformLocation, asset::MaterialUniformKind kind)
+        {
+            for (asset::MaterialUniformDefinition& uniform : m_runtimeDefinition.uniforms)
+            {
+                if (uniform.name == uniformLocation && uniform.kind == kind)
+                    return &uniform;
+            }
+
+            return nullptr;
+        }
+
+        asset::MaterialUniformDefinition& getOrCreateRuntimeUniformDefinition(const std::string& uniformLocation, asset::MaterialUniformKind kind)
+        {
+            if (asset::MaterialUniformDefinition* uniform = findRuntimeUniformDefinition(uniformLocation, kind))
+                return *uniform;
+
+            asset::MaterialUniformDefinition uniform;
+            uniform.name = uniformLocation;
+            uniform.kind = kind;
+            m_runtimeDefinition.uniforms.push_back(uniform);
+            return m_runtimeDefinition.uniforms.back();
+        }
+
+        void markRuntimeDefinitionDirty()
+        {
+            if (m_runtimePreviewSyncEnabled)
+                m_runtimeDefinitionDirty = true;
+        }
     protected:
 
         uint m_uni1f_stride = 0;
@@ -84,29 +147,77 @@ namespace dataStruct
         
         void addTexture(std::string uniformLocation, std::string texturePath)
         {
-            textures.push_back(UniformTex2D(uniformLocation, Texture2D(texturePath, textures.size())));
+            bool updated = false;
+            for (size_t index = 0; index < textures.size(); ++index)
+            {
+                if (textures[index].getLocation() != uniformLocation)
+                    continue;
+
+                textures[index] = UniformTex2D(uniformLocation, Texture2D(texturePath, static_cast<GLuint>(index)));
+                updated = true;
+                break;
+            }
+
+            if (!updated)
+                textures.push_back(UniformTex2D(uniformLocation, Texture2D(texturePath, textures.size())));
+
+            asset::MaterialUniformDefinition& uniform = getOrCreateRuntimeUniformDefinition(uniformLocation, asset::MaterialUniformKind::Texture);
+            const std::string normalizedTexturePath = normalizeAssetPathValue(texturePath);
+            if (uniform.textureAssetPath != normalizedTexturePath)
+            {
+                uniform.textureAssetPath = normalizedTexturePath;
+                markRuntimeDefinitionDirty();
+            }
         }
 
         void addBoolUniform(const std::string& uniformLocation, bool value)
         {
-            m_dynamicIntUniforms.emplace_back(uniformLocation, value ? 1 : 0);
+            const int storedValue = value ? 1 : 0;
+            upsertNamedValue(m_dynamicIntUniforms, uniformLocation, storedValue);
+
+            asset::MaterialUniformDefinition& uniform = getOrCreateRuntimeUniformDefinition(uniformLocation, asset::MaterialUniformKind::Bool);
+            if (uniform.boolValue != value)
+            {
+                uniform.boolValue = value;
+                markRuntimeDefinitionDirty();
+            }
         }
 
         void addIntUniform(const std::string& uniformLocation, int value)
         {
-            m_dynamicIntUniforms.emplace_back(uniformLocation, value);
+            upsertNamedValue(m_dynamicIntUniforms, uniformLocation, value);
+
+            asset::MaterialUniformDefinition& uniform = getOrCreateRuntimeUniformDefinition(uniformLocation, asset::MaterialUniformKind::Int);
+            if (uniform.intValue != value)
+            {
+                uniform.intValue = value;
+                markRuntimeDefinitionDirty();
+            }
         }
 
         void addFloatUniform(const std::string& uniformLocation, float value)
         {
-            m_dynamicFloatUniforms.emplace_back(uniformLocation, value);
+            upsertNamedValue(m_dynamicFloatUniforms, uniformLocation, value);
+
+            asset::MaterialUniformDefinition& uniform = getOrCreateRuntimeUniformDefinition(uniformLocation, asset::MaterialUniformKind::Float);
+            if (uniform.floatValue != value)
+            {
+                uniform.floatValue = value;
+                markRuntimeDefinitionDirty();
+            }
         }
 
         void addVec3Uniform(const std::string& uniformLocation, const glm::vec3& value)
         {
-            m_dynamicVec3Uniforms.emplace_back(uniformLocation, value);
-        }
+            upsertNamedValue(m_dynamicVec3Uniforms, uniformLocation, value);
 
+            asset::MaterialUniformDefinition& uniform = getOrCreateRuntimeUniformDefinition(uniformLocation, asset::MaterialUniformKind::Vec3);
+            if (uniform.vec3Value != value)
+            {
+                uniform.vec3Value = value;
+                markRuntimeDefinitionDirty();
+            }
+        }
 
         void sync() override
         {
@@ -161,6 +272,36 @@ namespace dataStruct
         const std::string& getAssetPath() const
         {
             return m_assetPath;
+        }
+
+        void setRuntimeDefinitionHeader(asset::MaterialAssetKind kind, const std::string& shaderPath)
+        {
+            m_runtimeDefinition.kind = kind;
+            m_runtimeDefinition.shaderPath = normalizeAssetPathValue(shaderPath);
+            m_runtimeDefinition.uniforms.clear();
+            m_runtimeDefinitionDirty = false;
+        }
+
+        void setRuntimePreviewSyncEnabled(bool enabled)
+        {
+            m_runtimePreviewSyncEnabled = enabled;
+            if (!enabled)
+                m_runtimeDefinitionDirty = false;
+        }
+
+        bool consumeRuntimeDefinition(asset::MaterialAssetDefinition& definitionOut)
+        {
+            if (!m_runtimePreviewSyncEnabled || !m_runtimeDefinitionDirty)
+                return false;
+
+            definitionOut = m_runtimeDefinition;
+            m_runtimeDefinitionDirty = false;
+            return true;
+        }
+
+        const asset::MaterialAssetDefinition& getRuntimeDefinition() const
+        {
+            return m_runtimeDefinition;
         }
 
         ~Material()

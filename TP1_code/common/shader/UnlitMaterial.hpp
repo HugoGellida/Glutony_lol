@@ -18,6 +18,17 @@ namespace dataStruct
         void setMainColor(glm::vec3 col)
         {
             *m_main_col = col;
+            addVec3Uniform("_mainCol", col);
+        }
+
+        void setRuntimePreviewSyncEnabled(bool enabled)
+        {
+            Material::setRuntimePreviewSyncEnabled(enabled);
+        }
+
+        bool consumeRuntimeDefinition(asset::MaterialAssetDefinition& definitionOut)
+        {
+            return Material::consumeRuntimeDefinition(definitionOut);
         }
         ~UnlitMaterial()
         {

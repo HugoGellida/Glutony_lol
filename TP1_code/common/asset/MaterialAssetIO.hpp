@@ -5,8 +5,10 @@
 #include <cctype>
 #include <fstream>
 #include <iomanip>
+#include <ostream>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace asset
@@ -308,45 +310,52 @@ private:
     }
 
 public:
-    static bool loadDefinition(const std::string& path, MaterialAssetDefinition& definition)
+    static bool loadDefinitionFromContent(const std::string& content, MaterialAssetDefinition& definition)
     {
         definition = MaterialAssetDefinition();
 
-        std::string content;
-        if (!readFile(path, content))
-            return false;
-
         std::string typeValue;
         std::string shaderValue;
-
         if (!extractString(content, "type", typeValue) || !extractString(content, "shader", shaderValue))
             return false;
 
-        definition.kind = (typeValue == "unlit") ? MaterialAssetKind::Unlit : MaterialAssetKind::Lit;
+        if (typeValue == "unlit")
+            definition.kind = MaterialAssetKind::Unlit;
+        else if (typeValue == "lit")
+            definition.kind = MaterialAssetKind::Lit;
+        else
+            return false;
+
         definition.shaderPath = shaderValue;
 
-        if (!extractUniformDefinitions(content, definition.uniforms))
+        size_t uniformsValueStart = 0;
+        if (findValueStart(content, "uniforms", uniformsValueStart))
+            return extractUniformDefinitions(content, definition.uniforms);
+
+        glm::vec3 legacyMainColor(0.0f, 0.0f, 0.0f);
+        if (extractVec3(content, "mainColor", legacyMainColor))
         {
-            glm::vec3 legacyMainColor;
-            if (extractVec3(content, "mainColor", legacyMainColor))
-            {
-                MaterialUniformDefinition uniform;
-                uniform.name = "_mainCol";
-                uniform.kind = MaterialUniformKind::Vec3;
-                uniform.vec3Value = legacyMainColor;
-                definition.uniforms.push_back(uniform);
-            }
+            MaterialUniformDefinition uniform;
+            uniform.name = "_mainCol";
+            uniform.kind = MaterialUniformKind::Vec3;
+            uniform.vec3Value = legacyMainColor;
+            definition.uniforms.push_back(uniform);
         }
 
         return true;
     }
 
-    static bool saveDefinition(const std::string& path, const MaterialAssetDefinition& definition)
+    static bool loadDefinition(const std::string& path, MaterialAssetDefinition& definition)
     {
-        std::ofstream output(path.c_str(), std::ios::trunc);
-        if (!output.is_open())
+        std::string content;
+        if (!readFile(path, content))
             return false;
 
+        return loadDefinitionFromContent(content, definition);
+    }
+
+    static bool writeDefinition(std::ostream& output, const MaterialAssetDefinition& definition)
+    {
         output << std::fixed << std::setprecision(3);
         output << "{\n";
         output << "  \"type\": \"" << (definition.kind == MaterialAssetKind::Unlit ? "unlit" : "lit") << "\",\n";
@@ -385,6 +394,23 @@ public:
         output << "  ]\n";
         output << "}\n";
         return static_cast<bool>(output);
+    }
+
+    static std::string saveDefinitionToString(const MaterialAssetDefinition& definition)
+    {
+        std::ostringstream output;
+        if (!writeDefinition(output, definition))
+            return "";
+        return output.str();
+    }
+
+    static bool saveDefinition(const std::string& path, const MaterialAssetDefinition& definition)
+    {
+        std::ofstream output(path.c_str(), std::ios::trunc);
+        if (!output.is_open())
+            return false;
+
+        return writeDefinition(output, definition);
     }
 };
 }

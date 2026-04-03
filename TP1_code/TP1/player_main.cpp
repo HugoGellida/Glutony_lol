@@ -17,6 +17,7 @@
 #include <common/app/RuntimePreviewSession.hpp>
 #include <common/app/RuntimeWindow.hpp>
 #include <common/Scene.hpp>
+#include <common/asset/MaterialAssetIO.hpp>
 #include <common/gameobject/component/Mesh.hpp>
 #include <common/physics/RigidBody.hpp>
 #include <common/scene/SceneSerialization.hpp>
@@ -44,6 +45,7 @@ uint64_t g_objectStateSequence = 0;
 uint64_t g_sceneSyncSequence = 0;
 uint64_t g_stateSequence = 0;
 uint64_t g_materialSequence = 0;
+uint64_t g_materialStateSequence = 0;
 bool g_remoteInputCapture = false;
 bool g_previewPaused = false;
 int g_lastPublishedSelectedGameObjectId = -2;
@@ -145,6 +147,32 @@ bool writeObjectStateFile(uint64_t sequence, const scene_serialization::GameObje
     return true;
 }
 
+bool writeMaterialStateFile(uint64_t sequence, const std::string& materialAssetPath, const asset::MaterialAssetDefinition& definition)
+{
+    std::error_code errorCode;
+    std::filesystem::create_directories(runtime_preview::sessionDirectory(), errorCode);
+    if (errorCode)
+        return false;
+
+    std::ofstream output(runtime_preview::materialStateTempPath(), std::ios::trunc);
+    if (!output)
+        return false;
+
+    output << sequence << '\n' << materialAssetPath << '\n';
+    if (!asset::MaterialAssetIO::writeDefinition(output, definition))
+        return false;
+    output.close();
+
+    std::filesystem::rename(runtime_preview::materialStateTempPath(), runtime_preview::materialStatePath(), errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(runtime_preview::materialStateTempPath(), errorCode);
+        return false;
+    }
+
+    return true;
+}
+
 void publishRuntimeState(int currentFps)
 {
     if (!g_publishPreviewFrames || g_scene == nullptr)
@@ -193,6 +221,20 @@ void publishSelectedObjectState()
         ++g_objectStateSequence;
         g_lastPublishedObjectStatePayload = payload;
     }
+}
+
+void publishDirtyMaterialState()
+{
+    if (!g_publishPreviewFrames || g_scene == nullptr)
+        return;
+
+    std::string materialAssetPath;
+    asset::MaterialAssetDefinition definition;
+    if (!asset::AssetManager::instance().popDirtyMaterialState(materialAssetPath, definition) || materialAssetPath.empty())
+        return;
+
+    if (writeMaterialStateFile(g_materialStateSequence + 1, materialAssetPath, definition))
+        ++g_materialStateSequence;
 }
 
 struct RuntimeOptions
@@ -629,6 +671,7 @@ int main(int argc, char** argv)
             g_scene->renderScene();
         publishRuntimeState(currentFps);
         publishSelectedObjectState();
+        publishDirtyMaterialState();
         publishPreviewFrame(g_windowFramebufferWidth, g_windowFramebufferHeight);
         glfwSwapBuffers(g_window);
     }

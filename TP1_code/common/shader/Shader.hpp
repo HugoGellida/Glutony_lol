@@ -3,6 +3,7 @@
 
 
 #include <string.h>
+#include <cstdint>
 #include <filesystem>
 #include <vector>
 #include <iostream>
@@ -46,6 +47,7 @@ private:
     bool loaded = false;
     bool m_hasObservedSourceWriteTimes = false;
     std::vector<UniformDescriptor> m_uniformDescriptors;
+    uint64_t m_reloadGeneration = 0;
     std::filesystem::file_time_type m_vertexWriteTime{};
     std::filesystem::file_time_type m_fragmentWriteTime{};
 
@@ -227,6 +229,7 @@ private:
         programID = compiledProgram;
         loaded = true;
         m_uniformDescriptors = std::move(compiledUniformDescriptors);
+        ++m_reloadGeneration;
         return true;
     }
 
@@ -312,6 +315,12 @@ public:
     {
         ensureCompiled();
         return m_uniformDescriptors;
+    }
+
+    uint64_t getReloadGeneration()
+    {
+        ensureCompiled();
+        return m_reloadGeneration;
     }
 
 

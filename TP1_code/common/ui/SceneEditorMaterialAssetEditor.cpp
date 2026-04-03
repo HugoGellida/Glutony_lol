@@ -191,14 +191,17 @@ std::string buildMaterialEditorFieldMarkup(
     component_meta::FieldKind fieldKind,
     const component_meta::SerializedValue& value,
     const std::vector<component_meta::EnumOption>& enumOptions,
-    component_meta::AssetReferenceKind assetReferenceKind)
+    component_meta::AssetReferenceKind assetReferenceKind,
+    bool dropHighlighted = false)
 {
     std::ostringstream stream;
     stream << "<div class='inspector_field_row'><div class='inspector_field_name'>" << editor_ui::escapeRmlText(fieldLabel) << "</div>";
 
     const std::string formattedValue = formatSerializedValueLocal(value);
     const bool isAssetField = assetReferenceKind != component_meta::AssetReferenceKind::None || fieldKind == component_meta::FieldKind::Asset;
-    const std::string fieldClass = std::string("inspector_field_input") + (isAssetField ? " inspector_asset_field" : "");
+    const std::string fieldClass = std::string("inspector_field_input") +
+        (isAssetField ? " inspector_asset_field" : "") +
+        (dropHighlighted ? " inspector_asset_field_active" : "");
 
     if (fieldKind == component_meta::FieldKind::Bool)
     {
@@ -234,6 +237,50 @@ std::string buildMaterialEditorFieldMarkup(
 
     stream << "</div>";
     return stream.str();
+}
+
+std::string buildMaterialEditorStructureSignature(const asset::editor::MaterialAssetEditorModel& editorModel)
+{
+    std::ostringstream stream;
+    stream << editorModel.normalizedAssetPath << '|'
+           << asset::editor::materialAssetKindValue(editorModel.definition.kind) << '|'
+           << editorModel.definition.shaderPath << '|'
+           << editorModel.shaderRevision << '|'
+           << editorModel.fields.size();
+
+    for (const asset::editor::MaterialAssetEditorField& field : editorModel.fields)
+        stream << '|' << field.key << ':' << static_cast<int>(field.fieldKind) << ':' << static_cast<int>(field.assetReferenceKind);
+
+    return stream.str();
+}
+
+bool elementIsFocusedOrContainsFocus(Rml::Context* context, Rml::Element* element)
+{
+    if (context == nullptr || element == nullptr)
+        return false;
+
+    const Rml::Element* focusedElement = context->GetFocusElement();
+    for (const Rml::Element* current = focusedElement; current != nullptr; current = current->GetParentNode())
+    {
+        if (current == element)
+            return true;
+    }
+
+    return false;
+}
+
+void patchMaterialEditorFieldValue(Rml::ElementDocument* document, Rml::Context* context, const std::string& fieldId, const std::string& formattedValue)
+{
+    if (document == nullptr)
+        return;
+
+    Rml::Element* fieldElement = document->GetElementById(fieldId);
+    Rml::ElementFormControl* formControl = dynamic_cast<Rml::ElementFormControl*>(fieldElement);
+    if (formControl == nullptr || elementIsFocusedOrContainsFocus(context, fieldElement))
+        return;
+
+    if (formControl->GetValue() != formattedValue)
+        formControl->SetValue(formattedValue);
 }
 
 bool writeRuntimePreviewMaterialFile(
@@ -282,6 +329,28 @@ std::optional<size_t> parseUniformPropertyIndex(const std::string& propertyKey)
     catch (const std::exception&)
     {
         return std::nullopt;
+    }
+}
+
+bool canDropDraggedAssetForAssetReferenceKind(component_meta::AssetReferenceKind kind, DragPayloadKind payloadKind)
+{
+    switch (kind)
+    {
+    case component_meta::AssetReferenceKind::Mesh:
+        return payloadKind == DragPayloadKind::MeshAsset;
+    case component_meta::AssetReferenceKind::Shader:
+        return payloadKind == DragPayloadKind::ShaderAsset;
+    case component_meta::AssetReferenceKind::Material:
+        return payloadKind == DragPayloadKind::MaterialAsset;
+    case component_meta::AssetReferenceKind::Texture:
+        return payloadKind == DragPayloadKind::TextureAsset;
+    case component_meta::AssetReferenceKind::Scene:
+        return payloadKind == DragPayloadKind::AssetFile;
+    case component_meta::AssetReferenceKind::Generic:
+        return payloadKind != DragPayloadKind::None;
+    case component_meta::AssetReferenceKind::None:
+    default:
+        return false;
     }
 }
 }
@@ -512,6 +581,50 @@ bool SceneEditorController::applyMaterialAssetEditorFieldValue(const MaterialAss
     return true;
 }
 
+bool SceneEditorController::canDropDraggedAssetOnMaterialAssetEditorField(const MaterialAssetEditorBinding& binding) const
+{
+    if (m_dragPayloadKind == DragPayloadKind::None || m_draggedAssetRuntimePath.empty())
+        return false;
+
+    if (binding.propertyKey == "shader")
+        return canDropDraggedAssetForAssetReferenceKind(component_meta::AssetReferenceKind::Shader, m_dragPayloadKind);
+
+    const std::optional<size_t> uniformIndex = parseUniformPropertyIndex(binding.propertyKey);
+    if (!uniformIndex.has_value())
+        return false;
+
+    const UiGOHierarchyNode* node = findHierarchyNodeById(binding.parentField.nodeId);
+    if (node == nullptr || node->gameObject == nullptr)
+        return false;
+
+    const component::Component* component = node->gameObject->getComponentAt(binding.parentField.componentIndex);
+    if (component == nullptr)
+        return false;
+
+    const component_meta::ComponentFieldDescriptor* field = findInspectorFieldDescriptor(binding.parentField);
+    if (field == nullptr || !field->read)
+        return false;
+
+    const component_meta::SerializedValue assetPathSerialized = field->read(*component);
+    const std::string* assetPathValue = std::get_if<std::string>(&assetPathSerialized);
+    if (assetPathValue == nullptr || assetPathValue->empty())
+        return false;
+
+    const asset::editor::MaterialAssetEditorModel editorModel = asset::editor::loadMaterialAssetEditorModel(*assetPathValue);
+    if (!editorModel.valid || *uniformIndex >= editorModel.fields.size())
+        return false;
+
+    return canDropDraggedAssetForAssetReferenceKind(editorModel.fields[*uniformIndex].assetReferenceKind, m_dragPayloadKind);
+}
+
+bool SceneEditorController::applyDraggedAssetToMaterialAssetEditorField(const MaterialAssetEditorBinding& binding)
+{
+    if (!canDropDraggedAssetOnMaterialAssetEditorField(binding))
+        return false;
+
+    return applyMaterialAssetEditorFieldValue(binding, m_draggedAssetRuntimePath);
+}
+
 void SceneEditorController::toggleMaterialAssetEditor(const InspectorFieldBinding& binding)
 {
     const std::string editorId = makeMaterialAssetEditorGroupElementId(binding.nodeId, binding.componentIndex, binding.fieldKey);
@@ -568,25 +681,33 @@ std::string SceneEditorController::buildMaterialAssetEditorBodyMarkup(const Insp
         component_meta::FieldKind::Enum,
         std::string(asset::editor::materialAssetKindValue(editorModel.definition.kind)),
         materialKindOptions,
-        component_meta::AssetReferenceKind::None);
+        component_meta::AssetReferenceKind::None,
+        makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "type") == m_hoveredInspectorFieldId);
     stream << buildMaterialEditorFieldMarkup(
         makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "shader"),
         "Shader",
         component_meta::FieldKind::Asset,
         editorModel.definition.shaderPath,
         {},
-        component_meta::AssetReferenceKind::Shader);
+        component_meta::AssetReferenceKind::Shader,
+        makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "shader") == m_hoveredInspectorFieldId);
 
     for (size_t fieldIndex = 0; fieldIndex < editorModel.fields.size(); ++fieldIndex)
     {
         const asset::editor::MaterialAssetEditorField& field = editorModel.fields[fieldIndex];
+        const std::string fieldElementId = makeMaterialAssetEditorFieldElementId(
+            binding.nodeId,
+            binding.componentIndex,
+            binding.fieldKey,
+            makeUniformPropertyKey(fieldIndex));
         stream << buildMaterialEditorFieldMarkup(
-            makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, makeUniformPropertyKey(fieldIndex)),
+            fieldElementId,
             field.label,
             field.fieldKind,
             field.value,
             {},
-            field.assetReferenceKind);
+            field.assetReferenceKind,
+            fieldElementId == m_hoveredInspectorFieldId);
     }
 
     if (!editorModel.unsupportedUniforms.empty())
@@ -630,16 +751,130 @@ void SceneEditorController::refreshMaterialAssetEditorPresentation(const Inspect
 
     if (Rml::Element* body = m_document->GetElementById(makeMaterialAssetEditorBodyElementId(binding.nodeId, binding.componentIndex, binding.fieldKey)))
     {
-        const Rml::Element* focusedElement = m_context != nullptr ? m_context->GetFocusElement() : nullptr;
-        for (const Rml::Element* element = focusedElement; element != nullptr; element = element->GetParentNode())
+        if (isMaterialAssetEditorCollapsed(binding))
         {
-            if (element == body)
-                return;
+            body->SetInnerRML("");
+            body->SetAttribute("data-material-structure", "");
+            return;
         }
 
-        if (isMaterialAssetEditorCollapsed(binding))
-            body->SetInnerRML("");
-        else
+        const asset::editor::MaterialAssetEditorModel editorModel = asset::editor::loadMaterialAssetEditorModel(currentAssetPath);
+        const std::string nextStructureSignature = buildMaterialEditorStructureSignature(editorModel);
+        const std::string currentStructureSignature = body->GetAttribute<Rml::String>("data-material-structure", "").c_str();
+
+        if (currentStructureSignature != nextStructureSignature)
+        {
+            if (elementIsFocusedOrContainsFocus(m_context, body))
+                return;
+
             body->SetInnerRML(buildMaterialAssetEditorBodyMarkup(binding, currentAssetPath));
+            body->SetAttribute("data-material-structure", nextStructureSignature);
+            return;
+        }
+
+        if (!editorModel.valid)
+            return;
+
+        patchMaterialEditorFieldValue(
+            m_document,
+            m_context,
+            makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "type"),
+            asset::editor::materialAssetKindValue(editorModel.definition.kind));
+        patchMaterialEditorFieldValue(
+            m_document,
+            m_context,
+            makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "shader"),
+            editorModel.definition.shaderPath);
+
+        for (size_t fieldIndex = 0; fieldIndex < editorModel.fields.size(); ++fieldIndex)
+        {
+            patchMaterialEditorFieldValue(
+                m_document,
+                m_context,
+                makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, makeUniformPropertyKey(fieldIndex)),
+                formatSerializedValueLocal(editorModel.fields[fieldIndex].value));
+        }
     }
+}
+
+void SceneEditorController::pollRuntimePreviewMaterialState()
+{
+    if (m_activeProcessKind != ActiveProcessKind::Player || m_scene == nullptr)
+        return;
+
+    std::ifstream input(runtime_preview::materialStatePath());
+    if (!input)
+        return;
+
+    uint64_t nextSequence = 0;
+    if (!(input >> nextSequence) || nextSequence <= m_runtimeMaterialStateSequence)
+        return;
+
+    input.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+
+    std::string materialAssetPath;
+    if (!std::getline(input, materialAssetPath) || materialAssetPath.empty())
+        return;
+
+    std::ostringstream definitionStream;
+    definitionStream << input.rdbuf();
+
+    asset::MaterialAssetDefinition definition;
+    if (!asset::MaterialAssetIO::loadDefinitionFromContent(definitionStream.str(), definition))
+        return;
+
+    const std::string normalizedMaterialPath = asset::AssetManager::normalizeRelativePath(materialAssetPath);
+    if (normalizedMaterialPath.empty())
+        return;
+
+    const std::string diskPath = asset::AssetManager::runtimePath(normalizedMaterialPath);
+    if (!asset::MaterialAssetIO::saveDefinition(diskPath, definition))
+    {
+        appendConsoleSystemMessage("[play] Failed to persist preview material state: " + normalizedMaterialPath, "console_line_error");
+        return;
+    }
+
+    if (!m_scene->refreshMaterialAsset(normalizedMaterialPath))
+    {
+        appendConsoleSystemMessage("[play] Failed to reload preview material state: " + normalizedMaterialPath, "console_line_error");
+        return;
+    }
+
+    const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
+    if (selectedNode != nullptr && selectedNode->gameObject != nullptr)
+    {
+        for (size_t componentIndex = 0; componentIndex < selectedNode->gameObject->getComponentCount(); ++componentIndex)
+        {
+            const component::Component* component = selectedNode->gameObject->getComponentAt(componentIndex);
+            if (component == nullptr)
+                continue;
+
+            const component_meta::ComponentDescriptor* descriptor = component->getComponentDescriptor();
+            if (descriptor == nullptr)
+                continue;
+
+            for (const component_meta::ComponentFieldDescriptor& field : descriptor->fields)
+            {
+                if (!field.read || field.assetReferenceKind != component_meta::AssetReferenceKind::Material)
+                    continue;
+
+                const component_meta::SerializedValue assetValue = field.read(*component);
+                const std::string* assetPath = std::get_if<std::string>(&assetValue);
+                if (assetPath == nullptr)
+                    continue;
+
+                if (asset::AssetManager::normalizeRelativePath(*assetPath) != normalizedMaterialPath)
+                    continue;
+
+                InspectorFieldBinding binding;
+                binding.target = InspectorFieldBinding::Target::Component;
+                binding.nodeId = selectedNode->id;
+                binding.componentIndex = componentIndex;
+                binding.fieldKey = field.key;
+                refreshMaterialAssetEditorPresentation(binding);
+            }
+        }
+    }
+
+    m_runtimeMaterialStateSequence = nextSequence;
 }

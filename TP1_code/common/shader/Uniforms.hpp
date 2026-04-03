@@ -52,6 +52,11 @@ public:
     {
         value.bind(progID, loc.c_str());
     }
+
+    const std::string& getLocation() const
+    {
+        return loc;
+    }
 };
 
 

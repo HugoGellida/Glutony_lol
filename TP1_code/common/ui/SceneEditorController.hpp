@@ -234,7 +234,9 @@ private:
     bool applyInspectorFieldValue(const InspectorFieldBinding& binding, const std::string& value);
     bool applyMaterialAssetEditorFieldValue(const MaterialAssetEditorBinding& binding, const std::string& value);
     bool canDropDraggedAssetOnInspectorField(const InspectorFieldBinding& binding) const;
+    bool canDropDraggedAssetOnMaterialAssetEditorField(const MaterialAssetEditorBinding& binding) const;
     bool applyDraggedAssetToInspectorField(const InspectorFieldBinding& binding);
+    bool applyDraggedAssetToMaterialAssetEditorField(const MaterialAssetEditorBinding& binding);
     void toggleInspectorGroup(const std::string& groupId);
     bool isInspectorGroupCollapsed(const std::string& groupId) const;
     void toggleMaterialAssetEditor(const InspectorFieldBinding& binding);
@@ -263,6 +265,7 @@ private:
     void syncRuntimePreviewGameObjectIfNeeded();
     void syncRuntimePreviewSceneIfNeeded();
     void pollRuntimePreviewState();
+    void pollRuntimePreviewMaterialState();
     void pollExternalProcess();
     void updatePlaybackStatusPresentation();
     std::string buildPlaybackStatusText() const;
@@ -349,6 +352,7 @@ private:
     uint64_t m_runtimePauseSequence = 0;
     uint64_t m_runtimeGameObjectSyncSequence = 0;
     uint64_t m_runtimeMaterialSyncSequence = 0;
+    uint64_t m_runtimeMaterialStateSequence = 0;
     uint64_t m_runtimeSceneSyncSequence = 0;
     uint64_t m_runtimeStateSequence = 0;
     bool m_runtimeSceneSyncPending = false;

@@ -94,11 +94,13 @@ private:
         if (definition.kind == MaterialAssetKind::Unlit)
         {
             std::unique_ptr<dataStruct::UnlitMaterial> unlit = std::make_unique<dataStruct::UnlitMaterial>(shader);
+            unlit->setRuntimeDefinitionHeader(definition.kind, definition.shaderPath);
             material = std::move(unlit);
         }
         else
         {
             std::unique_ptr<dataStruct::LitMaterial> lit = std::make_unique<dataStruct::LitMaterial>(shader);
+            lit->setRuntimeDefinitionHeader(definition.kind, definition.shaderPath);
             material = std::move(lit);
         }
 
@@ -316,6 +318,24 @@ public:
         }
 
         return materialPaths;
+    }
+
+    bool popDirtyMaterialState(std::string& assetPathOut, MaterialAssetDefinition& definitionOut)
+    {
+        for (auto& entry : m_materialAssets)
+        {
+            if (entry.second == nullptr)
+                continue;
+
+            if (!entry.second->consumeRuntimeDefinition(definitionOut))
+                continue;
+
+            assetPathOut = entry.first;
+            return true;
+        }
+
+        assetPathOut.clear();
+        return false;
     }
 
     const std::vector<std::string>& getAssets(AssetType type) const

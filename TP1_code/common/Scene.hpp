@@ -239,6 +239,8 @@ public:
         this->m_materials = useMaterialAsset("built-in/materials/lit_default.mat");
         m_selectionHighlightShader = useShaderAsset("built-in/shaders/unlit");
         m_selectionHighlightMaterial = dynamic_cast<dataStruct::UnlitMaterial*>(useMaterialAsset("built-in/materials/selection_highlight.mat"));
+        if (m_selectionHighlightMaterial != nullptr)
+            m_selectionHighlightMaterial->setRuntimePreviewSyncEnabled(false);
         m_camera = Camera();
 
         m_inputProcessor.registerKey(GLFW_KEY_W, inputProcessor::KeyState::HOLD);

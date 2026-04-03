@@ -5,6 +5,7 @@
 
 #include <common/gameobject/component/ComponentSerialization.hpp>
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,7 @@ struct MaterialAssetEditorModel
     MaterialAssetDefinition definition;
     std::vector<MaterialAssetEditorField> fields;
     std::vector<std::string> unsupportedUniforms;
+    uint64_t shaderRevision = 0;
     bool available = false;
     bool valid = false;
     std::string errorMessage;
@@ -180,6 +182,8 @@ inline MaterialAssetEditorModel loadMaterialAssetEditorModel(const std::string& 
         model.errorMessage = "Failed to load shader asset.";
         return model;
     }
+
+    model.shaderRevision = shader->getReloadGeneration();
 
     model.definition = normalizeDefinitionForShader(model.definition, *shader, &model.unsupportedUniforms);
 
