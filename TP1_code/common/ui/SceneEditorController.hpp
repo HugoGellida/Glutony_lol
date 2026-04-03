@@ -243,7 +243,10 @@ private:
     void resumePreviewPlayer();
     void syncRuntimePreviewGameObjectIfNeeded();
     void syncRuntimePreviewSceneIfNeeded();
+    void pollRuntimePreviewState();
     void pollExternalProcess();
+    void updatePlaybackStatusPresentation();
+    std::string buildPlaybackStatusText() const;
     void appendConsoleOutput(const std::string& text, const std::string& sourceClass = "");
     void appendConsoleLine(const std::string& line, const std::string& sourceClass = "");
     void appendConsoleSystemMessage(const std::string& message, const std::string& sourceClass = "console_line_info");
@@ -258,6 +261,7 @@ private:
     Rml::Element* m_centerPanel = nullptr;
     Rml::Element* m_viewportPanel = nullptr;
     Rml::Element* m_viewportSurface = nullptr;
+    Rml::Element* m_playbackStatusElement = nullptr;
     Rml::Element* m_horizontalSplitter = nullptr;
     Rml::Element* m_bottomPanel = nullptr;
     Rml::Element* m_bottomBrowserFilesPane = nullptr;
@@ -326,6 +330,9 @@ private:
     uint64_t m_runtimePauseSequence = 0;
     uint64_t m_runtimeGameObjectSyncSequence = 0;
     uint64_t m_runtimeSceneSyncSequence = 0;
+    uint64_t m_runtimeStateSequence = 0;
     bool m_runtimeSceneSyncPending = false;
     bool m_consoleRefreshPending = false;
+    int m_runtimePreviewFps = -1;
+    std::string m_lastPlaybackStatusText;
 };

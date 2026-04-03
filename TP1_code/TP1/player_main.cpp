@@ -45,6 +45,8 @@ uint64_t g_stateSequence = 0;
 bool g_remoteInputCapture = false;
 bool g_previewPaused = false;
 int g_lastPublishedSelectedGameObjectId = -2;
+int g_lastPublishedFps = -1;
+int g_lastPublishedCaptureEnabled = -1;
 std::string g_lastPublishedObjectStatePayload;
 
 GameObject* pickGameObjectAt(Scene& scene, double clickX, double clickY, int viewportWidth, int viewportHeight)
@@ -91,7 +93,7 @@ GameObject* pickGameObjectAt(Scene& scene, double clickX, double clickY, int vie
     return selectedGameObject;
 }
 
-bool writeStateFile(uint64_t sequence, int selectedGameObjectId, bool captureEnabled)
+bool writeStateFile(uint64_t sequence, int selectedGameObjectId, bool captureEnabled, int fps)
 {
     std::error_code errorCode;
     std::filesystem::create_directories(runtime_preview::sessionDirectory(), errorCode);
@@ -102,7 +104,7 @@ bool writeStateFile(uint64_t sequence, int selectedGameObjectId, bool captureEna
     if (!output)
         return false;
 
-    output << sequence << ' ' << selectedGameObjectId << ' ' << (captureEnabled ? 1 : 0) << '\n';
+    output << sequence << ' ' << selectedGameObjectId << ' ' << (captureEnabled ? 1 : 0) << ' ' << fps << '\n';
     output.close();
 
     std::filesystem::rename(runtime_preview::stateMetadataTempPath(), runtime_preview::stateMetadataPath(), errorCode);
@@ -141,20 +143,25 @@ bool writeObjectStateFile(uint64_t sequence, const scene_serialization::GameObje
     return true;
 }
 
-void publishRuntimeState()
+void publishRuntimeState(int currentFps)
 {
     if (!g_publishPreviewFrames || g_scene == nullptr)
         return;
 
     const GameObject* selectedGameObject = g_scene->getSelectedGameObject();
     const int selectedGameObjectId = selectedGameObject != nullptr ? selectedGameObject->getId() : -1;
-    if (selectedGameObjectId == g_lastPublishedSelectedGameObjectId)
+    const int captureEnabled = g_remoteInputCapture ? 1 : 0;
+    if (selectedGameObjectId == g_lastPublishedSelectedGameObjectId
+        && currentFps == g_lastPublishedFps
+        && captureEnabled == g_lastPublishedCaptureEnabled)
         return;
 
-    if (writeStateFile(g_stateSequence + 1, selectedGameObjectId, g_remoteInputCapture))
+    if (writeStateFile(g_stateSequence + 1, selectedGameObjectId, g_remoteInputCapture, currentFps))
     {
         ++g_stateSequence;
         g_lastPublishedSelectedGameObjectId = selectedGameObjectId;
+        g_lastPublishedFps = currentFps;
+        g_lastPublishedCaptureEnabled = captureEnabled;
     }
 }
 
@@ -558,6 +565,8 @@ int main(int argc, char** argv)
         const float currentFrame = glfwGetTime();
         const float deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
+        const float clampedDeltaTime = std::max(deltaTime, 1e-6f);
+        const int currentFps = std::clamp(static_cast<int>(std::lround(1.0f / clampedDeltaTime)), 0, 60);
 
         glfwPollEvents();
         pollPreviewResizeRequests();
@@ -588,7 +597,7 @@ int main(int argc, char** argv)
             g_scene->renderSceneWithSelectionHighlight();
         else
             g_scene->renderScene();
-        publishRuntimeState();
+        publishRuntimeState(currentFps);
         publishSelectedObjectState();
         publishPreviewFrame(g_windowFramebufferWidth, g_windowFramebufferHeight);
         glfwSwapBuffers(g_window);

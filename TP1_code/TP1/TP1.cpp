@@ -663,12 +663,14 @@ void pollRemotePreviewState(Scene& currentScene)
     uint64_t nextSequence = 0;
     int selectedGameObjectId = -1;
     int captureEnabled = 0;
-    if (!(input >> nextSequence >> selectedGameObjectId >> captureEnabled) || nextSequence <= g_remotePreviewStateSequence)
+    int fps = 0;
+    if (!(input >> nextSequence >> selectedGameObjectId >> captureEnabled >> fps) || nextSequence <= g_remotePreviewStateSequence)
         return;
 
     currentScene.setSelectedGameObjectById(selectedGameObjectId);
     g_remotePreviewStateSequence = nextSequence;
     (void)captureEnabled;
+    (void)fps;
 }
 
 void pollRemotePreviewObjectState(Scene& currentScene)

@@ -1000,6 +1000,7 @@ void SceneEditorController::update()
         return;
 
     pollExternalProcess();
+    pollRuntimePreviewState();
     syncRuntimePreviewGameObjectIfNeeded();
     syncRuntimePreviewSceneIfNeeded();
 
@@ -1024,6 +1025,7 @@ void SceneEditorController::update()
         refreshInspectorValuesPresentation();
     }
 
+    updatePlaybackStatusPresentation();
     applyLayout();
     m_context->Update();
     refreshCachedRects();
@@ -2006,6 +2008,8 @@ void SceneEditorController::refreshPresentation()
     );
     m_viewportPanel->SetInnerRML(buildViewportMarkup());
     m_viewportSurface = m_document->GetElementById("scene_viewport_surface");
+    m_playbackStatusElement = m_document->GetElementById("scene_playback_status");
+    updatePlaybackStatusPresentation();
     m_rightPanel->SetInnerRML(
         buildInspectorMarkup()
     );
@@ -2030,6 +2034,8 @@ void SceneEditorController::refreshViewportPresentation()
 
     m_viewportPanel->SetInnerRML(buildViewportMarkup());
     m_viewportSurface = m_document != nullptr ? m_document->GetElementById("scene_viewport_surface") : nullptr;
+    m_playbackStatusElement = m_document != nullptr ? m_document->GetElementById("scene_playback_status") : nullptr;
+    updatePlaybackStatusPresentation();
 }
 
 void SceneEditorController::refreshInspectorPresentation(bool preserveScroll)
@@ -2785,14 +2791,9 @@ std::string SceneEditorController::buildViewportMarkup() const
         stream << escapeRmlText(m_currentSceneFilePath);
     stream << "</div>";
 
-    if (buildRunning)
-        stream << "<div class='scene_playback_status'>Building player</div>";
-    else if (previewPlayerRunning && m_playbackState == PlaybackState::Playing)
-        stream << "<div class='scene_playback_status'>Player running</div>";
-    else if (previewPlayerRunning && m_playbackState == PlaybackState::Paused)
-        stream << "<div class='scene_playback_status'>Player paused</div>";
-    else
-        stream << "<div class='scene_playback_status'>Player stopped</div>";
+    (void)buildRunning;
+    (void)previewPlayerRunning;
+    stream << "<div id='scene_playback_status' class='scene_playback_status'>" << escapeRmlText(buildPlaybackStatusText()) << "</div>";
     stream << "</div></div>";
     stream << "<div id='scene_viewport_surface' class='scene_viewport_surface'></div>";
     stream << buildSceneDirtyPromptMarkup();
@@ -3514,6 +3515,9 @@ bool SceneEditorController::startPreviewPlayer(const std::string& scenePath)
     m_activeProcessOutputFd = outputFd;
     m_activeProcessKind = ActiveProcessKind::Player;
     m_playbackState = PlaybackState::Playing;
+    m_runtimePreviewFps = -1;
+    m_runtimeStateSequence = 0;
+    m_lastPlaybackStatusText.clear();
     appendConsoleSystemMessage("[play] runtime_game started.", "console_line_success");
     requestHierarchyRefresh();
     return true;
@@ -3593,6 +3597,9 @@ void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
     m_pendingLaunchAction = PendingLaunchAction::None;
     m_pendingLaunchScenePath.clear();
     m_playbackState = PlaybackState::Stopped;
+    m_runtimePreviewFps = -1;
+    m_runtimeStateSequence = 0;
+    m_lastPlaybackStatusText.clear();
     m_runtimeGameObjectSyncId = -1;
     m_runtimePauseSequence = 0;
     m_runtimeSceneSyncPending = false;
@@ -3681,6 +3688,52 @@ void SceneEditorController::syncRuntimePreviewGameObjectIfNeeded()
 
     ++m_runtimeGameObjectSyncSequence;
     m_runtimeGameObjectSyncId = -1;
+}
+
+void SceneEditorController::pollRuntimePreviewState()
+{
+    if (m_activeProcessKind != ActiveProcessKind::Player)
+    {
+        m_runtimePreviewFps = -1;
+        return;
+    }
+
+    std::ifstream input(runtime_preview::stateMetadataPath());
+    if (!input)
+        return;
+
+    uint64_t nextSequence = 0;
+    int selectedGameObjectId = -1;
+    int captureEnabled = 0;
+    int fps = -1;
+    if (!(input >> nextSequence >> selectedGameObjectId >> captureEnabled >> fps) || nextSequence <= m_runtimeStateSequence)
+        return;
+
+    m_runtimeStateSequence = nextSequence;
+    m_runtimePreviewFps = std::clamp(fps, 0, 60);
+    (void)selectedGameObjectId;
+    (void)captureEnabled;
+}
+
+void SceneEditorController::updatePlaybackStatusPresentation()
+{
+    if (m_playbackStatusElement == nullptr)
+        return;
+
+    const std::string nextText = buildPlaybackStatusText();
+    if (nextText == m_lastPlaybackStatusText)
+        return;
+
+    m_playbackStatusElement->SetInnerRML(escapeRmlText(nextText));
+    m_lastPlaybackStatusText = nextText;
+}
+
+std::string SceneEditorController::buildPlaybackStatusText() const
+{
+    if (m_activeProcessKind == ActiveProcessKind::Player && m_playbackState == PlaybackState::Playing && m_runtimePreviewFps >= 0)
+        return std::to_string(m_runtimePreviewFps) + "/60 fps";
+
+    return "--/60 fps";
 }
 
 void SceneEditorController::pausePreviewPlayer()

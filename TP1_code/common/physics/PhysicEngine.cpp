@@ -49,6 +49,101 @@ void PhysicsSystem::IntegrateVelocities(PhysicBody & body, float dt)
     rb.ApplyMotionConstraints();
 }
 
+void PhysicsSystem::StepSimulation(float dt)
+{
+    for (PhysicBody & body : m_bodies)
+    {
+        if (!body.isValid())
+            continue;
+        body.rb->BeginSimulationStep();
+        IntegrateVelocities(body, dt);
+    }
+
+    for (PhysicBody & body : m_bodies)
+    {
+        if (!body.isValid())
+            continue;
+        IntegratePositions(body, dt);
+        ApplyPositionConstraints(body.rb);
+    }
+
+    std::vector<BroadPhaseEntry> broadPhaseEntries;
+    broadPhaseEntries.reserve(m_bodies.size());
+
+    for (PhysicBody & body : m_bodies)
+    {
+        if (!body.isValid())
+            continue;
+
+        body.transform->setPosition(body.rb->m_position);
+        body.transform->setOrientation(body.rb->m_orientation);
+
+        BroadPhaseEntry entry;
+        entry.body = body;
+        entry.aabb = body.collider->computeAABB(body.transform);
+        broadPhaseEntries.push_back(entry);
+    }
+
+    std::vector<CandidatePair> candidatePairs;
+    const size_t count = broadPhaseEntries.size();
+    candidatePairs.reserve((count * (count - 1)) / 2);
+
+    for (size_t i = 0; i < count; ++i)
+    {
+        for (size_t j = i + 1; j < count; ++j)
+        {
+            PhysicBody & bodyA = broadPhaseEntries[i].body;
+            PhysicBody & bodyB = broadPhaseEntries[j].body;
+            if (!CanBodiesCollide(bodyA, bodyB))
+                continue;
+            if (!broadPhaseEntries[i].aabb.Overlaps(broadPhaseEntries[j].aabb))
+                continue;
+
+            CandidatePair pair;
+            pair.a = i;
+            pair.b = j;
+            candidatePairs.push_back(pair);
+        }
+    }
+
+    for (int iteration = 0; iteration < kSolverIterations; ++iteration)
+    {
+        const bool applyPositionalCorrection = (iteration == 0);
+
+        for (const CandidatePair & pair : candidatePairs)
+        {
+            PhysicBody & bodyA = broadPhaseEntries[pair.a].body;
+            PhysicBody & bodyB = broadPhaseEntries[pair.b].body;
+
+            if (!bodyA.isValid() || !bodyB.isValid())
+                continue;
+
+            bodyA.transform->setPosition(bodyA.rb->m_position);
+            bodyB.transform->setPosition(bodyB.rb->m_position);
+            bodyA.transform->setOrientation(bodyA.rb->m_orientation);
+            bodyB.transform->setOrientation(bodyB.rb->m_orientation);
+
+            physics::CollisionManifold manifold = physics::CollisionDispatcher::Test(
+                *bodyA.collider, *bodyA.transform,
+                *bodyB.collider, *bodyB.transform
+            );
+
+            if (!manifold.hasCollision)
+                continue;
+
+            physics::CollisionSolver::Resolve(*bodyA.rb, *bodyB.rb, manifold, applyPositionalCorrection);
+
+            ApplyPositionConstraints(bodyA.rb);
+            ApplyPositionConstraints(bodyB.rb);
+
+            bodyA.transform->setPosition(bodyA.rb->m_position);
+            bodyB.transform->setPosition(bodyB.rb->m_position);
+            bodyA.transform->setOrientation(bodyA.rb->m_orientation);
+            bodyB.transform->setOrientation(bodyB.rb->m_orientation);
+        }
+    }
+}
+
 void PhysicsSystem::IntegratePositions(PhysicBody & body, float dt)
 {
     physics::RigidBody & rb = *body.rb;
@@ -114,6 +209,39 @@ bool PhysicsSystem::CanBodiesCollide(const PhysicBody & a, const PhysicBody & b)
     if ((rbA.isStatic || rbA.isKinematic) && (rbB.isStatic || rbB.isKinematic))
         return false;
     return true;
+}
+
+void PhysicsSystem::Step(float dt)
+{
+    if (dt <= 0.0f)
+        return;
+
+    if (dt > kMaxStableDeltaTime)
+    {
+        const int fixedStepCount = static_cast<int>(dt / kFixedSubstepDeltaTime);
+        const float remainingDt = dt - (static_cast<float>(fixedStepCount) * kFixedSubstepDeltaTime);
+
+        for (int stepIndex = 0; stepIndex < fixedStepCount; ++stepIndex)
+            StepSimulation(kFixedSubstepDeltaTime);
+
+        if (remainingDt > 0.0f)
+            StepSimulation(remainingDt);
+    }
+    else
+    {
+        StepSimulation(dt);
+    }
+
+    for (PhysicBody & body : m_bodies)
+    {
+        if (!body.isValid())
+            continue;
+
+        ApplySleepThresholds(*body.rb);
+        SyncTransformFromRigidbody(body);
+        body.rb->accumulatedForce = glm::vec3(0.f, 0.f, 0.f);
+        body.rb->accumulatedTorque = glm::vec3(0.f, 0.f, 0.f);
+    }
 }
 
 PhysicsSystem * PhysicEngine::getInstance()
