@@ -17,11 +17,14 @@
 #include <common/app/RuntimePreviewSession.hpp>
 #include <common/app/RuntimeWindow.hpp>
 #include <common/Scene.hpp>
+#include <common/asset/DataAssetIO.hpp>
 #include <common/asset/MaterialAssetIO.hpp>
 #include <common/gameobject/component/Mesh.hpp>
 #include <common/physics/RigidBody.hpp>
 #include <common/scene/SceneSerialization.hpp>
 #include <common/utils/Raycast.hpp>
+
+#include <gameplay/GameplayEntry.hpp>
 
 namespace
 {
@@ -42,16 +45,22 @@ uint64_t g_selectionSequence = 0;
 uint64_t g_pauseSequence = 0;
 uint64_t g_objectPatchSequence = 0;
 uint64_t g_objectStateSequence = 0;
+uint64_t g_sceneStateSequence = 0;
 uint64_t g_sceneSyncSequence = 0;
 uint64_t g_stateSequence = 0;
+uint64_t g_dataAssetSequence = 0;
+uint64_t g_dataAssetStateSequence = 0;
 uint64_t g_materialSequence = 0;
 uint64_t g_materialStateSequence = 0;
 bool g_remoteInputCapture = false;
 bool g_previewPaused = false;
+bool g_sceneScriptStartPending = false;
 int g_lastPublishedSelectedGameObjectId = -2;
 int g_lastPublishedFps = -1;
 int g_lastPublishedCaptureEnabled = -1;
+std::string g_lastPublishedDataAssetPayload;
 std::string g_lastPublishedObjectStatePayload;
+std::string g_lastPublishedScenePayload;
 
 GameObject* pickGameObjectAt(Scene& scene, double clickX, double clickY, int viewportWidth, int viewportHeight)
 {
@@ -74,11 +83,18 @@ GameObject* pickGameObjectAt(Scene& scene, double clickX, double clickY, int vie
             continue;
 
         float hitDistance = MAXFLOAT;
-        if (gameObject->getComponent<component::Mesh>() != nullptr)
+        component::Mesh* pickMesh = gameObject->getComponent<component::Mesh>();
+        if (pickMesh == nullptr)
+        {
+            if (component::MeshRenderer* meshRenderer = gameObject->getComponent<component::MeshRenderer>())
+                pickMesh = meshRenderer->getMesh();
+        }
+
+        if (pickMesh != nullptr)
         {
             Raycast::raycastTransformedAABB(
                 gameObject->transform,
-                gameObject->getComponent<component::Mesh>()->getAABB(),
+                pickMesh->getAABB(),
                 ray,
                 &hitDistance);
         }
@@ -173,6 +189,66 @@ bool writeMaterialStateFile(uint64_t sequence, const std::string& materialAssetP
     return true;
 }
 
+bool writeDataAssetStateFile(uint64_t sequence, const std::string& dataAssetPath, const asset::DataAssetDefinition& definition)
+{
+    std::error_code errorCode;
+    std::filesystem::create_directories(runtime_preview::sessionDirectory(), errorCode);
+    if (errorCode)
+        return false;
+
+    std::ofstream output(runtime_preview::dataAssetStateTempPath(), std::ios::trunc);
+    if (!output)
+        return false;
+
+    output << sequence << '\n' << dataAssetPath << '\n';
+    if (!asset::DataAssetIO::writeDefinition(output, definition))
+        return false;
+    output.close();
+
+    std::filesystem::rename(runtime_preview::dataAssetStateTempPath(), runtime_preview::dataAssetStatePath(), errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(runtime_preview::dataAssetStateTempPath(), errorCode);
+        return false;
+    }
+
+    return true;
+}
+
+bool writeSceneStateFile(uint64_t sequence, const Scene& scene)
+{
+    std::error_code errorCode;
+    std::filesystem::create_directories(runtime_preview::sessionDirectory(), errorCode);
+    if (errorCode)
+        return false;
+
+    if (!scene_serialization::saveSceneToFile(scene, runtime_preview::sceneStateTempPath().string()))
+        return false;
+
+    std::filesystem::rename(runtime_preview::sceneStateTempPath(), runtime_preview::sceneStatePath(), errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(runtime_preview::sceneStateTempPath(), errorCode);
+        return false;
+    }
+
+    std::ofstream metadataOutput(runtime_preview::sceneStateMetadataTempPath(), std::ios::trunc);
+    if (!metadataOutput)
+        return false;
+
+    metadataOutput << sequence << '\n';
+    metadataOutput.close();
+
+    std::filesystem::rename(runtime_preview::sceneStateMetadataTempPath(), runtime_preview::sceneStateMetadataPath(), errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(runtime_preview::sceneStateMetadataTempPath(), errorCode);
+        return false;
+    }
+
+    return true;
+}
+
 void publishRuntimeState(int currentFps)
 {
     if (!g_publishPreviewFrames || g_scene == nullptr)
@@ -235,6 +311,58 @@ void publishDirtyMaterialState()
 
     if (writeMaterialStateFile(g_materialStateSequence + 1, materialAssetPath, definition))
         ++g_materialStateSequence;
+}
+
+void publishDirtyDataAssetState()
+{
+    if (!g_publishPreviewFrames || g_scene == nullptr)
+        return;
+
+    const std::string dataAssetPath = asset::AssetManager::normalizeRelativePath(g_scene->getDataAssetPath());
+    if (dataAssetPath.empty())
+    {
+        g_lastPublishedDataAssetPayload.clear();
+        return;
+    }
+
+    asset::DataAssetDefinition* definition = asset::AssetManager::instance().loadDataAssetDefinition(dataAssetPath);
+    if (definition == nullptr)
+        return;
+
+    std::ostringstream payloadStream;
+    if (!asset::DataAssetIO::writeDefinition(payloadStream, *definition))
+        return;
+
+    const std::string payload = payloadStream.str();
+    if (payload == g_lastPublishedDataAssetPayload)
+        return;
+
+    if (writeDataAssetStateFile(g_dataAssetStateSequence + 1, dataAssetPath, *definition))
+    {
+        ++g_dataAssetStateSequence;
+        g_lastPublishedDataAssetPayload = payload;
+    }
+}
+
+void publishSceneState()
+{
+    if (!g_publishPreviewFrames || g_scene == nullptr)
+        return;
+
+    const scene_serialization::SceneSnapshot snapshot = scene_serialization::captureScene(*g_scene);
+    std::ostringstream payloadStream;
+    if (!scene_serialization::detail::saveSnapshotToStream(payloadStream, snapshot))
+        return;
+
+    const std::string payload = payloadStream.str();
+    if (payload == g_lastPublishedScenePayload)
+        return;
+
+    if (writeSceneStateFile(g_sceneStateSequence + 1, *g_scene))
+    {
+        ++g_sceneStateSequence;
+        g_lastPublishedScenePayload = payload;
+    }
 }
 
 struct RuntimeOptions
@@ -501,6 +629,8 @@ void pollPreviewSceneSyncRequests()
         g_scene->setFpsControlEnabled(g_remoteInputCapture, g_window, true, g_windowFramebufferWidth * 0.5, g_windowFramebufferHeight * 0.5);
         g_lastPublishedSelectedGameObjectId = -2;
         g_lastPublishedObjectStatePayload.clear();
+        g_lastPublishedScenePayload.clear();
+        g_sceneScriptStartPending = true;
         g_sceneSyncSequence = nextSequence;
         std::cout << "\033[36m[player] Runtime scene synchronized from editor.\033[0m" << std::endl;
     }
@@ -535,6 +665,40 @@ void pollPreviewMaterialRequests()
     }
 
     g_materialSequence = nextSequence;
+}
+
+void pollPreviewDataAssetRequests()
+{
+    if (!g_publishPreviewFrames || g_scene == nullptr)
+        return;
+
+    std::ifstream dataAssetStream(runtime_preview::dataAssetMetadataPath());
+    if (!dataAssetStream)
+        return;
+
+    uint64_t nextSequence = 0;
+    if (!(dataAssetStream >> nextSequence) || nextSequence <= g_dataAssetSequence)
+        return;
+
+    dataAssetStream.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    std::string dataAssetPath;
+    if (!std::getline(dataAssetStream, dataAssetPath) || dataAssetPath.empty())
+        return;
+
+    asset::DataAssetDefinition* definition = nullptr;
+    if (!asset::AssetManager::instance().reloadDataAssetDefinition(dataAssetPath, definition))
+    {
+        std::cerr << "\033[31m[player] Failed to refresh data asset: " << dataAssetPath << "\033[0m" << std::endl;
+        return;
+    }
+
+    std::ostringstream payloadStream;
+    if (definition != nullptr && asset::DataAssetIO::writeDefinition(payloadStream, *definition))
+        g_lastPublishedDataAssetPayload = payloadStream.str();
+    else
+        g_lastPublishedDataAssetPayload.clear();
+
+    g_dataAssetSequence = nextSequence;
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -629,6 +793,20 @@ int main(int argc, char** argv)
 
     g_scene->setPhysicsSimulationEnabled(true);
     g_scene->setFpsControlEnabled(!runtimeOptions.hiddenPreviewWindow, g_window, false);
+    gameplay::bootstrap();
+    g_sceneScriptStartPending = true;
+
+    const std::string initialDataAssetPath = asset::AssetManager::normalizeRelativePath(g_scene->getDataAssetPath());
+    if (!initialDataAssetPath.empty())
+    {
+        asset::DataAssetDefinition* initialDefinition = asset::AssetManager::instance().loadDataAssetDefinition(initialDataAssetPath);
+        if (initialDefinition != nullptr)
+        {
+            std::ostringstream payloadStream;
+            if (asset::DataAssetIO::writeDefinition(payloadStream, *initialDefinition))
+                g_lastPublishedDataAssetPayload = payloadStream.str();
+        }
+    }
 
     float lastFrame = 0.0f;
     while (glfwWindowShouldClose(g_window) == 0)
@@ -642,6 +820,7 @@ int main(int argc, char** argv)
         glfwPollEvents();
         pollPreviewResizeRequests();
         pollPreviewSceneSyncRequests();
+        pollPreviewDataAssetRequests();
         pollPreviewMaterialRequests();
         pollPreviewPauseRequests();
         pollPreviewObjectPatchRequests();
@@ -654,6 +833,12 @@ int main(int argc, char** argv)
             g_scene->setSelectedGameObject(nullptr);
         }
 
+        if (g_sceneScriptStartPending)
+        {
+            gameplay::runSceneScript(*g_scene);
+            publishSceneState();
+            g_sceneScriptStartPending = false;
+        }
         g_scene->update(
             g_previewPaused ? 0.0f : deltaTime,
             g_window,
@@ -663,6 +848,8 @@ int main(int argc, char** argv)
             g_windowFramebufferHeight * 0.5);
         g_sceneClickPending = false;
 
+        publishSceneState();
+
         glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         if (g_publishPreviewFrames)
@@ -671,6 +858,7 @@ int main(int argc, char** argv)
             g_scene->renderScene();
         publishRuntimeState(currentFps);
         publishSelectedObjectState();
+        publishDirtyDataAssetState();
         publishDirtyMaterialState();
         publishPreviewFrame(g_windowFramebufferWidth, g_windowFramebufferHeight);
         glfwSwapBuffers(g_window);

@@ -2,6 +2,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 #include "common/physics/AABB.hpp"
 #include <vector>
 
@@ -273,6 +274,38 @@ public:
     {
         glm::vec4 res = getModelWorld() * glm::vec4(localPos.x, localPos.y, localPos.z, 1);
         return glm::vec3(res.x, res.y, res.z);
+    }
+
+    glm::quat getWorldOrientation() const
+    {
+        return m_parent != nullptr
+            ? glm::normalize(m_parent->getWorldOrientation() * m_orientation)
+            : m_orientation;
+    }
+
+    void setWorldPosition(const glm::vec3& worldPosition)
+    {
+        if (m_parent == nullptr)
+        {
+            setPosition(worldPosition);
+            return;
+        }
+
+        const glm::mat4 parentWorldInverse = glm::affineInverse(m_parent->getModelWorld());
+        const glm::vec4 localPosition = parentWorldInverse * glm::vec4(worldPosition, 1.0f);
+        setPosition(glm::vec3(localPosition));
+    }
+
+    void setWorldOrientation(const glm::quat& worldOrientation)
+    {
+        if (m_parent == nullptr)
+        {
+            setOrientation(worldOrientation);
+            return;
+        }
+
+        const glm::quat parentWorldOrientation = m_parent->getWorldOrientation();
+        setOrientation(glm::normalize(glm::inverse(parentWorldOrientation) * worldOrientation));
     }
 
     glm::vec3 getWorldNormal(glm::vec3 localNormal) const

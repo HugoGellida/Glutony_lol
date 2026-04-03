@@ -84,6 +84,26 @@ inline std::filesystem::path sceneSyncMetadataTempPath()
     return sessionDirectory() / "scene_sync.meta.tmp";
 }
 
+inline std::filesystem::path sceneStatePath()
+{
+    return sessionDirectory() / "scene_state.scene";
+}
+
+inline std::filesystem::path sceneStateTempPath()
+{
+    return sessionDirectory() / "scene_state.scene.tmp";
+}
+
+inline std::filesystem::path sceneStateMetadataPath()
+{
+    return sessionDirectory() / "scene_state.meta";
+}
+
+inline std::filesystem::path sceneStateMetadataTempPath()
+{
+    return sessionDirectory() / "scene_state.meta.tmp";
+}
+
 inline std::filesystem::path objectPatchPath()
 {
     return sessionDirectory() / "object_patch.meta";
@@ -142,5 +162,25 @@ inline std::filesystem::path materialStatePath()
 inline std::filesystem::path materialStateTempPath()
 {
     return sessionDirectory() / "material_state.meta.tmp";
+}
+
+inline std::filesystem::path dataAssetMetadataPath()
+{
+    return sessionDirectory() / "data_asset.meta";
+}
+
+inline std::filesystem::path dataAssetMetadataTempPath()
+{
+    return sessionDirectory() / "data_asset.meta.tmp";
+}
+
+inline std::filesystem::path dataAssetStatePath()
+{
+    return sessionDirectory() / "data_asset_state.meta";
+}
+
+inline std::filesystem::path dataAssetStateTempPath()
+{
+    return sessionDirectory() / "data_asset_state.meta.tmp";
 }
 }

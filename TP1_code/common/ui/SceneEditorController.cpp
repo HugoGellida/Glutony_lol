@@ -33,6 +33,7 @@ namespace
 {
 constexpr int MinAssetBrowserPaneWidth = 160;
 constexpr size_t MaxConsoleLines = 256;
+constexpr int kPanelHeaderHeight = 34;
 constexpr int kContextMenuMinWidth = 144;
 constexpr int kContextMenuEstimatedRowHeight = 34;
 constexpr int kContextMenuVerticalPadding = 8;
@@ -91,6 +92,42 @@ std::string shellQuote(const std::string& value)
     }
     quoted += "'";
     return quoted;
+}
+
+std::string escapeCppStringLiteral(const std::string& value)
+{
+    std::ostringstream stream;
+    for (char character : value)
+    {
+        switch (character)
+        {
+        case '\\':
+            stream << "\\\\";
+            break;
+        case '"':
+            stream << "\\\"";
+            break;
+        case '\n':
+            stream << "\\n";
+            break;
+        case '\t':
+            stream << "\\t";
+            break;
+        default:
+            stream << character;
+            break;
+        }
+    }
+    return stream.str();
+}
+
+std::string normalizeSceneScriptSourcePath(const std::string& rawPath)
+{
+    std::string normalized = asset::AssetManager::normalizeRelativePath(rawPath);
+    const std::string legacyBuiltInPrefix = "built_in/";
+    if (editor_ui::startsWith(normalized, legacyBuiltInPrefix))
+        normalized.replace(0, legacyBuiltInPrefix.size(), "built-in/");
+    return normalized;
 }
 
 std::string trimCopy(const std::string& value)
@@ -493,6 +530,11 @@ std::string makeSceneTransformFieldElementId(int nodeId, const std::string& fiel
     return "scene_transform_field_" + std::to_string(nodeId) + "__" + fieldKey;
 }
 
+std::string makeSceneRootFieldElementId(const std::string& fieldKey)
+{
+    return "scene_root_field__" + fieldKey;
+}
+
 std::string makeSceneInspectorGroupElementId(int nodeId, size_t componentIndex)
 {
     return "scene_inspector_group_" + std::to_string(nodeId) + "__" + std::to_string(componentIndex);
@@ -751,6 +793,15 @@ std::optional<std::string> parseEncodedElementId(const Rml::String& elementId, c
     return decoded;
 }
 
+std::filesystem::file_time_type safeLastWriteTimeLocal(const std::string& path)
+{
+    std::error_code errorCode;
+    const std::filesystem::file_time_type writeTime = std::filesystem::last_write_time(path, errorCode);
+    if (errorCode)
+        return std::filesystem::file_time_type::min();
+    return writeTime;
+}
+
 const char* assetBrowserRootLabel(SceneEditorController::AssetBrowserRootKind rootKind)
 {
     return rootKind == SceneEditorController::AssetBrowserRootKind::Assets ? "Assets" : "built-in";
@@ -803,8 +854,12 @@ SceneEditorController::AssetBrowserFileKind classifyAssetBrowserFileKind(const s
     const std::string extension = path.extension().string();
     if (extension == ".mat")
         return SceneEditorController::AssetBrowserFileKind::Material;
+    if (extension == ".data")
+        return SceneEditorController::AssetBrowserFileKind::Data;
     if (extension == ".obj" || extension == ".off")
         return SceneEditorController::AssetBrowserFileKind::Mesh;
+    if (extension == ".scene_script")
+        return SceneEditorController::AssetBrowserFileKind::SceneScript;
     if (extension == ".glsl")
         return SceneEditorController::AssetBrowserFileKind::Shader;
     if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp" || extension == ".tga")
@@ -820,8 +875,12 @@ DragPayloadKind dragPayloadKindForAssetFileKind(SceneEditorController::AssetBrow
     {
     case SceneEditorController::AssetBrowserFileKind::Material:
         return DragPayloadKind::MaterialAsset;
+    case SceneEditorController::AssetBrowserFileKind::Data:
+        return DragPayloadKind::DataAsset;
     case SceneEditorController::AssetBrowserFileKind::Mesh:
         return DragPayloadKind::MeshAsset;
+    case SceneEditorController::AssetBrowserFileKind::SceneScript:
+        return DragPayloadKind::SceneScriptAsset;
     case SceneEditorController::AssetBrowserFileKind::Shader:
         return DragPayloadKind::ShaderAsset;
     case SceneEditorController::AssetBrowserFileKind::Texture:
@@ -837,8 +896,12 @@ const char* assetBrowserFileKindLabel(SceneEditorController::AssetBrowserFileKin
     {
     case SceneEditorController::AssetBrowserFileKind::Material:
         return "Material";
+    case SceneEditorController::AssetBrowserFileKind::Data:
+        return "Data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:
         return "Mesh";
+    case SceneEditorController::AssetBrowserFileKind::SceneScript:
+        return "SceneScript";
     case SceneEditorController::AssetBrowserFileKind::Shader:
         return "Shader";
     case SceneEditorController::AssetBrowserFileKind::Texture:
@@ -856,8 +919,12 @@ const char* assetBrowserFileKindClass(SceneEditorController::AssetBrowserFileKin
     {
     case SceneEditorController::AssetBrowserFileKind::Material:
         return "material";
+    case SceneEditorController::AssetBrowserFileKind::Data:
+        return "data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:
         return "mesh";
+    case SceneEditorController::AssetBrowserFileKind::SceneScript:
+        return "scene_script";
     case SceneEditorController::AssetBrowserFileKind::Shader:
         return "shader";
     case SceneEditorController::AssetBrowserFileKind::Texture:
@@ -1038,14 +1105,21 @@ void SceneEditorController::update()
         return;
 
     pollExternalProcess();
+    pollRuntimePreviewSceneState();
     pollRuntimePreviewState();
     pollRuntimePreviewMaterialState();
+    pollRuntimePreviewDataAssetState();
+    pollDataAssetExternalChanges();
     syncRuntimePreviewGameObjectIfNeeded();
     syncRuntimePreviewSceneIfNeeded();
 
     if (m_hierarchyRefreshPending)
     {
-        refreshPresentation();
+        refreshHierarchyPresentation();
+        if (shouldRefreshInspectorPresentation())
+            refreshInspectorPresentation(true);
+        else
+            refreshInspectorValuesPresentation();
         m_hierarchyRefreshPending = false;
     }
     else if (m_selectionRefreshPending)
@@ -1182,6 +1256,15 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String materialAssetGroupElementId = ::findAncestorElementId(
         targetElement,
         [&](const Rml::String& candidateId) { return parseMaterialAssetEditorGroupElementId(candidateId).has_value(); });
+    const Rml::String dataAssetFieldElementId = ::findAncestorElementId(
+        targetElement,
+        [&](const Rml::String& candidateId) { return parseDataAssetEditorFieldElementId(candidateId).has_value(); });
+    const Rml::String dataAssetGroupElementId = ::findAncestorElementId(
+        targetElement,
+        [&](const Rml::String& candidateId) { return parseDataAssetEditorGroupElementId(candidateId).has_value(); });
+    const Rml::String dataAssetNodeGroupElementId = ::findAncestorElementId(
+        targetElement,
+        [&](const Rml::String& candidateId) { return parseDataAssetEditorNodeGroupElementId(candidateId).has_value(); });
     const Rml::String addGameObjectElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_hierarchy_add"; });
@@ -1248,6 +1331,28 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Change || eventId == Rml::EventId::Blur)
     {
+        const std::optional<DataAssetEditorBinding> dataAssetField = parseDataAssetEditorFieldElementId(elementId);
+        if (dataAssetField.has_value())
+        {
+            const Rml::ElementFormControl* formControl = dynamic_cast<const Rml::ElementFormControl*>(targetElement);
+            if (formControl == nullptr)
+                return;
+
+            const std::string tagName = targetElement->GetTagName();
+            if (eventId == Rml::EventId::Change && tagName == "input")
+            {
+                const std::string inputType = targetElement->GetAttribute<Rml::String>("type", "text").c_str();
+                if (inputType == "text" || inputType == "number")
+                    return;
+            }
+
+            if (applyDataAssetEditorFieldValue(*dataAssetField, formControl->GetValue().c_str()))
+                refreshDataAssetEditorPresentation(dataAssetField->parentField);
+
+            event.StopPropagation();
+            return;
+        }
+
         const std::optional<MaterialAssetEditorBinding> materialAssetField = parseMaterialAssetEditorFieldElementId(elementId);
         if (materialAssetField.has_value())
         {
@@ -1288,11 +1393,18 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
         if (applyInspectorFieldValue(*inspectorField, formControl->GetValue().c_str()))
         {
-            markSceneDirty(false);
-            queueRuntimeGameObjectSync(inspectorField->nodeId);
+            if (inspectorField->target == InspectorFieldBinding::Target::Scene)
+                markSceneDirty(true);
+            else
+            {
+                markSceneDirty(false);
+                queueRuntimeGameObjectSync(inspectorField->nodeId);
+            }
             refreshInspectorValuesPresentation();
             if (isMaterialAssetInspectorField(*inspectorField))
                 refreshMaterialAssetEditorPresentation(*inspectorField);
+            else if (isDataAssetSceneField(*inspectorField))
+                refreshDataAssetEditorPresentation(*inspectorField);
         }
 
         event.StopPropagation();
@@ -1545,6 +1657,24 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
+        const std::optional<InspectorFieldBinding> dataAssetGroup = parseDataAssetEditorGroupElementId(dataAssetGroupElementId);
+        if (dataAssetGroup.has_value())
+        {
+            toggleDataAssetEditor(*dataAssetGroup);
+            refreshInspectorPresentation(true);
+            event.StopPropagation();
+            return;
+        }
+
+        const std::optional<DataAssetEditorBinding> dataAssetNodeGroup = parseDataAssetEditorNodeGroupElementId(dataAssetNodeGroupElementId);
+        if (dataAssetNodeGroup.has_value())
+        {
+            toggleDataAssetEditorNode(*dataAssetNodeGroup);
+            refreshInspectorPresentation(true);
+            event.StopPropagation();
+            return;
+        }
+
         if (!windowMenuButtonElementId.empty())
         {
             m_isFileMenuOpen = false;
@@ -1610,6 +1740,8 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             {
                 GameObject* clickedGameObject = const_cast<GameObject*>(hierarchyNode->gameObject);
                 m_scene->toggleSelectedGameObject(clickedGameObject);
+                if (m_activeProcessKind == ActiveProcessKind::Player)
+                    m_pendingRuntimeSelectionId = m_scene->getSelectedGameObject() != nullptr ? std::optional<int>(m_scene->getSelectedGameObject()->getId()) : std::optional<int>(-1);
                 m_selectedHierarchyNodeId = (clickedGameObject != nullptr && m_scene->getSelectedGameObject() == clickedGameObject)
                     ? *hierarchyNodeId
                     : m_hierarchyRoot.id;
@@ -1730,11 +1862,18 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         if (inspectorField.has_value() && applyDraggedAssetToInspectorField(*inspectorField))
         {
             m_hoveredInspectorFieldId.clear();
-            markSceneDirty(false);
-            queueRuntimeGameObjectSync(inspectorField->nodeId);
+            if (inspectorField->target == InspectorFieldBinding::Target::Scene)
+                markSceneDirty(true);
+            else
+            {
+                markSceneDirty(false);
+                queueRuntimeGameObjectSync(inspectorField->nodeId);
+            }
             refreshInspectorValuesPresentation();
             if (isMaterialAssetInspectorField(*inspectorField))
                 refreshMaterialAssetEditorPresentation(*inspectorField);
+            else if (isDataAssetSceneField(*inspectorField))
+                refreshDataAssetEditorPresentation(*inspectorField);
             else
                 requestSelectionRefresh();
             event.StopPropagation();
@@ -1796,6 +1935,8 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
                 if (hierarchyNode != nullptr && m_scene != nullptr)
                 {
                     m_scene->setSelectedGameObject(const_cast<GameObject*>(hierarchyNode->gameObject));
+                    if (m_activeProcessKind == ActiveProcessKind::Player)
+                        m_pendingRuntimeSelectionId = hierarchyNode->gameObject != nullptr ? std::optional<int>(hierarchyNode->gameObject->getId()) : std::optional<int>(-1);
                     m_selectedHierarchyNodeId = *hierarchyNodeId;
                 }
 
@@ -2052,6 +2193,7 @@ void SceneEditorController::applyLayout()
     if (m_bottomBrowserFilesPane != nullptr && m_bottomBrowserTreePane != nullptr && m_bottomBrowserSplitter != nullptr)
     {
         const int totalBrowserWidth = std::max(centerWidth, 1);
+        const int browserContentHeight = std::max(bottomHeight - kPanelHeaderHeight, 1);
         const int treeWidth = clampInt(
             static_cast<int>(std::lround(static_cast<float>(totalBrowserWidth) * m_bottomBrowserTreeRatio)),
             MinAssetBrowserPaneWidth,
@@ -2061,17 +2203,17 @@ void SceneEditorController::applyLayout()
         m_bottomBrowserTreePane->SetProperty("left", pixels(0));
         m_bottomBrowserTreePane->SetProperty("top", pixels(0));
         m_bottomBrowserTreePane->SetProperty("width", pixels(treeWidth));
-        m_bottomBrowserTreePane->SetProperty("height", pixels(bottomHeight));
+        m_bottomBrowserTreePane->SetProperty("height", pixels(browserContentHeight));
 
         m_bottomBrowserSplitter->SetProperty("left", pixels(treeWidth));
         m_bottomBrowserSplitter->SetProperty("top", pixels(0));
         m_bottomBrowserSplitter->SetProperty("width", pixels(SplitterThickness));
-        m_bottomBrowserSplitter->SetProperty("height", pixels(bottomHeight));
+        m_bottomBrowserSplitter->SetProperty("height", pixels(browserContentHeight));
 
         m_bottomBrowserFilesPane->SetProperty("left", pixels(treeWidth + SplitterThickness));
         m_bottomBrowserFilesPane->SetProperty("top", pixels(0));
         m_bottomBrowserFilesPane->SetProperty("width", pixels(filesWidth));
-        m_bottomBrowserFilesPane->SetProperty("height", pixels(bottomHeight));
+        m_bottomBrowserFilesPane->SetProperty("height", pixels(browserContentHeight));
     }
 }
 
@@ -2391,7 +2533,7 @@ void SceneEditorController::refreshAssetBrowserDirectorySelectionPresentation(co
 void SceneEditorController::refreshInspectorValuesPresentation()
 {
     const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
-    if (m_document == nullptr || selectedNode == nullptr || selectedNode->gameObject == nullptr)
+    if (m_document == nullptr || selectedNode == nullptr)
         return;
 
     const Rml::Element* focusedElement = m_context != nullptr ? m_context->GetFocusElement() : nullptr;
@@ -2422,6 +2564,32 @@ void SceneEditorController::refreshInspectorValuesPresentation()
 
     if (Rml::Element* childrenValue = m_document->GetElementById("scene_inspector_children_value"))
         childrenValue->SetInnerRML(std::to_string(selectedNode->children.size()));
+
+    if (selectedNode->gameObject == nullptr)
+    {
+        auto refreshStringFieldValue = [&](const std::string& elementId, const std::string& value) {
+            Rml::Element* fieldElement = m_document->GetElementById(elementId);
+            Rml::ElementFormControl* formControl = dynamic_cast<Rml::ElementFormControl*>(fieldElement);
+            if (formControl == nullptr || isFieldFocused(fieldElement))
+                return;
+
+            if (formControl->GetValue() != value)
+                formControl->SetValue(value);
+        };
+
+        if (m_scene != nullptr)
+        {
+            refreshStringFieldValue(makeSceneFieldElementId("sceneScriptAsset"), m_scene->getSceneScriptAssetPath());
+            refreshStringFieldValue(makeSceneFieldElementId("dataAsset"), m_scene->getDataAssetPath());
+
+            InspectorFieldBinding dataAssetBinding;
+            dataAssetBinding.target = InspectorFieldBinding::Target::Scene;
+            dataAssetBinding.nodeId = 0;
+            dataAssetBinding.fieldKey = "dataAsset";
+            refreshDataAssetEditorPresentation(dataAssetBinding);
+        }
+        return;
+    }
 
     const glm::vec3& position = selectedNode->gameObject->transform.getPosition();
     refreshVec3FieldValue(makeTransformFieldElementId(selectedNode->id, "position"), position);
@@ -2496,15 +2664,7 @@ std::string SceneEditorController::buildHierarchyMarkup() const
     std::ostringstream stream;
     stream << "<div class='panel_shell hierarchy_shell'><div class='panel_header panel_header_with_action'><div>Scene</div><div id='scene_hierarchy_add' class='panel_header_action'>+</div></div><div class='panel_body hierarchy_body'>";
 
-    if (m_hierarchyRoot.children.empty())
-    {
-        stream << "<div class='placeholder_block'><div class='placeholder_title'>Scene hierarchy</div><div class='placeholder_text'>No game objects found in the scene.</div></div>";
-    }
-    else
-    {
-        for (const UiGOHierarchyNode& child : m_hierarchyRoot.children)
-            stream << buildHierarchyNodeMarkup(child, 0);
-    }
+    stream << buildHierarchyNodeMarkup(m_hierarchyRoot, 0);
 
     stream << buildHierarchyContextMenuMarkup();
     stream << "</div></div>";
@@ -2552,9 +2712,50 @@ std::string SceneEditorController::buildHierarchyNodeMarkup(const UiGOHierarchyN
 std::string SceneEditorController::buildInspectorMarkup() const
 {
     const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
-    if (selectedNode == nullptr || selectedNode->gameObject == nullptr)
+    if (selectedNode == nullptr)
     {
         return R"RML(<div class='panel_shell inspector_shell'><div class='panel_header'>Inspector</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>Inspector</div><div class='placeholder_text'>Select a game object in the scene hierarchy.</div></div></div><div id='scene_inspector_overlay' class='inspector_overlay'></div></div>)RML";
+    }
+
+    if (selectedNode->gameObject == nullptr)
+    {
+        const std::string sceneScriptFieldId = makeSceneFieldElementId("sceneScriptAsset");
+        const std::string dataAssetFieldId = makeSceneFieldElementId("dataAsset");
+        InspectorFieldBinding dataAssetBinding;
+        dataAssetBinding.target = InspectorFieldBinding::Target::Scene;
+        dataAssetBinding.nodeId = 0;
+        dataAssetBinding.fieldKey = "dataAsset";
+
+        std::ostringstream stream;
+        stream << "<div class='panel_shell inspector_shell'><div class='panel_header'>Inspector</div><div id='scene_inspector_panel_body' class='panel_body inspector_panel_body'>";
+        stream << "<div class='inspector_summary'>";
+        stream << "<div class='inspector_summary_title'>" << escapeRmlText(selectedNode->label) << "</div>";
+        stream << "<div class='inspector_summary_text'>Scene Root</div>";
+        stream << "</div>";
+        stream << "<div class='inspector_section'>";
+        stream << "<div class='inspector_field_row'><div class='inspector_field_name'>Children</div><div id='scene_inspector_children_value' class='inspector_field_input'>" << selectedNode->children.size() << "</div></div>";
+        stream << buildInspectorFieldMarkup(
+            sceneScriptFieldId,
+            "SceneScript",
+            component_meta::FieldKind::Asset,
+            m_scene != nullptr ? component_meta::SerializedValue(m_scene->getSceneScriptAssetPath()) : component_meta::SerializedValue(std::string()),
+            {},
+            component_meta::AssetReferenceKind::Generic,
+            sceneScriptFieldId == m_hoveredInspectorFieldId);
+        stream << buildInspectorFieldMarkup(
+            dataAssetFieldId,
+            "DataAsset",
+            component_meta::FieldKind::Asset,
+            m_scene != nullptr ? component_meta::SerializedValue(m_scene->getDataAssetPath()) : component_meta::SerializedValue(std::string()),
+            {},
+            component_meta::AssetReferenceKind::Generic,
+            dataAssetFieldId == m_hoveredInspectorFieldId);
+        stream << buildDataAssetEditorMarkup(dataAssetBinding, m_scene != nullptr ? m_scene->getDataAssetPath() : std::string());
+        stream << "</div>";
+        stream << "</div><div id='scene_inspector_overlay' class='inspector_overlay'>";
+        stream << buildInspectorOverlayMarkup();
+        stream << "</div></div>";
+        return stream.str();
     }
 
     const glm::vec3& position = selectedNode->gameObject->transform.getPosition();
@@ -2965,6 +3166,11 @@ std::string SceneEditorController::makeTransformFieldElementId(int nodeId, const
     return makeSceneTransformFieldElementId(nodeId, fieldKey);
 }
 
+std::string SceneEditorController::makeSceneFieldElementId(const std::string& fieldKey)
+{
+    return makeSceneRootFieldElementId(fieldKey);
+}
+
 std::string SceneEditorController::makeInspectorFieldElementId(int nodeId, size_t componentIndex, const std::string& fieldKey)
 {
     return makeSceneInspectorFieldElementId(nodeId, componentIndex, fieldKey);
@@ -3022,6 +3228,16 @@ std::optional<std::string> SceneEditorController::parseAssetFileElementId(const 
 std::optional<SceneEditorController::InspectorFieldBinding> SceneEditorController::parseInspectorFieldElementId(const Rml::String& elementId)
 {
     const std::string value = elementId;
+    const std::string scenePrefix = "scene_root_field__";
+    if (startsWith(value, scenePrefix))
+    {
+        InspectorFieldBinding binding;
+        binding.target = InspectorFieldBinding::Target::Scene;
+        binding.nodeId = 0;
+        binding.fieldKey = value.substr(scenePrefix.size());
+        return binding;
+    }
+
     const std::string transformPrefix = "scene_transform_field_";
     if (startsWith(value, transformPrefix))
     {
@@ -3242,6 +3458,35 @@ const component_meta::ComponentFieldDescriptor* SceneEditorController::findInspe
 
 bool SceneEditorController::applyInspectorFieldValue(const InspectorFieldBinding& binding, const std::string& value)
 {
+    if (binding.target == InspectorFieldBinding::Target::Scene)
+    {
+        if (m_scene == nullptr)
+            return false;
+
+        const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(value);
+        if (binding.fieldKey == "sceneScriptAsset")
+        {
+            if (!normalizedPath.empty() && !asset::AssetManager::hasExtension(normalizedPath, ".scene_script"))
+                return false;
+            if (m_scene->getSceneScriptAssetPath() == normalizedPath)
+                return false;
+            m_scene->setSceneScriptAssetPath(normalizedPath);
+            return true;
+        }
+
+        if (binding.fieldKey == "dataAsset")
+        {
+            if (!normalizedPath.empty() && !asset::AssetManager::hasExtension(normalizedPath, ".data"))
+                return false;
+            if (m_scene->getDataAssetPath() == normalizedPath)
+                return false;
+            m_scene->setDataAssetPath(normalizedPath);
+            return true;
+        }
+
+        return false;
+    }
+
     UiGOHierarchyNode* node = findHierarchyNodeById(binding.nodeId);
     if (node == nullptr || node->gameObject == nullptr)
         return false;
@@ -3307,6 +3552,15 @@ bool SceneEditorController::canDropDraggedAssetOnInspectorField(const InspectorF
 {
     if (m_dragPayloadKind == DragPayloadKind::None || m_draggedAssetRuntimePath.empty())
         return false;
+
+    if (binding.target == InspectorFieldBinding::Target::Scene)
+    {
+        if (binding.fieldKey == "sceneScriptAsset")
+            return m_dragPayloadKind == DragPayloadKind::SceneScriptAsset;
+        if (binding.fieldKey == "dataAsset")
+            return m_dragPayloadKind == DragPayloadKind::DataAsset;
+        return false;
+    }
 
     const component_meta::ComponentFieldDescriptor* field = findInspectorFieldDescriptor(binding);
     if (field == nullptr || field->assetReferenceKind == component_meta::AssetReferenceKind::None)
@@ -3559,6 +3813,10 @@ bool SceneEditorController::prepareRuntimeSceneFile(std::string& outputPath)
     std::filesystem::remove(runtime_preview::materialMetadataTempPath(), errorCode);
     std::filesystem::remove(runtime_preview::materialStatePath(), errorCode);
     std::filesystem::remove(runtime_preview::materialStateTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::dataAssetMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::dataAssetMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::dataAssetStatePath(), errorCode);
+    std::filesystem::remove(runtime_preview::dataAssetStateTempPath(), errorCode);
 
     const std::filesystem::path scenePath = runtime_preview::previewScenePath();
     if (!scene_serialization::saveSceneToFile(*m_scene, scenePath.string()))
@@ -3580,6 +3838,12 @@ bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
     if (launchAction != PendingLaunchAction::None && !prepareRuntimeSceneFile(scenePath))
     {
         appendConsoleSystemMessage("[editor] Failed to prepare runtime scene snapshot.", "console_line_error");
+        requestHierarchyRefresh();
+        return false;
+    }
+
+    if (!prepareSceneScriptBuildSource())
+    {
         requestHierarchyRefresh();
         return false;
     }
@@ -3619,6 +3883,7 @@ bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
     m_pendingLaunchScenePath = scenePath;
     m_playbackState = PlaybackState::Stopped;
     appendConsoleSystemMessage("[build] Building runtime_game...", "console_line_info");
+    refreshViewportPresentation();
     requestHierarchyRefresh();
     return true;
 #endif
@@ -3661,9 +3926,12 @@ bool SceneEditorController::startPreviewPlayer(const std::string& scenePath)
     m_playbackState = PlaybackState::Playing;
     m_runtimePreviewFps = -1;
     m_runtimeStateSequence = 0;
+    m_runtimeDataAssetSyncSequence = 0;
+    m_runtimeDataAssetStateSequence = 0;
     m_runtimeMaterialStateSequence = 0;
     m_lastPlaybackStatusText.clear();
     appendConsoleSystemMessage("[play] runtime_game started.", "console_line_success");
+    refreshViewportPresentation();
     requestHierarchyRefresh();
     return true;
 #endif
@@ -3744,11 +4012,14 @@ void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
     m_playbackState = PlaybackState::Stopped;
     m_runtimePreviewFps = -1;
     m_runtimeStateSequence = 0;
+    m_runtimeDataAssetStateSequence = 0;
     m_runtimeMaterialStateSequence = 0;
     m_lastPlaybackStatusText.clear();
     m_runtimeGameObjectSyncId = -1;
     m_runtimePauseSequence = 0;
+    m_runtimeDataAssetSyncSequence = 0;
     m_runtimeSceneSyncPending = false;
+    m_runtimeSceneStateSequence = 0;
 
     std::error_code errorCode;
     std::filesystem::remove(runtime_preview::frameMetadataPath(), errorCode);
@@ -3765,6 +4036,10 @@ void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
     std::filesystem::remove(runtime_preview::selectionMetadataTempPath(), errorCode);
     std::filesystem::remove(runtime_preview::sceneSyncMetadataPath(), errorCode);
     std::filesystem::remove(runtime_preview::sceneSyncMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::sceneStatePath(), errorCode);
+    std::filesystem::remove(runtime_preview::sceneStateTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::sceneStateMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::sceneStateMetadataTempPath(), errorCode);
     std::filesystem::remove(runtime_preview::objectPatchPath(), errorCode);
     std::filesystem::remove(runtime_preview::objectPatchTempPath(), errorCode);
     std::filesystem::remove(runtime_preview::objectStatePath(), errorCode);
@@ -3777,6 +4052,10 @@ void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
     std::filesystem::remove(runtime_preview::materialMetadataTempPath(), errorCode);
     std::filesystem::remove(runtime_preview::materialStatePath(), errorCode);
     std::filesystem::remove(runtime_preview::materialStateTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::dataAssetMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::dataAssetMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::dataAssetStatePath(), errorCode);
+    std::filesystem::remove(runtime_preview::dataAssetStateTempPath(), errorCode);
 
     if (restoreEditorScene && stoppedKind == ActiveProcessKind::Player && m_scene != nullptr && m_runtimeSceneSnapshot.has_value())
     {
@@ -3790,7 +4069,92 @@ void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
     }
 
     if (stoppedKind == ActiveProcessKind::Player)
+    {
+        applyPendingExternalDataAssetReloads();
         m_runtimeSceneSnapshot.reset();
+    }
+
+    refreshViewportPresentation();
+}
+
+void SceneEditorController::pollDataAssetExternalChanges()
+{
+    if (m_scene == nullptr)
+        return;
+
+    const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(m_scene->getDataAssetPath());
+    if (normalizedPath.empty())
+        return;
+
+    const std::string diskPath = asset::AssetManager::runtimePath(normalizedPath);
+    const std::filesystem::file_time_type currentWriteTime = safeLastWriteTimeLocal(diskPath);
+    if (currentWriteTime == std::filesystem::file_time_type::min())
+        return;
+
+    auto observedIt = m_observedDataAssetWriteTimes.find(normalizedPath);
+    if (observedIt == m_observedDataAssetWriteTimes.end())
+    {
+        m_observedDataAssetWriteTimes[normalizedPath] = currentWriteTime;
+        return;
+    }
+
+    if (observedIt->second == currentWriteTime)
+        return;
+
+    observedIt->second = currentWriteTime;
+    if (m_activeProcessKind == ActiveProcessKind::Player)
+    {
+        m_pendingExternalDataAssetReloadPaths.insert(normalizedPath);
+        return;
+    }
+
+    asset::DataAssetDefinition* definition = nullptr;
+    if (!asset::AssetManager::instance().reloadDataAssetDefinition(normalizedPath, definition))
+    {
+        appendConsoleSystemMessage("[asset] Failed to reload external data asset: " + normalizedPath, "console_line_error");
+        return;
+    }
+
+    InspectorFieldBinding dataAssetBinding;
+    dataAssetBinding.target = InspectorFieldBinding::Target::Scene;
+    dataAssetBinding.nodeId = 0;
+    dataAssetBinding.fieldKey = "dataAsset";
+    refreshDataAssetEditorPresentation(dataAssetBinding);
+}
+
+void SceneEditorController::applyPendingExternalDataAssetReloads()
+{
+    if (m_pendingExternalDataAssetReloadPaths.empty())
+        return;
+
+    bool refreshedCurrentSceneDataAsset = false;
+    const std::string currentSceneDataAsset = m_scene != nullptr
+        ? asset::AssetManager::normalizeRelativePath(m_scene->getDataAssetPath())
+        : std::string();
+
+    for (const std::string& assetPath : m_pendingExternalDataAssetReloadPaths)
+    {
+        asset::DataAssetDefinition* definition = nullptr;
+        if (!asset::AssetManager::instance().reloadDataAssetDefinition(assetPath, definition))
+        {
+            appendConsoleSystemMessage("[asset] Failed to apply deferred data asset reload: " + assetPath, "console_line_error");
+            continue;
+        }
+
+        if (assetPath == currentSceneDataAsset)
+            refreshedCurrentSceneDataAsset = true;
+    }
+
+    m_pendingExternalDataAssetReloadPaths.clear();
+
+    if (!refreshedCurrentSceneDataAsset)
+        return;
+
+    InspectorFieldBinding dataAssetBinding;
+    dataAssetBinding.target = InspectorFieldBinding::Target::Scene;
+    dataAssetBinding.nodeId = 0;
+    dataAssetBinding.fieldKey = "dataAsset";
+    refreshDataAssetEditorPresentation(dataAssetBinding);
 }
 
 void SceneEditorController::syncRuntimePreviewSceneIfNeeded()
@@ -3844,6 +4208,7 @@ void SceneEditorController::pollRuntimePreviewState()
 {
     if (m_activeProcessKind != ActiveProcessKind::Player)
     {
+        m_pendingRuntimeSelectionId.reset();
         m_runtimePreviewFps = -1;
         return;
     }
@@ -3861,8 +4226,61 @@ void SceneEditorController::pollRuntimePreviewState()
 
     m_runtimeStateSequence = nextSequence;
     m_runtimePreviewFps = std::clamp(fps, 0, 60);
-    (void)selectedGameObjectId;
     (void)captureEnabled;
+
+    if (m_scene == nullptr)
+        return;
+
+    if (m_pendingRuntimeSelectionId.has_value())
+    {
+        if (selectedGameObjectId != *m_pendingRuntimeSelectionId)
+            return;
+
+        m_pendingRuntimeSelectionId.reset();
+    }
+
+    const GameObject* selectedGameObject = m_scene->getSelectedGameObject();
+    const int currentSelectedId = selectedGameObject != nullptr ? selectedGameObject->getId() : -1;
+    if (currentSelectedId == selectedGameObjectId)
+        return;
+
+    m_scene->setSelectedGameObjectById(selectedGameObjectId);
+    sync(*m_scene);
+    requestSelectionRefresh();
+}
+
+void SceneEditorController::pollRuntimePreviewSceneState()
+{
+    if (m_activeProcessKind != ActiveProcessKind::Player || m_scene == nullptr)
+        return;
+
+    std::ifstream input(runtime_preview::sceneStateMetadataPath());
+    if (!input)
+        return;
+
+    uint64_t nextSequence = 0;
+    if (!(input >> nextSequence) || nextSequence <= m_runtimeSceneStateSequence)
+        return;
+
+    std::ifstream sceneInput(runtime_preview::sceneStatePath());
+    if (!sceneInput)
+        return;
+
+    scene_serialization::SceneSnapshot snapshot;
+    if (!scene_serialization::detail::loadSnapshotFromStream(sceneInput, snapshot))
+        return;
+
+    const int localSelectedId = m_scene->getSelectedGameObject() != nullptr ? m_scene->getSelectedGameObject()->getId() : -1;
+
+    if (!scene_serialization::mergeSceneSnapshot(*m_scene, snapshot))
+        return;
+
+    if (m_pendingRuntimeSelectionId.has_value())
+        m_scene->setSelectedGameObjectById(localSelectedId);
+
+    clearSceneDirty();
+    sync(*m_scene);
+    m_runtimeSceneStateSequence = nextSequence;
 }
 
 void SceneEditorController::updatePlaybackStatusPresentation()
@@ -4002,6 +4420,7 @@ void SceneEditorController::pollExternalProcess()
             m_playbackState = PlaybackState::Stopped;
         }
 
+        refreshViewportPresentation();
         requestHierarchyRefresh();
         return;
     }
@@ -4012,6 +4431,7 @@ void SceneEditorController::pollExternalProcess()
         appendConsoleSystemMessage(
             succeeded ? "[play] Player exited normally." : "[play] Player exited with an error.",
             succeeded ? "console_line_info" : "console_line_error");
+        refreshViewportPresentation();
         requestHierarchyRefresh();
     }
 #endif
@@ -4084,6 +4504,93 @@ bool SceneEditorController::saveSceneAs()
     m_currentSceneFilePath = *selectedPath;
     clearSceneDirty();
     return true;
+}
+
+bool SceneEditorController::prepareSceneScriptBuildSource()
+{
+    const std::filesystem::path buildRoot = std::filesystem::current_path();
+    const std::filesystem::path generatedSourcePath = buildRoot / "GeneratedSceneScripts.cpp";
+
+    std::error_code errorCode;
+    std::filesystem::create_directories(generatedSourcePath.parent_path(), errorCode);
+    if (errorCode)
+    {
+        appendConsoleSystemMessage("[build] Failed to prepare scene script source directory.", "console_line_error");
+        return false;
+    }
+
+    std::ofstream output(generatedSourcePath, std::ios::trunc);
+    if (!output)
+    {
+        appendConsoleSystemMessage("[build] Failed to write GeneratedSceneScripts.cpp.", "console_line_error");
+        return false;
+    }
+
+    output << "#include \"GameplayEntry.hpp\"\n\n";
+
+    const std::string sceneScriptAssetPath = m_scene != nullptr
+        ? asset::AssetManager::normalizeRelativePath(m_scene->getSceneScriptAssetPath())
+        : std::string();
+
+    if (sceneScriptAssetPath.empty())
+    {
+        output << "namespace gameplay\n{\nvoid registerGeneratedSceneScripts()\n{\n}\n}\n";
+        return static_cast<bool>(output);
+    }
+
+    asset::SceneScriptAssetDefinition* definition = asset::AssetManager::instance().loadSceneScriptAssetDefinition(sceneScriptAssetPath);
+    if (definition == nullptr)
+    {
+        appendConsoleSystemMessage("[build] Failed to load scene script asset: " + sceneScriptAssetPath, "console_line_error");
+        return false;
+    }
+
+    const std::string normalizedAssetPath = normalizeSceneScriptSourcePath(sceneScriptAssetPath);
+    const std::string normalizedSourcePath = normalizeSceneScriptSourcePath(definition->sourcePath);
+    if (normalizedSourcePath.empty())
+    {
+        appendConsoleSystemMessage("[build] Scene script source path is empty: " + sceneScriptAssetPath, "console_line_error");
+        return false;
+    }
+
+    const std::filesystem::path assetDirectory = std::filesystem::path(normalizedAssetPath).parent_path();
+
+    std::filesystem::path resolvedSourcePath;
+    const std::vector<std::filesystem::path> candidates = {
+        buildRoot / normalizedSourcePath,
+        buildRoot / assetDirectory / normalizedSourcePath,
+    };
+
+    for (const std::filesystem::path& candidate : candidates)
+    {
+        std::error_code candidateError;
+        if (std::filesystem::exists(candidate, candidateError) && !candidateError)
+        {
+            resolvedSourcePath = candidate;
+            break;
+        }
+    }
+
+    if (resolvedSourcePath.empty())
+    {
+        appendConsoleSystemMessage(
+            "[build] Scene script source file not found for asset: " + sceneScriptAssetPath + " (source=" + normalizedSourcePath + ")",
+            "console_line_error");
+        return false;
+    }
+
+    output << "#include \"./" << normalizedSourcePath << "\"\n\n";
+    output << "namespace gameplay\n{\n";
+    output << "void registerGeneratedSceneScripts()\n{\n";
+    output << "    static bool registered = false;\n";
+    output << "    if (registered)\n";
+    output << "        return;\n";
+    output << "\n";
+    output << "    registered = true;\n";
+    output << "    registerSceneScript(\"" << escapeCppStringLiteral(sceneScriptAssetPath) << "\", &" << definition->entryName << ");\n";
+    output << "}\n";
+    output << "}\n";
+    return static_cast<bool>(output);
 }
 
 bool SceneEditorController::saveScene()

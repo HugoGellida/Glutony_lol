@@ -92,11 +92,18 @@ GameObject* SceneViewportOverlay::pickGameObject(Scene& scene, GLFWwindow* windo
             continue;
 
         float hitDistance = MAXFLOAT;
-        if (gameObject->getComponent<component::Mesh>() != nullptr)
+        component::Mesh* pickMesh = gameObject->getComponent<component::Mesh>();
+        if (pickMesh == nullptr)
+        {
+            if (component::MeshRenderer* meshRenderer = gameObject->getComponent<component::MeshRenderer>())
+                pickMesh = meshRenderer->getMesh();
+        }
+
+        if (pickMesh != nullptr)
         {
             Raycast::raycastTransformedAABB(
                 gameObject->transform,
-                gameObject->getComponent<component::Mesh>()->getAABB(),
+                pickMesh->getAABB(),
                 ray,
                 &hitDistance);
         }

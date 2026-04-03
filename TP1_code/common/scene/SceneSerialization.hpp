@@ -7,6 +7,8 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace scene_serialization
@@ -26,10 +28,12 @@ struct GameObjectSnapshot
 
 struct SceneSnapshot
 {
-    int version = 1;
+    int version = 2;
     int nextGameObjectId = 1;
     bool physicsSimulationEnabled = false;
     int selectedGameObjectId = -1;
+    std::string sceneScriptAssetPath;
+    std::string dataAssetPath;
     Camera camera;
     std::vector<std::string> meshAssets;
     std::vector<std::string> shaderAssets;
@@ -160,6 +164,8 @@ inline bool saveSnapshotToStream(std::ostream& output, const SceneSnapshot& snap
     output << "NEXT_GAMEOBJECT_ID " << snapshot.nextGameObjectId << '\n';
     output << "PHYSICS " << (snapshot.physicsSimulationEnabled ? 1 : 0) << '\n';
     output << "SELECTED_ID " << snapshot.selectedGameObjectId << '\n';
+    output << "SCENE_SCRIPT_ASSET " << std::quoted(snapshot.sceneScriptAssetPath) << '\n';
+    output << "DATA_ASSET " << std::quoted(snapshot.dataAssetPath) << '\n';
     output << "CAMERA_POSITION ";
     writeVec3(output, snapshot.camera.m_position);
     output << '\n';
@@ -297,7 +303,30 @@ inline bool loadSnapshotFromStream(std::istream& input, SceneSnapshot& snapshot)
     snapshot.physicsSimulationEnabled = (physicsEnabled != 0);
     if (!(input >> token >> snapshot.selectedGameObjectId) || token != "SELECTED_ID")
         return false;
-    if (!(input >> token) || token != "CAMERA_POSITION" || !readVec3(input, snapshot.camera.m_position))
+
+    snapshot.sceneScriptAssetPath.clear();
+    snapshot.dataAssetPath.clear();
+
+    if (!(input >> token))
+        return false;
+
+    if (token == "SCENE_SCRIPT_ASSET")
+    {
+        if (!(input >> std::quoted(snapshot.sceneScriptAssetPath)))
+            return false;
+        if (!(input >> token))
+            return false;
+    }
+
+    if (token == "DATA_ASSET")
+    {
+        if (!(input >> std::quoted(snapshot.dataAssetPath)))
+            return false;
+        if (!(input >> token))
+            return false;
+    }
+
+    if (token != "CAMERA_POSITION" || !readVec3(input, snapshot.camera.m_position))
         return false;
     if (!(input >> token) || token != "CAMERA_ORIENTATION" || !readVec3(input, snapshot.camera.m_orientation))
         return false;
@@ -502,7 +531,55 @@ inline bool applyGameObjectSnapshot(Scene& scene, const GameObjectSnapshot& snap
     gameObject->transform.setRotation(snapshot.rotation);
     gameObject->transform.setScale(snapshot.scale);
 
-    if (!snapshot.meshAssetPath.empty() && !snapshot.materialAssetPath.empty())
+    const bool wantsMeshComponent = !snapshot.meshAssetPath.empty();
+    const bool wantsMeshRenderer = wantsMeshComponent && !snapshot.materialAssetPath.empty();
+
+    for (size_t componentIndex = gameObject->getComponentCount(); componentIndex > 0; --componentIndex)
+    {
+        component::Component* component = gameObject->getComponentAt(componentIndex - 1);
+        if (component == nullptr)
+            continue;
+
+        if (dynamic_cast<component::Mesh*>(component) != nullptr)
+        {
+            if (!wantsMeshComponent)
+                gameObject->removeComponentAt(componentIndex - 1);
+            continue;
+        }
+
+        const component_meta::ComponentDescriptor* descriptor = component->getComponentDescriptor();
+        if (descriptor == nullptr)
+            continue;
+
+        if (descriptor->typeKey == component::MeshRenderer::componentDescriptor().typeKey)
+        {
+            if (!wantsMeshRenderer)
+                gameObject->removeComponentAt(componentIndex - 1);
+            continue;
+        }
+
+        bool foundInSnapshot = false;
+        for (const component_meta::ComponentSnapshot& componentSnapshot : snapshot.components)
+        {
+            if (componentSnapshot.typeKey == descriptor->typeKey)
+            {
+                foundInSnapshot = true;
+                break;
+            }
+        }
+
+        if (!foundInSnapshot)
+            gameObject->removeComponentAt(componentIndex - 1);
+    }
+
+    if (wantsMeshComponent)
+    {
+        component::Mesh* mesh = scene.resolveMeshAsset(snapshot.meshAssetPath);
+        if (mesh != nullptr)
+            gameObject->setSharedComponent(mesh);
+    }
+
+    if (wantsMeshRenderer)
     {
         component::Mesh* mesh = scene.resolveMeshAsset(snapshot.meshAssetPath);
         dataStruct::Material* material = scene.resolveMaterialAsset(snapshot.materialAssetPath);
@@ -561,12 +638,98 @@ inline bool applyGameObjectSnapshot(Scene& scene, const GameObjectSnapshot& snap
     return true;
 }
 
+inline bool mergeSceneSnapshot(Scene& scene, const SceneSnapshot& snapshot)
+{
+    scene.setSceneScriptAssetPath(snapshot.sceneScriptAssetPath);
+    scene.setDataAssetPath(snapshot.dataAssetPath);
+
+    for (const std::string& path : snapshot.shaderAssets)
+        scene.resolveShaderAsset(path);
+    for (const std::string& path : snapshot.meshAssets)
+        scene.resolveMeshAsset(path);
+    for (const std::string& path : snapshot.materialAssets)
+        scene.resolveMaterialAsset(path);
+
+    std::unordered_set<int> snapshotIds;
+    snapshotIds.reserve(snapshot.gameObjects.size());
+    for (const GameObjectSnapshot& gameObjectSnapshot : snapshot.gameObjects)
+        snapshotIds.insert(gameObjectSnapshot.id);
+
+    std::vector<int> idsToRemove;
+    idsToRemove.reserve(scene.getGameObjectCount());
+    for (size_t index = 0; index < scene.getGameObjectCount(); ++index)
+    {
+        const GameObject* gameObject = scene.getGameObject(index);
+        if (gameObject != nullptr && snapshotIds.find(gameObject->getId()) == snapshotIds.end())
+            idsToRemove.push_back(gameObject->getId());
+    }
+
+    for (int id : idsToRemove)
+        scene.removeGameObject(id);
+
+    for (const GameObjectSnapshot& gameObjectSnapshot : snapshot.gameObjects)
+    {
+        if (scene.getGameObjectById(gameObjectSnapshot.id) == nullptr)
+            scene.addGameObject(gameObjectSnapshot.name, gameObjectSnapshot.id);
+    }
+
+    for (const GameObjectSnapshot& gameObjectSnapshot : snapshot.gameObjects)
+    {
+        if (!applyGameObjectSnapshot(scene, gameObjectSnapshot))
+            return false;
+    }
+
+    for (const GameObjectSnapshot& gameObjectSnapshot : snapshot.gameObjects)
+    {
+        GameObject* gameObject = scene.getGameObjectById(gameObjectSnapshot.id);
+        if (gameObject == nullptr)
+            return false;
+
+        GameObject* currentParent = nullptr;
+        if (const Transform* parentTransform = gameObject->transform.getParent())
+            currentParent = parentTransform->getGameObject();
+
+        if (gameObjectSnapshot.parentId < 0)
+        {
+            if (currentParent != nullptr)
+            {
+                currentParent->transform.detachChild(&gameObject->transform);
+                gameObject->transform.removeParent();
+            }
+            continue;
+        }
+
+        GameObject* desiredParent = scene.getGameObjectById(gameObjectSnapshot.parentId);
+        if (desiredParent == nullptr)
+            return false;
+
+        if (currentParent == desiredParent)
+            continue;
+
+        if (currentParent != nullptr)
+        {
+            currentParent->transform.detachChild(&gameObject->transform);
+            gameObject->transform.removeParent();
+        }
+
+        gameObject->setParent(desiredParent);
+    }
+
+    scene.getCamera() = snapshot.camera;
+    scene.setSelectedGameObjectById(snapshot.selectedGameObjectId);
+    scene.setNextGameObjectId(snapshot.nextGameObjectId);
+    scene.setPhysicsSimulationEnabled(snapshot.physicsSimulationEnabled);
+    return true;
+}
+
 inline SceneSnapshot captureScene(const Scene& scene)
 {
     SceneSnapshot snapshot;
     snapshot.nextGameObjectId = scene.getNextGameObjectId();
     snapshot.physicsSimulationEnabled = scene.isPhysicsSimulationEnabled();
     snapshot.selectedGameObjectId = scene.getSelectedGameObject() != nullptr ? scene.getSelectedGameObject()->getId() : -1;
+    snapshot.sceneScriptAssetPath = scene.getSceneScriptAssetPath();
+    snapshot.dataAssetPath = scene.getDataAssetPath();
     snapshot.camera = scene.getCamera();
 
     const asset::SceneAssetRegistry& registry = scene.getSceneAssetRegistry();
@@ -596,6 +759,8 @@ inline bool applySceneSnapshot(Scene& scene, const SceneSnapshot& snapshot)
 {
     scene.setPhysicsSimulationEnabled(false);
     scene.setSelectedGameObject(nullptr);
+    scene.setSceneScriptAssetPath(snapshot.sceneScriptAssetPath);
+    scene.setDataAssetPath(snapshot.dataAssetPath);
     scene.clearGameObjects();
     scene.clearSceneAssetRegistry();
 

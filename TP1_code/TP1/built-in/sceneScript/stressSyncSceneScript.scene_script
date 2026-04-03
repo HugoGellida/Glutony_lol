@@ -1,0 +1,4 @@
+{
+  "source": "built-in/sceneScript/stressSyncSceneScript.cpp",
+  "entry": "sceneMain"
+}

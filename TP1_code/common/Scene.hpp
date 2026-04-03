@@ -44,6 +44,8 @@ private:
     bool m_orbitMode = false;
     bool m_physicsSimulationEnabled = false;
     GameObject* m_selectedGameObject = nullptr;
+    std::string m_sceneScriptAssetPath;
+    std::string m_dataAssetPath;
     glm::vec3 m_orbitPos = glm::vec3(0.0f, 10.0f, -10.0f);
     float m_orbitYangle = 0.0f;
     float m_orbitSpeed = 20.0f;
@@ -499,6 +501,26 @@ public:
         }
 
         m_selectedGameObject = (m_selectedGameObject == gameObject) ? nullptr : gameObject;
+    }
+
+    void setSceneScriptAssetPath(const std::string& assetPath)
+    {
+        m_sceneScriptAssetPath = asset::AssetManager::normalizeRelativePath(assetPath);
+    }
+
+    const std::string& getSceneScriptAssetPath() const
+    {
+        return m_sceneScriptAssetPath;
+    }
+
+    void setDataAssetPath(const std::string& assetPath)
+    {
+        m_dataAssetPath = asset::AssetManager::normalizeRelativePath(assetPath);
+    }
+
+    const std::string& getDataAssetPath() const
+    {
+        return m_dataAssetPath;
     }
 
     void updateCamera(glm::vec3 deltaPos, glm::vec3 deltaEuler)

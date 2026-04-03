@@ -1,6 +1,8 @@
 #pragma once
 
+#include "DataAssetIO.hpp"
 #include "MaterialAssetIO.hpp"
+#include "SceneScriptAssetIO.hpp"
 #include "common/FileLoader.hpp"
 #include "common/gameobject/component/Mesh.hpp"
 #include "common/shader/LitMaterial.hpp"
@@ -22,6 +24,8 @@ enum class AssetType
     Mesh,
     Shader,
     Material,
+    Data,
+    SceneScript,
 };
 
 struct AssetTypeHash
@@ -69,6 +73,8 @@ private:
     std::unordered_map<std::string, component::Mesh*> m_meshAssets;
     std::unordered_map<std::string, std::unique_ptr<Shader>> m_shaderAssets;
     std::unordered_map<std::string, std::unique_ptr<dataStruct::Material>> m_materialAssets;
+    std::unordered_map<std::string, DataAssetDefinition> m_dataAssets;
+    std::unordered_map<std::string, SceneScriptAssetDefinition> m_sceneScriptAssets;
     std::unordered_map<std::string, std::string> m_materialShaderPaths;
     std::unordered_set<std::string> m_pendingChangedShaderPaths;
     std::unordered_map<AssetType, std::vector<std::string>, AssetTypeHash> m_assetPaths;
@@ -255,6 +261,116 @@ public:
         dataStruct::Material* materialPtr = material.get();
         m_materialAssets[normalizedPath] = std::move(material);
         return materialPtr;
+    }
+
+    DataAssetDefinition* loadDataAssetDefinition(const std::string& relativePath)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".data"))
+        {
+            std::cerr << "Data asset must use .data extension: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        registerGlobalAsset(AssetType::Data, normalizedPath);
+
+        const auto it = m_dataAssets.find(normalizedPath);
+        if (it != m_dataAssets.end())
+            return &it->second;
+
+        DataAssetDefinition definition;
+        if (!DataAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            std::cerr << "Failed to load data asset: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        auto inserted = m_dataAssets.emplace(normalizedPath, std::move(definition));
+        return &inserted.first->second;
+    }
+
+    bool reloadDataAssetDefinition(const std::string& relativePath, DataAssetDefinition*& definitionOut)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".data"))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        registerGlobalAsset(AssetType::Data, normalizedPath);
+
+        DataAssetDefinition definition;
+        if (!DataAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        auto it = m_dataAssets.find(normalizedPath);
+        if (it == m_dataAssets.end())
+            it = m_dataAssets.emplace(normalizedPath, std::move(definition)).first;
+        else
+            it->second = std::move(definition);
+
+        definitionOut = &it->second;
+        return true;
+    }
+
+    SceneScriptAssetDefinition* loadSceneScriptAssetDefinition(const std::string& relativePath)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".scene_script"))
+        {
+            std::cerr << "SceneScript asset must use .scene_script extension: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        registerGlobalAsset(AssetType::SceneScript, normalizedPath);
+
+        const auto it = m_sceneScriptAssets.find(normalizedPath);
+        if (it != m_sceneScriptAssets.end())
+            return &it->second;
+
+        SceneScriptAssetDefinition definition;
+        if (!SceneScriptAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            std::cerr << "Failed to load scene script asset: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        definition.sourcePath = normalizeRelativePath(definition.sourcePath);
+        auto inserted = m_sceneScriptAssets.emplace(normalizedPath, std::move(definition));
+        return &inserted.first->second;
+    }
+
+    bool reloadSceneScriptAssetDefinition(const std::string& relativePath, SceneScriptAssetDefinition*& definitionOut)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".scene_script"))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        registerGlobalAsset(AssetType::SceneScript, normalizedPath);
+
+        SceneScriptAssetDefinition definition;
+        if (!SceneScriptAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        definition.sourcePath = normalizeRelativePath(definition.sourcePath);
+        auto it = m_sceneScriptAssets.find(normalizedPath);
+        if (it == m_sceneScriptAssets.end())
+            it = m_sceneScriptAssets.emplace(normalizedPath, std::move(definition)).first;
+        else
+            it->second = std::move(definition);
+
+        definitionOut = &it->second;
+        return true;
     }
 
     bool reloadMaterial(const std::string& relativePath, dataStruct::Material*& materialOut)

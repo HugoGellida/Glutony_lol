@@ -1,0 +1,56 @@
+{
+  "rootName": "stress_sync",
+  "children": [
+    {
+      "name": "enable_physics",
+      "type": "bool",
+      "value": true
+    },
+    {
+      "name": "spawn_count",
+      "type": "int",
+      "value": 4
+    },
+    {
+      "name": "spawn_spacing",
+      "type": "float",
+      "value": 2.250
+    },
+    {
+      "name": "base_position",
+      "type": "vec3",
+      "value": [0.000, 1.250, 0.000]
+    },
+    {
+      "name": "label",
+      "type": "string",
+      "value": "preview stress test"
+    },
+    {
+      "name": "runtime",
+      "type": "group",
+      "children": [
+        {
+          "name": "last_run",
+          "type": "string",
+          "value": "never"
+        },
+        {
+          "name": "spawned_objects",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "root_name",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "root_position",
+          "type": "vec3",
+          "value": [0.000, 0.000, 0.000]
+        }
+      ]
+    }
+  ]
+}

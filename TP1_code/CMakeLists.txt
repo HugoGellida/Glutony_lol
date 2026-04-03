@@ -142,6 +142,11 @@ option(ENABLE_LSAN "Enable LeakSanitizer (LSan) for TP1" OFF)
 option(GLUTONY_BUILD_GAMEPLAY "Build gameplay root sources" ON)
 
 set(GLUTONY_GAMEPLAY_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/gameplay/sources.cmake" CACHE FILEPATH "Gameplay manifest listing root cpp sources")
+set(GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/GeneratedSceneScripts.cpp")
+
+if(NOT EXISTS "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}")
+    file(WRITE "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}" "#include \"GameplayEntry.hpp\"\n\nnamespace gameplay\n{\nvoid registerGeneratedSceneScripts()\n{\n}\n}\n")
+endif()
 
 set(GLUTONY_APP_COMMON_SOURCES
     common/app/RuntimeWindow.cpp
@@ -163,6 +168,7 @@ set(GLUTONY_EDITOR_SUPPORT_SOURCES
     common/ui/EditorUiDocuments.cpp
     common/ui/EditorUiPreviewDocument.cpp
     common/ui/SceneEditorController.cpp
+    common/ui/SceneEditorDataAssetEditor.cpp
     common/ui/SceneEditorMaterialAssetEditor.cpp
     common/ui/SceneViewportOverlay.cpp
     common/ui/UIRenderer.cpp
@@ -239,13 +245,14 @@ target_link_libraries(editor_support
         RmlUi::RmlUi
 )
 
-add_library(gameplay_sources STATIC
+add_library(gameplay_sources STATIC EXCLUDE_FROM_ALL
     ${GLUTONY_GAMEPLAY_ROOT_SOURCES}
 )
 
 target_include_directories(gameplay_sources
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/gameplay
 )
 
 target_link_libraries(gameplay_sources
@@ -261,70 +268,44 @@ if(NOT BUILD_SHARED_LIBS)
     target_compile_definitions(editor_support PRIVATE RMLUI_STATIC_LIB)
 endif()
 
-function(glutony_configure_runtime_assets target_name)
+function(glutony_configure_runtime_assets target_name runtime_working_directory)
     set_target_properties(${target_name} PROPERTIES
-        VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
-        XCODE_ATTRIBUTE_CONFIGURATION_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
+        VS_DEBUGGER_WORKING_DIRECTORY "${runtime_working_directory}"
+        XCODE_ATTRIBUTE_CONFIGURATION_BUILD_DIR "${runtime_working_directory}"
     )
 
-    if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
+    if(target_name STREQUAL "TP1" AND NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
         add_custom_command(
             TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy
                     "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/$<TARGET_FILE_NAME:${target_name}>"
                     "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
         )
-
-        add_custom_command(
-            TARGET ${target_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/img"
-                    "${CMAKE_CURRENT_BINARY_DIR}/img"
-        )
-
-        add_custom_command(
-            TARGET ${target_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/vertex_shader.glsl"
-                    "${CMAKE_CURRENT_BINARY_DIR}/vertex_shader.glsl"
-        )
-
-        add_custom_command(
-            TARGET ${target_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/fragment_shader.glsl"
-                    "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
-        )
-
-        add_custom_command(
-            TARGET ${target_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory
-                "${CMAKE_CURRENT_BINARY_DIR}/Assets"
-        )
-
-        add_custom_command(
-            TARGET ${target_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in"
-                "${CMAKE_CURRENT_BINARY_DIR}/built-in"
-        )
-
-        add_custom_command(
-            TARGET ${target_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E rm -f
-                "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/lit_default.material.json"
-                "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/selection_highlight.material.json"
-        )
-
-        # A activer plus tard quand tu auras créé un dossier TP1/ui
-        # add_custom_command(
-        #     TARGET ${target_name} POST_BUILD
-        #     COMMAND ${CMAKE_COMMAND} -E copy_directory
-        #             "${CMAKE_CURRENT_SOURCE_DIR}/TP1/ui"
-        #             "${CMAKE_CURRENT_BINARY_DIR}/ui"
-        # )
     endif()
 endfunction()
+
+if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
+    add_custom_target(glutony_sync_editor_runtime_assets ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/img"
+                "${CMAKE_CURRENT_BINARY_DIR}/img"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/vertex_shader.glsl"
+                "${CMAKE_CURRENT_BINARY_DIR}/vertex_shader.glsl"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/fragment_shader.glsl"
+                "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "${CMAKE_CURRENT_BINARY_DIR}/Assets"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in"
+                "${CMAKE_CURRENT_BINARY_DIR}/built-in"
+        COMMAND ${CMAKE_COMMAND} -E rm -f
+                "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/lit_default.material.json"
+                "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/selection_highlight.material.json"
+        COMMENT "Synchronizing editor runtime assets into the build directory"
+    )
+endif()
 
 # TP1
 add_executable(TP1
@@ -333,7 +314,7 @@ add_executable(TP1
     TP1/fragment_shader.glsl
 )
 
-add_executable(runtime_game
+add_executable(runtime_game EXCLUDE_FROM_ALL
     TP1/player_main.cpp
     TP1/vertex_shader.glsl
     TP1/fragment_shader.glsl
@@ -348,7 +329,7 @@ if(ENABLE_LSAN)
     endif()
 endif()
 
-target_link_libraries(TP1 PRIVATE app_common editor_support gameplay_sources)
+target_link_libraries(TP1 PRIVATE app_common editor_support)
 target_link_libraries(runtime_game PRIVATE app_common engine_core gameplay_sources)
 
 if(WIN32)
@@ -361,8 +342,12 @@ if(NOT BUILD_SHARED_LIBS)
     target_compile_definitions(TP1 PRIVATE RMLUI_STATIC_LIB)
 endif()
 
-glutony_configure_runtime_assets(TP1)
-glutony_configure_runtime_assets(runtime_game)
+if(TARGET glutony_sync_editor_runtime_assets)
+    add_dependencies(TP1 glutony_sync_editor_runtime_assets)
+endif()
+
+glutony_configure_runtime_assets(TP1 "${CMAKE_CURRENT_SOURCE_DIR}/TP1/")
+glutony_configure_runtime_assets(runtime_game "${CMAKE_CURRENT_BINARY_DIR}")
 
 SOURCE_GROUP(common REGULAR_EXPRESSION ".*/common/.*")
 SOURCE_GROUP(shaders REGULAR_EXPRESSION ".*/.*shader$")

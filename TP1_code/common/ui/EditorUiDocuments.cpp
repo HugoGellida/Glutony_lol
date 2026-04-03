@@ -1016,11 +1016,11 @@ const char* kEditorLayoutDocument = R"RML(
             position: absolute;
             top: 0px;
             bottom: 0px;
-            height: 100%;
             display: flex;
             flex-direction: column;
             min-width: 0px;
             min-height: 0px;
+            box-sizing: border-box;
             overflow: hidden;
         }
 
@@ -1057,7 +1057,8 @@ const char* kEditorLayoutDocument = R"RML(
         }
 
         .asset_browser_section_body {
-            flex: 1;
+            flex: 1 1 auto;
+            height: 0px;
             min-height: 0px;
             padding: 10px;
             overflow-x: hidden;

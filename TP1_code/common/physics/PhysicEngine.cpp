@@ -75,8 +75,8 @@ void PhysicsSystem::StepSimulation(float dt)
         if (!body.isValid())
             continue;
 
-        body.transform->setPosition(body.rb->m_position);
-        body.transform->setOrientation(body.rb->m_orientation);
+        body.transform->setWorldPosition(body.rb->m_position);
+        body.transform->setWorldOrientation(body.rb->m_orientation);
 
         BroadPhaseEntry entry;
         entry.body = body;
@@ -118,10 +118,10 @@ void PhysicsSystem::StepSimulation(float dt)
             if (!bodyA.isValid() || !bodyB.isValid())
                 continue;
 
-            bodyA.transform->setPosition(bodyA.rb->m_position);
-            bodyB.transform->setPosition(bodyB.rb->m_position);
-            bodyA.transform->setOrientation(bodyA.rb->m_orientation);
-            bodyB.transform->setOrientation(bodyB.rb->m_orientation);
+            bodyA.transform->setWorldPosition(bodyA.rb->m_position);
+            bodyB.transform->setWorldPosition(bodyB.rb->m_position);
+            bodyA.transform->setWorldOrientation(bodyA.rb->m_orientation);
+            bodyB.transform->setWorldOrientation(bodyB.rb->m_orientation);
 
             physics::CollisionManifold manifold = physics::CollisionDispatcher::Test(
                 *bodyA.collider, *bodyA.transform,
@@ -136,10 +136,10 @@ void PhysicsSystem::StepSimulation(float dt)
             ApplyPositionConstraints(bodyA.rb);
             ApplyPositionConstraints(bodyB.rb);
 
-            bodyA.transform->setPosition(bodyA.rb->m_position);
-            bodyB.transform->setPosition(bodyB.rb->m_position);
-            bodyA.transform->setOrientation(bodyA.rb->m_orientation);
-            bodyB.transform->setOrientation(bodyB.rb->m_orientation);
+            bodyA.transform->setWorldPosition(bodyA.rb->m_position);
+            bodyB.transform->setWorldPosition(bodyB.rb->m_position);
+            bodyA.transform->setWorldOrientation(bodyA.rb->m_orientation);
+            bodyB.transform->setWorldOrientation(bodyB.rb->m_orientation);
         }
     }
 }
@@ -197,8 +197,8 @@ void PhysicsSystem::ApplySleepThresholds(physics::RigidBody & rb)
 
 void PhysicsSystem::SyncTransformFromRigidbody(PhysicBody & body)
 {
-    body.transform->setPosition(body.rb->m_position);
-    body.transform->setOrientation(body.rb->m_orientation);
+    body.transform->setWorldPosition(body.rb->m_position);
+    body.transform->setWorldOrientation(body.rb->m_orientation);
 }
 
 bool PhysicsSystem::CanBodiesCollide(const PhysicBody & a, const PhysicBody & b) const

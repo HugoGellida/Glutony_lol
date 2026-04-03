@@ -10,7 +10,7 @@ namespace component
     class Mesh : public Component
     {
     private:
-        void updateAABB()
+        void updateAABB() const
         {
             physics::AABB res = physics::AABB();
             res.min = glm::vec3(MAXFLOAT, MAXFLOAT, MAXFLOAT);
@@ -25,6 +25,15 @@ namespace component
                 }
             
             m_AABB = res;
+            m_boundsDirty = false;
+        }
+
+        void ensureBoundsUpToDate() const
+        {
+            if (!m_boundsDirty)
+                return;
+
+            updateAABB();
         }
 
 
@@ -40,7 +49,8 @@ namespace component
         bool m_hasColors = false;
         bool m_hasUVs = false;
         bool m_onGPU = false;
-        physics::AABB m_AABB = physics::AABB();
+        mutable physics::AABB m_AABB = physics::AABB();
+        mutable bool m_boundsDirty = true;
         std::string m_assetPath;
     public:
         Mesh() : Component() {}
@@ -85,6 +95,7 @@ namespace component
                 m_uvs[i * 2 + 1] = uv.y;
             }
             m_onGPU = false;
+            m_boundsDirty = true;
         }
         void setTriangle(uint start, uint t1, uint t2, uint t3)
         {
@@ -152,6 +163,7 @@ namespace component
             delete[] vTri;
             m_hasNormals = true;
             m_onGPU = false;
+            m_boundsDirty = true;
         }
 
         void computeSphericalUVs()
@@ -174,12 +186,13 @@ namespace component
 
             m_hasUVs = true;
             m_onGPU = false;
+            m_boundsDirty = true;
         }
 
         void run() override
         {
-            if (m_onGPU == false) // mean that mesh as changed this frame, so recompute AABB just in case.
-                updateAABB();
+            if (!m_onGPU || m_boundsDirty)
+                ensureBoundsUpToDate();
         }
 
 
@@ -240,6 +253,7 @@ namespace component
 
         physics::AABB getAABB() const
         {
+            ensureBoundsUpToDate();
             return m_AABB;
         }
 
