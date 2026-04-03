@@ -77,6 +77,13 @@ private:
         return asset::AssetManager::instance().loadMaterial(normalizedPath);
     }
 
+    void refreshMaterialsForChangedShaders()
+    {
+        const std::vector<std::string> materialPaths = asset::AssetManager::instance().collectMaterialsNeedingShaderRefresh();
+        for (const std::string& materialPath : materialPaths)
+            refreshMaterialAsset(materialPath);
+    }
+
     component::Mesh* useProceduralPlaneAsset()
     {
         const std::string assetPath = proceduralPlaneAssetPath();
@@ -259,6 +266,8 @@ public:
         double mouseAnchorX = 0.0,
         double mouseAnchorY = 0.0)
     {
+        refreshMaterialsForChangedShaders();
+
         if (m_physicsSimulationEnabled)
             PhysicEngine::getInstance()->Step(deltaTime);
 
@@ -534,6 +543,40 @@ public:
     dataStruct::Material* resolveMaterialAsset(const std::string& relativePath)
     {
         return useMaterialAsset(relativePath);
+    }
+
+    bool refreshMaterialAsset(const std::string& relativePath)
+    {
+        const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(relativePath);
+        if (normalizedPath.empty())
+            return false;
+
+        dataStruct::Material* material = nullptr;
+        if (!asset::AssetManager::instance().reloadMaterial(normalizedPath, material) || material == nullptr)
+            return false;
+
+        if (normalizedPath == asset::AssetManager::normalizeRelativePath("built-in/materials/lit_default.mat"))
+            m_materials = material;
+        if (normalizedPath == asset::AssetManager::normalizeRelativePath("built-in/materials/selection_highlight.mat"))
+            m_selectionHighlightMaterial = dynamic_cast<dataStruct::UnlitMaterial*>(material);
+
+        for (size_t index = 0; index < m_gameObjectCount; ++index)
+        {
+            GameObject* gameObject = m_gameObjects[index];
+            if (gameObject == nullptr)
+                continue;
+
+            MeshRenderer* meshRenderer = gameObject->getComponent<MeshRenderer>();
+            if (meshRenderer == nullptr)
+                continue;
+
+            if (asset::AssetManager::normalizeRelativePath(meshRenderer->getMaterialAssetPath()) != normalizedPath)
+                continue;
+
+            meshRenderer->setMaterial(material);
+        }
+
+        return true;
     }
 
     void clearGameObjects()

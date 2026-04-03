@@ -163,6 +163,7 @@ set(GLUTONY_EDITOR_SUPPORT_SOURCES
     common/ui/EditorUiDocuments.cpp
     common/ui/EditorUiPreviewDocument.cpp
     common/ui/SceneEditorController.cpp
+    common/ui/SceneEditorMaterialAssetEditor.cpp
     common/ui/SceneViewportOverlay.cpp
     common/ui/UIRenderer.cpp
     common/ui/UiBuilderController.cpp

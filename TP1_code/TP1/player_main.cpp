@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <sstream>
 #include <string>
@@ -42,6 +43,7 @@ uint64_t g_objectPatchSequence = 0;
 uint64_t g_objectStateSequence = 0;
 uint64_t g_sceneSyncSequence = 0;
 uint64_t g_stateSequence = 0;
+uint64_t g_materialSequence = 0;
 bool g_remoteInputCapture = false;
 bool g_previewPaused = false;
 int g_lastPublishedSelectedGameObjectId = -2;
@@ -466,6 +468,33 @@ void pollPreviewSceneSyncRequests()
     }
 }
 
+void pollPreviewMaterialRequests()
+{
+    if (!g_publishPreviewFrames || g_scene == nullptr)
+        return;
+
+    std::ifstream materialStream(runtime_preview::materialMetadataPath());
+    if (!materialStream)
+        return;
+
+    uint64_t nextSequence = 0;
+    if (!(materialStream >> nextSequence) || nextSequence <= g_materialSequence)
+        return;
+
+    materialStream.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    std::string materialAssetPath;
+    if (!std::getline(materialStream, materialAssetPath) || materialAssetPath.empty())
+        return;
+
+    if (!g_scene->refreshMaterialAsset(materialAssetPath))
+    {
+        std::cerr << "\033[31m[player] Failed to refresh material asset: " << materialAssetPath << "\033[0m" << std::endl;
+        return;
+    }
+
+    g_materialSequence = nextSequence;
+}
+
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
     (void)window;
@@ -571,6 +600,7 @@ int main(int argc, char** argv)
         glfwPollEvents();
         pollPreviewResizeRequests();
         pollPreviewSceneSyncRequests();
+        pollPreviewMaterialRequests();
         pollPreviewPauseRequests();
         pollPreviewObjectPatchRequests();
         pollPreviewSelectionRequests();

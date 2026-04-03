@@ -150,6 +150,12 @@ private:
         size_t componentIndex = 0;
     };
 
+    struct MaterialAssetEditorBinding
+    {
+        InspectorFieldBinding parentField;
+        std::string propertyKey;
+    };
+
     void attachListeners();
     void detachListeners();
     void applyLayout();
@@ -204,6 +210,12 @@ private:
     static std::optional<InspectorFieldBinding> parseInspectorFieldElementId(const Rml::String& elementId);
     static std::string makeInspectorGroupElementId(int nodeId, size_t componentIndex);
     static std::optional<InspectorGroupBinding> parseInspectorGroupElementId(const Rml::String& elementId);
+    static std::string makeMaterialAssetEditorGroupElementId(int nodeId, size_t componentIndex, const std::string& fieldKey);
+    static std::string makeMaterialAssetEditorIconElementId(int nodeId, size_t componentIndex, const std::string& fieldKey);
+    static std::string makeMaterialAssetEditorBodyElementId(int nodeId, size_t componentIndex, const std::string& fieldKey);
+    static std::string makeMaterialAssetEditorFieldElementId(int nodeId, size_t componentIndex, const std::string& fieldKey, const std::string& propertyKey);
+    static std::optional<InspectorFieldBinding> parseMaterialAssetEditorGroupElementId(const Rml::String& elementId);
+    static std::optional<MaterialAssetEditorBinding> parseMaterialAssetEditorFieldElementId(const Rml::String& elementId);
     UiGOHierarchyNode* findHierarchyNodeById(int nodeId);
     const UiGOHierarchyNode* findHierarchyNodeById(int nodeId) const;
     UiGOHierarchyNode* findHierarchyNodeByGameObject(const GameObject* gameObject);
@@ -218,11 +230,18 @@ private:
     bool isAssetDirectoryExpanded(const AssetBrowserDirectoryNode& node) const;
     bool shouldRefreshInspectorPresentation() const;
     const component_meta::ComponentFieldDescriptor* findInspectorFieldDescriptor(const InspectorFieldBinding& binding) const;
+    bool isMaterialAssetInspectorField(const InspectorFieldBinding& binding) const;
     bool applyInspectorFieldValue(const InspectorFieldBinding& binding, const std::string& value);
+    bool applyMaterialAssetEditorFieldValue(const MaterialAssetEditorBinding& binding, const std::string& value);
     bool canDropDraggedAssetOnInspectorField(const InspectorFieldBinding& binding) const;
     bool applyDraggedAssetToInspectorField(const InspectorFieldBinding& binding);
     void toggleInspectorGroup(const std::string& groupId);
     bool isInspectorGroupCollapsed(const std::string& groupId) const;
+    void toggleMaterialAssetEditor(const InspectorFieldBinding& binding);
+    bool isMaterialAssetEditorCollapsed(const InspectorFieldBinding& binding) const;
+    std::string buildMaterialAssetEditorMarkup(const InspectorFieldBinding& binding, const std::string& assetPath) const;
+    std::string buildMaterialAssetEditorBodyMarkup(const InspectorFieldBinding& binding, const std::string& assetPath) const;
+    void refreshMaterialAssetEditorPresentation(const InspectorFieldBinding& binding);
     void markSceneDirty(bool requestFullRuntimeSync = true);
     void queueRuntimeGameObjectSync(int nodeId);
     void clearSceneDirty();
@@ -329,10 +348,12 @@ private:
     int m_runtimeGameObjectSyncId = -1;
     uint64_t m_runtimePauseSequence = 0;
     uint64_t m_runtimeGameObjectSyncSequence = 0;
+    uint64_t m_runtimeMaterialSyncSequence = 0;
     uint64_t m_runtimeSceneSyncSequence = 0;
     uint64_t m_runtimeStateSequence = 0;
     bool m_runtimeSceneSyncPending = false;
     bool m_consoleRefreshPending = false;
     int m_runtimePreviewFps = -1;
     std::string m_lastPlaybackStatusText;
+    std::unordered_set<std::string> m_collapsedMaterialAssetEditors;
 };

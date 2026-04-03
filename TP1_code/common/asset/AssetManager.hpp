@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace asset
@@ -68,9 +69,65 @@ private:
     std::unordered_map<std::string, component::Mesh*> m_meshAssets;
     std::unordered_map<std::string, std::unique_ptr<Shader>> m_shaderAssets;
     std::unordered_map<std::string, std::unique_ptr<dataStruct::Material>> m_materialAssets;
+    std::unordered_map<std::string, std::string> m_materialShaderPaths;
+    std::unordered_set<std::string> m_pendingChangedShaderPaths;
     std::unordered_map<AssetType, std::vector<std::string>, AssetTypeHash> m_assetPaths;
 
     AssetManager() = default;
+
+    std::unique_ptr<dataStruct::Material> createMaterialAsset(const std::string& normalizedPath)
+    {
+        MaterialAssetDefinition definition;
+        if (!MaterialAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            std::cerr << "Failed to load material asset: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        m_materialShaderPaths[normalizedPath] = normalizeRelativePath(definition.shaderPath);
+
+        Shader* shader = loadShader(definition.shaderPath);
+        if (shader == nullptr)
+            return nullptr;
+
+        std::unique_ptr<dataStruct::Material> material;
+        if (definition.kind == MaterialAssetKind::Unlit)
+        {
+            std::unique_ptr<dataStruct::UnlitMaterial> unlit = std::make_unique<dataStruct::UnlitMaterial>(shader);
+            material = std::move(unlit);
+        }
+        else
+        {
+            std::unique_ptr<dataStruct::LitMaterial> lit = std::make_unique<dataStruct::LitMaterial>(shader);
+            material = std::move(lit);
+        }
+
+        for (const MaterialUniformDefinition& uniform : definition.uniforms)
+        {
+            switch (uniform.kind)
+            {
+            case MaterialUniformKind::Bool:
+                material->addBoolUniform(uniform.name, uniform.boolValue);
+                break;
+            case MaterialUniformKind::Int:
+                material->addIntUniform(uniform.name, uniform.intValue);
+                break;
+            case MaterialUniformKind::Float:
+                material->addFloatUniform(uniform.name, uniform.floatValue);
+                break;
+            case MaterialUniformKind::Vec3:
+                material->addVec3Uniform(uniform.name, uniform.vec3Value);
+                break;
+            case MaterialUniformKind::Texture:
+                if (!uniform.textureAssetPath.empty())
+                    material->addTexture(uniform.name, runtimePath(uniform.textureAssetPath));
+                break;
+            }
+        }
+
+        material->setAssetPath(normalizedPath);
+        return material;
+    }
 
     void registerGlobalAsset(AssetType type, const std::string& relativePath)
     {
@@ -158,13 +215,17 @@ public:
 
         const auto it = m_shaderAssets.find(normalizedPath);
         if (it != m_shaderAssets.end())
+        {
+            if (it->second->refreshIfSourcesChanged())
+                m_pendingChangedShaderPaths.insert(normalizedPath);
             return it->second.get();
+        }
 
         const std::string vertexPath = runtimePath(normalizedPath + "/vertex.glsl");
         const std::string fragmentPath = runtimePath(normalizedPath + "/fragment.glsl");
 
         std::unique_ptr<Shader> shader = std::make_unique<Shader>(vertexPath, fragmentPath);
-    shader->setAssetPath(normalizedPath);
+        shader->setAssetPath(normalizedPath);
         Shader* shaderPtr = shader.get();
         m_shaderAssets[normalizedPath] = std::move(shader);
         return shaderPtr;
@@ -185,35 +246,76 @@ public:
         if (it != m_materialAssets.end())
             return it->second.get();
 
-        MaterialAssetDefinition definition;
-        if (!MaterialAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
-        {
-            std::cerr << "Failed to load material asset: " << normalizedPath << std::endl;
+        std::unique_ptr<dataStruct::Material> material = createMaterialAsset(normalizedPath);
+        if (material == nullptr)
             return nullptr;
-        }
-
-        Shader* shader = loadShader(definition.shaderPath);
-        if (shader == nullptr)
-            return nullptr;
-
-        std::unique_ptr<dataStruct::Material> material;
-        if (definition.kind == MaterialAssetKind::Unlit)
-        {
-            std::unique_ptr<dataStruct::UnlitMaterial> unlit = std::make_unique<dataStruct::UnlitMaterial>(shader);
-            unlit->setMainColor(definition.mainColor);
-            material = std::move(unlit);
-        }
-        else
-        {
-            std::unique_ptr<dataStruct::LitMaterial> lit = std::make_unique<dataStruct::LitMaterial>(shader);
-            lit->setMainColor(definition.mainColor);
-            material = std::move(lit);
-        }
 
         dataStruct::Material* materialPtr = material.get();
-        materialPtr->setAssetPath(normalizedPath);
         m_materialAssets[normalizedPath] = std::move(material);
         return materialPtr;
+    }
+
+    bool reloadMaterial(const std::string& relativePath, dataStruct::Material*& materialOut)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".mat"))
+        {
+            materialOut = nullptr;
+            return false;
+        }
+
+        registerGlobalAsset(AssetType::Material, normalizedPath);
+
+        std::unique_ptr<dataStruct::Material> previousMaterial;
+        const auto existing = m_materialAssets.find(normalizedPath);
+        if (existing != m_materialAssets.end())
+        {
+            previousMaterial = std::move(existing->second);
+            m_materialAssets.erase(existing);
+        }
+
+        std::unique_ptr<dataStruct::Material> reloadedMaterial = createMaterialAsset(normalizedPath);
+        if (reloadedMaterial == nullptr)
+        {
+            materialOut = nullptr;
+            if (previousMaterial != nullptr)
+            {
+                materialOut = previousMaterial.get();
+                m_materialAssets[normalizedPath] = std::move(previousMaterial);
+            }
+            return false;
+        }
+
+        materialOut = reloadedMaterial.get();
+        m_materialAssets[normalizedPath] = std::move(reloadedMaterial);
+        return true;
+    }
+
+    std::vector<std::string> collectMaterialsNeedingShaderRefresh()
+    {
+        std::unordered_set<std::string> changedShaderPaths = std::move(m_pendingChangedShaderPaths);
+        m_pendingChangedShaderPaths.clear();
+
+        for (auto& entry : m_shaderAssets)
+        {
+            if (entry.second != nullptr && entry.second->refreshIfSourcesChanged())
+                changedShaderPaths.insert(entry.first);
+        }
+
+        if (changedShaderPaths.empty())
+            return {};
+
+        std::vector<std::string> materialPaths;
+        for (const auto& entry : m_materialShaderPaths)
+        {
+            if (changedShaderPaths.count(entry.second) == 0)
+                continue;
+            if (m_materialAssets.find(entry.first) == m_materialAssets.end())
+                continue;
+            materialPaths.push_back(entry.first);
+        }
+
+        return materialPaths;
     }
 
     const std::vector<std::string>& getAssets(AssetType type) const

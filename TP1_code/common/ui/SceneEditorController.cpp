@@ -327,6 +327,7 @@ bool writeRuntimePreviewGameObjectFile(
     return true;
 }
 
+
 #ifndef _WIN32
 bool spawnShellProcess(const std::string& workingDirectory, const std::string& command, int& pid, int& outputFd)
 {
@@ -760,8 +761,45 @@ const char* assetBrowserRootClass(SceneEditorController::AssetBrowserRootKind ro
     return rootKind == SceneEditorController::AssetBrowserRootKind::Assets ? "user" : "builtin";
 }
 
+bool isShaderAssetDirectory(const std::filesystem::path& path)
+{
+    std::error_code errorCode;
+    if (!std::filesystem::exists(path, errorCode) || !std::filesystem::is_directory(path, errorCode))
+        return false;
+
+    bool hasVertexShader = false;
+    bool hasFragmentShader = false;
+    int regularFileCount = 0;
+
+    for (std::filesystem::directory_iterator iterator(path, errorCode); !errorCode && iterator != std::filesystem::directory_iterator(); iterator.increment(errorCode))
+    {
+        const std::filesystem::directory_entry& entry = *iterator;
+        if (entry.is_directory(errorCode))
+            return false;
+        if (!entry.is_regular_file(errorCode))
+            return false;
+
+        ++regularFileCount;
+        const std::string fileName = entry.path().filename().string();
+        if (fileName == "vertex.glsl")
+            hasVertexShader = true;
+        else if (fileName == "fragment.glsl")
+            hasFragmentShader = true;
+        else
+            return false;
+    }
+
+    if (errorCode)
+        return false;
+
+    return regularFileCount == 2 && hasVertexShader && hasFragmentShader;
+}
+
 SceneEditorController::AssetBrowserFileKind classifyAssetBrowserFileKind(const std::filesystem::path& path)
 {
+    if (isShaderAssetDirectory(path))
+        return SceneEditorController::AssetBrowserFileKind::Shader;
+
     const std::string extension = path.extension().string();
     if (extension == ".mat")
         return SceneEditorController::AssetBrowserFileKind::Material;
@@ -1137,6 +1175,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String inspectorFieldElementId = ::findAncestorElementId(
         targetElement,
         [&](const Rml::String& candidateId) { return parseInspectorFieldElementId(candidateId).has_value(); });
+    const Rml::String materialAssetGroupElementId = ::findAncestorElementId(
+        targetElement,
+        [&](const Rml::String& candidateId) { return parseMaterialAssetEditorGroupElementId(candidateId).has_value(); });
     const Rml::String addGameObjectElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_hierarchy_add"; });
@@ -1203,6 +1244,28 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Change || eventId == Rml::EventId::Blur)
     {
+        const std::optional<MaterialAssetEditorBinding> materialAssetField = parseMaterialAssetEditorFieldElementId(elementId);
+        if (materialAssetField.has_value())
+        {
+            const Rml::ElementFormControl* formControl = dynamic_cast<const Rml::ElementFormControl*>(targetElement);
+            if (formControl == nullptr)
+                return;
+
+            const std::string tagName = targetElement->GetTagName();
+            if (eventId == Rml::EventId::Change && tagName == "input")
+            {
+                const std::string inputType = targetElement->GetAttribute<Rml::String>("type", "text").c_str();
+                if (inputType == "text" || inputType == "number")
+                    return;
+            }
+
+            if (applyMaterialAssetEditorFieldValue(*materialAssetField, formControl->GetValue().c_str()))
+                refreshMaterialAssetEditorPresentation(materialAssetField->parentField);
+
+            event.StopPropagation();
+            return;
+        }
+
         const std::optional<InspectorFieldBinding> inspectorField = parseInspectorFieldElementId(elementId);
         if (!inspectorField.has_value())
             return;
@@ -1224,6 +1287,8 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             markSceneDirty(false);
             queueRuntimeGameObjectSync(inspectorField->nodeId);
             refreshInspectorValuesPresentation();
+            if (isMaterialAssetInspectorField(*inspectorField))
+                refreshMaterialAssetEditorPresentation(*inspectorField);
         }
 
         event.StopPropagation();
@@ -1467,6 +1532,15 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
+        const std::optional<InspectorFieldBinding> materialAssetGroup = parseMaterialAssetEditorGroupElementId(materialAssetGroupElementId);
+        if (materialAssetGroup.has_value())
+        {
+            toggleMaterialAssetEditor(*materialAssetGroup);
+            refreshMaterialAssetEditorPresentation(*materialAssetGroup);
+            event.StopPropagation();
+            return;
+        }
+
         if (!windowMenuButtonElementId.empty())
         {
             m_isFileMenuOpen = false;
@@ -1641,7 +1715,11 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             m_hoveredInspectorFieldId.clear();
             markSceneDirty(false);
             queueRuntimeGameObjectSync(inspectorField->nodeId);
-            requestSelectionRefresh();
+            refreshInspectorValuesPresentation();
+            if (isMaterialAssetInspectorField(*inspectorField))
+                refreshMaterialAssetEditorPresentation(*inspectorField);
+            else
+                requestSelectionRefresh();
             event.StopPropagation();
             return;
         }
@@ -2363,6 +2441,17 @@ void SceneEditorController::refreshInspectorValuesPresentation()
             const std::string formattedValue = formatSerializedValue(field.read(*component));
             if (formControl->GetValue() != formattedValue)
                 formControl->SetValue(formattedValue);
+
+            if (field.assetReferenceKind == component_meta::AssetReferenceKind::Material)
+            {
+                InspectorFieldBinding binding;
+                binding.target = InspectorFieldBinding::Target::Component;
+                binding.nodeId = selectedNode->id;
+                binding.componentIndex = componentIndex;
+                binding.fieldKey = field.key;
+                refreshMaterialAssetEditorPresentation(binding);
+            }
+
         }
     }
 }
@@ -2522,7 +2611,23 @@ std::string SceneEditorController::buildInspectorMarkup() const
                     continue;
 
                 const std::string fieldId = makeInspectorFieldElementId(selectedNode->id, componentIndex, field.key);
-                stream << buildInspectorFieldMarkup(selectedNode->id, componentIndex, field, field.read(*component), fieldId == m_hoveredInspectorFieldId);
+                const component_meta::SerializedValue fieldValue = field.read(*component);
+                if (field.assetReferenceKind == component_meta::AssetReferenceKind::Material)
+                {
+                    InspectorFieldBinding binding;
+                    binding.target = InspectorFieldBinding::Target::Component;
+                    binding.nodeId = selectedNode->id;
+                    binding.componentIndex = componentIndex;
+                    binding.fieldKey = field.key;
+                    const std::string* assetPath = std::get_if<std::string>(&fieldValue);
+
+                    stream << buildInspectorFieldMarkup(selectedNode->id, componentIndex, field, fieldValue, fieldId == m_hoveredInspectorFieldId);
+                    stream << buildMaterialAssetEditorMarkup(binding, assetPath != nullptr ? *assetPath : std::string());
+                }
+                else
+                {
+                    stream << buildInspectorFieldMarkup(selectedNode->id, componentIndex, field, fieldValue, fieldId == m_hoveredInspectorFieldId);
+                }
             }
             stream << "</div>";
         }
@@ -2853,6 +2958,7 @@ std::string SceneEditorController::makeInspectorGroupElementId(int nodeId, size_
     return makeSceneInspectorGroupElementId(nodeId, componentIndex);
 }
 
+
 std::optional<SceneEditorController::InspectorGroupBinding> SceneEditorController::parseInspectorGroupElementId(const Rml::String& elementId)
 {
     const std::string value = elementId;
@@ -2869,6 +2975,7 @@ std::optional<SceneEditorController::InspectorGroupBinding> SceneEditorControlle
     binding.componentIndex = static_cast<size_t>(std::stoul(value.substr(separator + 2)));
     return binding;
 }
+
 
 std::optional<int> SceneEditorController::parseHierarchyNodeId(const Rml::String& elementId)
 {
@@ -3320,6 +3427,22 @@ void SceneEditorController::rescanAssetBrowser()
         {
             const std::string childLabel = entry.path().filename().string();
             const std::string childRuntimePath = node.runtimePath + "/" + childLabel;
+
+            if (isShaderAssetDirectory(entry.path()))
+            {
+                AssetBrowserFileEntry file;
+                file.label = childLabel;
+                file.runtimePath = childRuntimePath;
+                file.diskPath = entry.path().string();
+                file.id = file.runtimePath;
+                file.extension.clear();
+                file.rootKind = node.rootKind;
+                file.fileKind = AssetBrowserFileKind::Shader;
+                file.dragPayloadKind = dragPayloadKindForAssetFileKind(file.fileKind);
+                node.files.push_back(std::move(file));
+                continue;
+            }
+
             node.children.push_back(makeDirectoryNode(node.rootKind, childLabel, entry.path(), childRuntimePath));
             self(self, node.children.back());
         }
@@ -3415,6 +3538,8 @@ bool SceneEditorController::prepareRuntimeSceneFile(std::string& outputPath)
     std::filesystem::remove(runtime_preview::pauseMetadataTempPath(), errorCode);
     std::filesystem::remove(runtime_preview::stateMetadataPath(), errorCode);
     std::filesystem::remove(runtime_preview::stateMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::materialMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::materialMetadataTempPath(), errorCode);
 
     const std::filesystem::path scenePath = runtime_preview::previewScenePath();
     if (!scene_serialization::saveSceneToFile(*m_scene, scenePath.string()))
@@ -3627,6 +3752,8 @@ void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
     std::filesystem::remove(runtime_preview::pauseMetadataTempPath(), errorCode);
     std::filesystem::remove(runtime_preview::stateMetadataPath(), errorCode);
     std::filesystem::remove(runtime_preview::stateMetadataTempPath(), errorCode);
+    std::filesystem::remove(runtime_preview::materialMetadataPath(), errorCode);
+    std::filesystem::remove(runtime_preview::materialMetadataTempPath(), errorCode);
 
     if (restoreEditorScene && stoppedKind == ActiveProcessKind::Player && m_scene != nullptr && m_runtimeSceneSnapshot.has_value())
     {

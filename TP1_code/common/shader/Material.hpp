@@ -3,6 +3,9 @@
 #include "../Camera.hpp"
 #include <common/gameobject/Transform.hpp>
 
+#include <utility>
+#include <vector>
+
 
 namespace dataStruct
 {
@@ -40,6 +43,9 @@ namespace dataStruct
         glm::mat4 * mvp;
         glm::mat4 * mvpOrtho;
         std::string m_assetPath;
+        std::vector<std::pair<std::string, int>> m_dynamicIntUniforms;
+        std::vector<std::pair<std::string, float>> m_dynamicFloatUniforms;
+        std::vector<std::pair<std::string, glm::vec3>> m_dynamicVec3Uniforms;
     protected:
 
         uint m_uni1f_stride = 0;
@@ -81,10 +87,31 @@ namespace dataStruct
             textures.push_back(UniformTex2D(uniformLocation, Texture2D(texturePath, textures.size())));
         }
 
+        void addBoolUniform(const std::string& uniformLocation, bool value)
+        {
+            m_dynamicIntUniforms.emplace_back(uniformLocation, value ? 1 : 0);
+        }
+
+        void addIntUniform(const std::string& uniformLocation, int value)
+        {
+            m_dynamicIntUniforms.emplace_back(uniformLocation, value);
+        }
+
+        void addFloatUniform(const std::string& uniformLocation, float value)
+        {
+            m_dynamicFloatUniforms.emplace_back(uniformLocation, value);
+        }
+
+        void addVec3Uniform(const std::string& uniformLocation, const glm::vec3& value)
+        {
+            m_dynamicVec3Uniforms.emplace_back(uniformLocation, value);
+        }
+
 
         void sync() override
         {
             m_shader -> setActive();
+            const GLuint programId = m_shader->getProgramId();
             for (uint i = 0; i < m_uni1f_stride; i++)
                 m_shader -> Upload((IUniform *)m_uni1f[i]);
             for (uint i = 0; i < m_uniMat4f_stride; i++)
@@ -93,6 +120,24 @@ namespace dataStruct
                 m_shader -> Upload((IUniform *)&(textures[i]));
             for (uint i = 0; i < m_uniVec3f_stride; i++)
                 m_shader -> Upload((IUniform *)m_uniVec3f[i]);
+            for (const auto& uniform : m_dynamicIntUniforms)
+            {
+                const GLint location = glGetUniformLocation(programId, uniform.first.c_str());
+                if (location != -1)
+                    glUniform1i(location, uniform.second);
+            }
+            for (const auto& uniform : m_dynamicFloatUniforms)
+            {
+                const GLint location = glGetUniformLocation(programId, uniform.first.c_str());
+                if (location != -1)
+                    glUniform1f(location, uniform.second);
+            }
+            for (const auto& uniform : m_dynamicVec3Uniforms)
+            {
+                const GLint location = glGetUniformLocation(programId, uniform.first.c_str());
+                if (location != -1)
+                    glUniform3f(location, uniform.second.x, uniform.second.y, uniform.second.z);
+            }
         }
         
         void bind(Camera const & cam, Transform & transform) override

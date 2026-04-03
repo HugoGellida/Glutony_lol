@@ -123,4 +123,14 @@ inline std::filesystem::path stateMetadataTempPath()
 {
     return sessionDirectory() / "state.meta.tmp";
 }
+
+inline std::filesystem::path materialMetadataPath()
+{
+    return sessionDirectory() / "material.meta";
+}
+
+inline std::filesystem::path materialMetadataTempPath()
+{
+    return sessionDirectory() / "material.meta.tmp";
+}
 }
