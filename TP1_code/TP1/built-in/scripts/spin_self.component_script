@@ -1,0 +1,5 @@
+{
+  "source": "built-in/scripts/spin_self.cpp",
+  "start": "spinSelfStart",
+  "update": "spinSelfUpdate"
+}

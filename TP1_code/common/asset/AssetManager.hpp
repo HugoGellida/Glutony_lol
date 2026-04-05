@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DataAssetIO.hpp"
+#include "ComponentScriptAssetIO.hpp"
 #include "MaterialAssetIO.hpp"
 #include "SceneScriptAssetIO.hpp"
 #include "common/FileLoader.hpp"
@@ -26,6 +27,7 @@ enum class AssetType
     Material,
     Data,
     SceneScript,
+    ComponentScript,
 };
 
 struct AssetTypeHash
@@ -75,6 +77,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<dataStruct::Material>> m_materialAssets;
     std::unordered_map<std::string, DataAssetDefinition> m_dataAssets;
     std::unordered_map<std::string, SceneScriptAssetDefinition> m_sceneScriptAssets;
+    std::unordered_map<std::string, ComponentScriptAssetDefinition> m_componentScriptAssets;
     std::unordered_map<std::string, std::string> m_materialShaderPaths;
     std::unordered_set<std::string> m_pendingChangedShaderPaths;
     std::unordered_map<AssetType, std::vector<std::string>, AssetTypeHash> m_assetPaths;
@@ -366,6 +369,62 @@ public:
         auto it = m_sceneScriptAssets.find(normalizedPath);
         if (it == m_sceneScriptAssets.end())
             it = m_sceneScriptAssets.emplace(normalizedPath, std::move(definition)).first;
+        else
+            it->second = std::move(definition);
+
+        definitionOut = &it->second;
+        return true;
+    }
+
+    ComponentScriptAssetDefinition* loadComponentScriptAssetDefinition(const std::string& relativePath)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".component_script"))
+        {
+            std::cerr << "ComponentScript asset must use .component_script extension: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        registerGlobalAsset(AssetType::ComponentScript, normalizedPath);
+
+        const auto it = m_componentScriptAssets.find(normalizedPath);
+        if (it != m_componentScriptAssets.end())
+            return &it->second;
+
+        ComponentScriptAssetDefinition definition;
+        if (!ComponentScriptAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            std::cerr << "Failed to load component script asset: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        definition.sourcePath = normalizeRelativePath(definition.sourcePath);
+        auto inserted = m_componentScriptAssets.emplace(normalizedPath, std::move(definition));
+        return &inserted.first->second;
+    }
+
+    bool reloadComponentScriptAssetDefinition(const std::string& relativePath, ComponentScriptAssetDefinition*& definitionOut)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".component_script"))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        registerGlobalAsset(AssetType::ComponentScript, normalizedPath);
+
+        ComponentScriptAssetDefinition definition;
+        if (!ComponentScriptAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        definition.sourcePath = normalizeRelativePath(definition.sourcePath);
+        auto it = m_componentScriptAssets.find(normalizedPath);
+        if (it == m_componentScriptAssets.end())
+            it = m_componentScriptAssets.emplace(normalizedPath, std::move(definition)).first;
         else
             it->second = std::move(definition);
 

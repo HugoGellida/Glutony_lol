@@ -105,7 +105,7 @@ namespace fileLoader
             }
             
         }
-        component::Mesh * mesh = new Mesh(verts.size(), tri.size() / 3);
+        component::Mesh * mesh = new component::Mesh(verts.size(), tri.size() / 3);
         for (uint i = 0; i < verts.size(); i++)
             mesh -> setVertice(i, verts[i], norms[i]);
         for (uint i = 0; i < tri.size() / 3; i++)
@@ -193,7 +193,7 @@ namespace fileLoader
             }
             
         }
-        component::Mesh * mesh = new Mesh(verts.size() / 3, tri.size() / 3);
+        component::Mesh * mesh = new component::Mesh(verts.size() / 3, tri.size() / 3);
         for (uint i = 0; i < verts.size() / 3; i++)
             mesh -> setVertice(i, glm::vec3(verts[i*3], verts[i*3+1], verts[i*3+2]));
         for (uint i = 0; i < tri.size() / 3; i++)

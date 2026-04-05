@@ -9,6 +9,8 @@
 #include <sstream>
 #include <string>
 #include <system_error>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <GL/glew.h>
@@ -20,6 +22,7 @@
 #include <common/asset/DataAssetIO.hpp>
 #include <common/asset/MaterialAssetIO.hpp>
 #include <common/gameobject/component/Mesh.hpp>
+#include <common/gameobject/component/ScriptComponent.hpp>
 #include <common/physics/RigidBody.hpp>
 #include <common/scene/SceneSerialization.hpp>
 #include <common/utils/Raycast.hpp>
@@ -58,9 +61,62 @@ bool g_sceneScriptStartPending = false;
 int g_lastPublishedSelectedGameObjectId = -2;
 int g_lastPublishedFps = -1;
 int g_lastPublishedCaptureEnabled = -1;
-std::string g_lastPublishedDataAssetPayload;
+std::unordered_map<std::string, std::string> g_lastPublishedDataAssetPayloads;
 std::string g_lastPublishedObjectStatePayload;
 std::string g_lastPublishedScenePayload;
+
+std::vector<std::string> collectReferencedDataAssetPaths(const Scene& scene)
+{
+    std::vector<std::string> paths;
+    std::unordered_set<std::string> seenPaths;
+
+    const auto appendPath = [&](const std::string& rawPath) {
+        const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(rawPath);
+        if (normalizedPath.empty() || !seenPaths.insert(normalizedPath).second)
+            return;
+
+        paths.push_back(normalizedPath);
+    };
+
+    appendPath(scene.getDataAssetPath());
+
+    for (size_t gameObjectIndex = 0; gameObjectIndex < scene.getGameObjectCount(); ++gameObjectIndex)
+    {
+        const GameObject* gameObject = scene.getGameObject(gameObjectIndex);
+        if (gameObject == nullptr)
+            continue;
+
+        for (size_t componentIndex = 0; componentIndex < gameObject->getComponentCount(); ++componentIndex)
+        {
+            const auto* scriptComponent = dynamic_cast<const component::ScriptComponent*>(gameObject->getComponentAt(componentIndex));
+            if (scriptComponent == nullptr)
+                continue;
+
+            appendPath(scriptComponent->getDataAssetPath());
+        }
+    }
+
+    std::sort(paths.begin(), paths.end());
+    return paths;
+}
+
+void cachePublishedDataAssetPayload(const std::string& normalizedPath, const asset::DataAssetDefinition* definition)
+{
+    if (normalizedPath.empty() || definition == nullptr)
+    {
+        g_lastPublishedDataAssetPayloads.erase(normalizedPath);
+        return;
+    }
+
+    std::ostringstream payloadStream;
+    if (!asset::DataAssetIO::writeDefinition(payloadStream, *definition))
+    {
+        g_lastPublishedDataAssetPayloads.erase(normalizedPath);
+        return;
+    }
+
+    g_lastPublishedDataAssetPayloads[normalizedPath] = payloadStream.str();
+}
 
 GameObject* pickGameObjectAt(Scene& scene, double clickX, double clickY, int viewportWidth, int viewportHeight)
 {
@@ -318,29 +374,43 @@ void publishDirtyDataAssetState()
     if (!g_publishPreviewFrames || g_scene == nullptr)
         return;
 
-    const std::string dataAssetPath = asset::AssetManager::normalizeRelativePath(g_scene->getDataAssetPath());
-    if (dataAssetPath.empty())
+    const std::vector<std::string> dataAssetPaths = collectReferencedDataAssetPaths(*g_scene);
+    if (dataAssetPaths.empty())
     {
-        g_lastPublishedDataAssetPayload.clear();
+        g_lastPublishedDataAssetPayloads.clear();
         return;
     }
 
-    asset::DataAssetDefinition* definition = asset::AssetManager::instance().loadDataAssetDefinition(dataAssetPath);
-    if (definition == nullptr)
-        return;
-
-    std::ostringstream payloadStream;
-    if (!asset::DataAssetIO::writeDefinition(payloadStream, *definition))
-        return;
-
-    const std::string payload = payloadStream.str();
-    if (payload == g_lastPublishedDataAssetPayload)
-        return;
-
-    if (writeDataAssetStateFile(g_dataAssetStateSequence + 1, dataAssetPath, *definition))
+    std::unordered_set<std::string> referencedPathSet(dataAssetPaths.begin(), dataAssetPaths.end());
+    for (auto it = g_lastPublishedDataAssetPayloads.begin(); it != g_lastPublishedDataAssetPayloads.end();)
     {
-        ++g_dataAssetStateSequence;
-        g_lastPublishedDataAssetPayload = payload;
+        if (referencedPathSet.count(it->first) == 0)
+            it = g_lastPublishedDataAssetPayloads.erase(it);
+        else
+            ++it;
+    }
+
+    for (const std::string& dataAssetPath : dataAssetPaths)
+    {
+        asset::DataAssetDefinition* definition = asset::AssetManager::instance().loadDataAssetDefinition(dataAssetPath);
+        if (definition == nullptr)
+            continue;
+
+        std::ostringstream payloadStream;
+        if (!asset::DataAssetIO::writeDefinition(payloadStream, *definition))
+            continue;
+
+        const std::string payload = payloadStream.str();
+        const auto cachedPayload = g_lastPublishedDataAssetPayloads.find(dataAssetPath);
+        if (cachedPayload != g_lastPublishedDataAssetPayloads.end() && cachedPayload->second == payload)
+            continue;
+
+        if (writeDataAssetStateFile(g_dataAssetStateSequence + 1, dataAssetPath, *definition))
+        {
+            ++g_dataAssetStateSequence;
+            g_lastPublishedDataAssetPayloads[dataAssetPath] = payload;
+            return;
+        }
     }
 }
 
@@ -692,11 +762,7 @@ void pollPreviewDataAssetRequests()
         return;
     }
 
-    std::ostringstream payloadStream;
-    if (definition != nullptr && asset::DataAssetIO::writeDefinition(payloadStream, *definition))
-        g_lastPublishedDataAssetPayload = payloadStream.str();
-    else
-        g_lastPublishedDataAssetPayload.clear();
+    cachePublishedDataAssetPayload(asset::AssetManager::normalizeRelativePath(dataAssetPath), definition);
 
     g_dataAssetSequence = nextSequence;
 }
@@ -796,16 +862,11 @@ int main(int argc, char** argv)
     gameplay::bootstrap();
     g_sceneScriptStartPending = true;
 
-    const std::string initialDataAssetPath = asset::AssetManager::normalizeRelativePath(g_scene->getDataAssetPath());
-    if (!initialDataAssetPath.empty())
+    g_lastPublishedDataAssetPayloads.clear();
+    for (const std::string& initialDataAssetPath : collectReferencedDataAssetPaths(*g_scene))
     {
         asset::DataAssetDefinition* initialDefinition = asset::AssetManager::instance().loadDataAssetDefinition(initialDataAssetPath);
-        if (initialDefinition != nullptr)
-        {
-            std::ostringstream payloadStream;
-            if (asset::DataAssetIO::writeDefinition(payloadStream, *initialDefinition))
-                g_lastPublishedDataAssetPayload = payloadStream.str();
-        }
+        cachePublishedDataAssetPayload(initialDataAssetPath, initialDefinition);
     }
 
     float lastFrame = 0.0f;
@@ -836,9 +897,15 @@ int main(int argc, char** argv)
         if (g_sceneScriptStartPending)
         {
             gameplay::runSceneScript(*g_scene);
+            gameplay::runPendingComponentScriptStarts(*g_scene);
             publishSceneState();
             g_sceneScriptStartPending = false;
         }
+
+        gameplay::runPendingComponentScriptStarts(*g_scene);
+        if (!g_previewPaused)
+            gameplay::runComponentScriptUpdates(*g_scene, deltaTime);
+
         g_scene->update(
             g_previewPaused ? 0.0f : deltaTime,
             g_window,

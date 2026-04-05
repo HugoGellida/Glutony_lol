@@ -1,0 +1,26 @@
+{
+  "rootName": "spin_self",
+  "children": [
+    {
+      "name": "speed_deg_per_sec",
+      "type": "float",
+      "value": 90.000
+    },
+    {
+      "name": "runtime",
+      "type": "group",
+      "children": [
+        {
+          "name": "object_name",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "current_local_yaw",
+          "type": "float",
+          "value": 0.000
+        }
+      ]
+    }
+  ]
+}

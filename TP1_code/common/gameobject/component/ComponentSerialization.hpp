@@ -35,6 +35,9 @@ enum class AssetReferenceKind
     Shader,
     Material,
     Texture,
+    Data,
+    SceneScript,
+    ComponentScript,
     Scene,
 };
 

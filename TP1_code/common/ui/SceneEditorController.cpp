@@ -641,6 +641,12 @@ const char* assetReferenceKindLabel(component_meta::AssetReferenceKind kind)
         return "Drop material asset";
     case component_meta::AssetReferenceKind::Texture:
         return "Drop texture asset";
+    case component_meta::AssetReferenceKind::Data:
+        return "Drop data asset";
+    case component_meta::AssetReferenceKind::SceneScript:
+        return "Drop scene script asset";
+    case component_meta::AssetReferenceKind::ComponentScript:
+        return "Drop component script asset";
     case component_meta::AssetReferenceKind::Scene:
         return "Drop scene asset";
     case component_meta::AssetReferenceKind::Generic:
@@ -860,6 +866,8 @@ SceneEditorController::AssetBrowserFileKind classifyAssetBrowserFileKind(const s
         return SceneEditorController::AssetBrowserFileKind::Mesh;
     if (extension == ".scene_script")
         return SceneEditorController::AssetBrowserFileKind::SceneScript;
+    if (extension == ".component_script")
+        return SceneEditorController::AssetBrowserFileKind::ComponentScript;
     if (extension == ".glsl")
         return SceneEditorController::AssetBrowserFileKind::Shader;
     if (extension == ".png" || extension == ".jpg" || extension == ".jpeg" || extension == ".bmp" || extension == ".tga")
@@ -881,6 +889,8 @@ DragPayloadKind dragPayloadKindForAssetFileKind(SceneEditorController::AssetBrow
         return DragPayloadKind::MeshAsset;
     case SceneEditorController::AssetBrowserFileKind::SceneScript:
         return DragPayloadKind::SceneScriptAsset;
+    case SceneEditorController::AssetBrowserFileKind::ComponentScript:
+        return DragPayloadKind::ComponentScriptAsset;
     case SceneEditorController::AssetBrowserFileKind::Shader:
         return DragPayloadKind::ShaderAsset;
     case SceneEditorController::AssetBrowserFileKind::Texture:
@@ -902,6 +912,8 @@ const char* assetBrowserFileKindLabel(SceneEditorController::AssetBrowserFileKin
         return "Mesh";
     case SceneEditorController::AssetBrowserFileKind::SceneScript:
         return "SceneScript";
+    case SceneEditorController::AssetBrowserFileKind::ComponentScript:
+        return "ComponentScript";
     case SceneEditorController::AssetBrowserFileKind::Shader:
         return "Shader";
     case SceneEditorController::AssetBrowserFileKind::Texture:
@@ -925,6 +937,8 @@ const char* assetBrowserFileKindClass(SceneEditorController::AssetBrowserFileKin
         return "mesh";
     case SceneEditorController::AssetBrowserFileKind::SceneScript:
         return "scene_script";
+    case SceneEditorController::AssetBrowserFileKind::ComponentScript:
+        return "component_script";
     case SceneEditorController::AssetBrowserFileKind::Shader:
         return "shader";
     case SceneEditorController::AssetBrowserFileKind::Texture:
@@ -1403,7 +1417,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             refreshInspectorValuesPresentation();
             if (isMaterialAssetInspectorField(*inspectorField))
                 refreshMaterialAssetEditorPresentation(*inspectorField);
-            else if (isDataAssetSceneField(*inspectorField))
+            else if (isDataAssetInspectorField(*inspectorField))
                 refreshDataAssetEditorPresentation(*inspectorField);
         }
 
@@ -1872,7 +1886,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             refreshInspectorValuesPresentation();
             if (isMaterialAssetInspectorField(*inspectorField))
                 refreshMaterialAssetEditorPresentation(*inspectorField);
-            else if (isDataAssetSceneField(*inspectorField))
+            else if (isDataAssetInspectorField(*inspectorField))
                 refreshDataAssetEditorPresentation(*inspectorField);
             else
                 requestSelectionRefresh();
@@ -2636,6 +2650,15 @@ void SceneEditorController::refreshInspectorValuesPresentation()
                 binding.fieldKey = field.key;
                 refreshMaterialAssetEditorPresentation(binding);
             }
+            else if (field.assetReferenceKind == component_meta::AssetReferenceKind::Data)
+            {
+                InspectorFieldBinding binding;
+                binding.target = InspectorFieldBinding::Target::Component;
+                binding.nodeId = selectedNode->id;
+                binding.componentIndex = componentIndex;
+                binding.fieldKey = field.key;
+                refreshDataAssetEditorPresentation(binding);
+            }
 
         }
     }
@@ -2740,7 +2763,7 @@ std::string SceneEditorController::buildInspectorMarkup() const
             component_meta::FieldKind::Asset,
             m_scene != nullptr ? component_meta::SerializedValue(m_scene->getSceneScriptAssetPath()) : component_meta::SerializedValue(std::string()),
             {},
-            component_meta::AssetReferenceKind::Generic,
+            component_meta::AssetReferenceKind::SceneScript,
             sceneScriptFieldId == m_hoveredInspectorFieldId);
         stream << buildInspectorFieldMarkup(
             dataAssetFieldId,
@@ -2748,7 +2771,7 @@ std::string SceneEditorController::buildInspectorMarkup() const
             component_meta::FieldKind::Asset,
             m_scene != nullptr ? component_meta::SerializedValue(m_scene->getDataAssetPath()) : component_meta::SerializedValue(std::string()),
             {},
-            component_meta::AssetReferenceKind::Generic,
+            component_meta::AssetReferenceKind::Data,
             dataAssetFieldId == m_hoveredInspectorFieldId);
         stream << buildDataAssetEditorMarkup(dataAssetBinding, m_scene != nullptr ? m_scene->getDataAssetPath() : std::string());
         stream << "</div>";
@@ -2841,6 +2864,18 @@ std::string SceneEditorController::buildInspectorMarkup() const
 
                     stream << buildInspectorFieldMarkup(selectedNode->id, componentIndex, field, fieldValue, fieldId == m_hoveredInspectorFieldId);
                     stream << buildMaterialAssetEditorMarkup(binding, assetPath != nullptr ? *assetPath : std::string());
+                }
+                else if (field.assetReferenceKind == component_meta::AssetReferenceKind::Data)
+                {
+                    InspectorFieldBinding binding;
+                    binding.target = InspectorFieldBinding::Target::Component;
+                    binding.nodeId = selectedNode->id;
+                    binding.componentIndex = componentIndex;
+                    binding.fieldKey = field.key;
+                    const std::string* assetPath = std::get_if<std::string>(&fieldValue);
+
+                    stream << buildInspectorFieldMarkup(selectedNode->id, componentIndex, field, fieldValue, fieldId == m_hoveredInspectorFieldId);
+                    stream << buildDataAssetEditorMarkup(binding, assetPath != nullptr ? *assetPath : std::string());
                 }
                 else
                 {
@@ -3576,6 +3611,12 @@ bool SceneEditorController::canDropDraggedAssetOnInspectorField(const InspectorF
         return m_dragPayloadKind == DragPayloadKind::MaterialAsset;
     case component_meta::AssetReferenceKind::Texture:
         return m_dragPayloadKind == DragPayloadKind::TextureAsset;
+    case component_meta::AssetReferenceKind::Data:
+        return m_dragPayloadKind == DragPayloadKind::DataAsset;
+    case component_meta::AssetReferenceKind::SceneScript:
+        return m_dragPayloadKind == DragPayloadKind::SceneScriptAsset;
+    case component_meta::AssetReferenceKind::ComponentScript:
+        return m_dragPayloadKind == DragPayloadKind::ComponentScriptAsset;
     case component_meta::AssetReferenceKind::Scene:
         return m_dragPayloadKind == DragPayloadKind::AssetFile;
     case component_meta::AssetReferenceKind::Generic:
@@ -4528,58 +4569,128 @@ bool SceneEditorController::prepareSceneScriptBuildSource()
 
     output << "#include \"GameplayEntry.hpp\"\n\n";
 
+    std::vector<std::string> includePaths;
+    std::vector<std::string> registrationLines;
+    std::unordered_set<std::string> includedPaths;
+
+    const auto resolveGeneratedIncludePath = [&](const std::string& assetPath, const std::string& sourcePath, const std::string& assetLabel) -> std::optional<std::string> {
+        const std::string normalizedAssetPath = normalizeSceneScriptSourcePath(assetPath);
+        const std::string normalizedSourcePath = normalizeSceneScriptSourcePath(sourcePath);
+        if (normalizedSourcePath.empty())
+        {
+            appendConsoleSystemMessage("[build] " + assetLabel + " source path is empty: " + assetPath, "console_line_error");
+            return std::nullopt;
+        }
+
+        const std::filesystem::path assetDirectory = std::filesystem::path(normalizedAssetPath).parent_path();
+        const std::vector<std::filesystem::path> candidates = {
+            buildRoot / normalizedSourcePath,
+            buildRoot / assetDirectory / normalizedSourcePath,
+        };
+
+        std::filesystem::path resolvedSourcePath;
+        for (const std::filesystem::path& candidate : candidates)
+        {
+            std::error_code candidateError;
+            if (std::filesystem::exists(candidate, candidateError) && !candidateError)
+            {
+                resolvedSourcePath = candidate;
+                break;
+            }
+        }
+
+        if (resolvedSourcePath.empty())
+        {
+            appendConsoleSystemMessage(
+                "[build] " + assetLabel + " source file not found for asset: " + assetPath + " (source=" + normalizedSourcePath + ")",
+                "console_line_error");
+            return std::nullopt;
+        }
+
+        std::error_code relativeError;
+        std::filesystem::path relativePath = std::filesystem::relative(resolvedSourcePath, buildRoot, relativeError);
+        if (relativeError)
+            relativePath = resolvedSourcePath.filename();
+
+        return relativePath.generic_string();
+    };
+
+    const auto registerIncludePath = [&](const std::string& includePath) {
+        if (includedPaths.insert(includePath).second)
+            includePaths.push_back(includePath);
+    };
+
     const std::string sceneScriptAssetPath = m_scene != nullptr
         ? asset::AssetManager::normalizeRelativePath(m_scene->getSceneScriptAssetPath())
         : std::string();
-
-    if (sceneScriptAssetPath.empty())
+    if (!sceneScriptAssetPath.empty())
     {
-        output << "namespace gameplay\n{\nvoid registerGeneratedSceneScripts()\n{\n}\n}\n";
-        return static_cast<bool>(output);
-    }
-
-    asset::SceneScriptAssetDefinition* definition = asset::AssetManager::instance().loadSceneScriptAssetDefinition(sceneScriptAssetPath);
-    if (definition == nullptr)
-    {
-        appendConsoleSystemMessage("[build] Failed to load scene script asset: " + sceneScriptAssetPath, "console_line_error");
-        return false;
-    }
-
-    const std::string normalizedAssetPath = normalizeSceneScriptSourcePath(sceneScriptAssetPath);
-    const std::string normalizedSourcePath = normalizeSceneScriptSourcePath(definition->sourcePath);
-    if (normalizedSourcePath.empty())
-    {
-        appendConsoleSystemMessage("[build] Scene script source path is empty: " + sceneScriptAssetPath, "console_line_error");
-        return false;
-    }
-
-    const std::filesystem::path assetDirectory = std::filesystem::path(normalizedAssetPath).parent_path();
-
-    std::filesystem::path resolvedSourcePath;
-    const std::vector<std::filesystem::path> candidates = {
-        buildRoot / normalizedSourcePath,
-        buildRoot / assetDirectory / normalizedSourcePath,
-    };
-
-    for (const std::filesystem::path& candidate : candidates)
-    {
-        std::error_code candidateError;
-        if (std::filesystem::exists(candidate, candidateError) && !candidateError)
+        asset::SceneScriptAssetDefinition* definition = asset::AssetManager::instance().loadSceneScriptAssetDefinition(sceneScriptAssetPath);
+        if (definition == nullptr)
         {
-            resolvedSourcePath = candidate;
-            break;
+            appendConsoleSystemMessage("[build] Failed to load scene script asset: " + sceneScriptAssetPath, "console_line_error");
+            return false;
+        }
+
+        const std::optional<std::string> includePath = resolveGeneratedIncludePath(sceneScriptAssetPath, definition->sourcePath, "Scene script");
+        if (!includePath.has_value())
+            return false;
+
+        registerIncludePath(*includePath);
+        registrationLines.push_back(
+            "    registerSceneScript(\"" + escapeCppStringLiteral(sceneScriptAssetPath) + "\", &" + definition->entryName + ");");
+    }
+
+    if (m_scene != nullptr)
+    {
+        std::vector<std::string> componentScriptAssetPaths;
+        std::unordered_set<std::string> seenComponentScriptAssets;
+        for (size_t gameObjectIndex = 0; gameObjectIndex < m_scene->getGameObjectCount(); ++gameObjectIndex)
+        {
+            const GameObject* gameObject = m_scene->getGameObject(gameObjectIndex);
+            if (gameObject == nullptr)
+                continue;
+
+            for (size_t componentIndex = 0; componentIndex < gameObject->getComponentCount(); ++componentIndex)
+            {
+                const auto* scriptComponent = dynamic_cast<const component::ScriptComponent*>(gameObject->getComponentAt(componentIndex));
+                if (scriptComponent == nullptr)
+                    continue;
+
+                const std::string componentScriptAssetPath = asset::AssetManager::normalizeRelativePath(scriptComponent->getScriptAssetPath());
+                if (componentScriptAssetPath.empty() || !seenComponentScriptAssets.insert(componentScriptAssetPath).second)
+                    continue;
+
+                componentScriptAssetPaths.push_back(componentScriptAssetPath);
+            }
+        }
+
+        std::sort(componentScriptAssetPaths.begin(), componentScriptAssetPaths.end());
+        for (const std::string& componentScriptAssetPath : componentScriptAssetPaths)
+        {
+            asset::ComponentScriptAssetDefinition* definition = asset::AssetManager::instance().loadComponentScriptAssetDefinition(componentScriptAssetPath);
+            if (definition == nullptr)
+            {
+                appendConsoleSystemMessage("[build] Failed to load component script asset: " + componentScriptAssetPath, "console_line_error");
+                return false;
+            }
+
+            const std::optional<std::string> includePath = resolveGeneratedIncludePath(componentScriptAssetPath, definition->sourcePath, "Component script");
+            if (!includePath.has_value())
+                return false;
+
+            registerIncludePath(*includePath);
+            registrationLines.push_back(
+                "    registerComponentScript(\"" + escapeCppStringLiteral(componentScriptAssetPath) + "\", &" + definition->startEntryName + ", &" + definition->updateEntryName + ");");
         }
     }
 
-    if (resolvedSourcePath.empty())
-    {
-        appendConsoleSystemMessage(
-            "[build] Scene script source file not found for asset: " + sceneScriptAssetPath + " (source=" + normalizedSourcePath + ")",
-            "console_line_error");
-        return false;
-    }
+    for (const std::string& includePath : includePaths)
+        output << "#include \"./" << includePath << "\"\n";
 
-    output << "#include \"./" << normalizedSourcePath << "\"\n\n";
+    if (!includePaths.empty())
+        output << "\n";
+
     output << "namespace gameplay\n{\n";
     output << "void registerGeneratedSceneScripts()\n{\n";
     output << "    static bool registered = false;\n";
@@ -4587,7 +4698,8 @@ bool SceneEditorController::prepareSceneScriptBuildSource()
     output << "        return;\n";
     output << "\n";
     output << "    registered = true;\n";
-    output << "    registerSceneScript(\"" << escapeCppStringLiteral(sceneScriptAssetPath) << "\", &" << definition->entryName << ");\n";
+    for (const std::string& registrationLine : registrationLines)
+        output << registrationLine << '\n';
     output << "}\n";
     output << "}\n";
     return static_cast<bool>(output);

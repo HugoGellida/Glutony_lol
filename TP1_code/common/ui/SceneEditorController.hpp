@@ -94,6 +94,7 @@ public:
         Data,
         Mesh,
         SceneScript,
+        ComponentScript,
         Shader,
         Texture,
         Scene,
@@ -227,11 +228,13 @@ private:
     static std::string makeMaterialAssetEditorFieldElementId(int nodeId, size_t componentIndex, const std::string& fieldKey, const std::string& propertyKey);
     static std::optional<InspectorFieldBinding> parseMaterialAssetEditorGroupElementId(const Rml::String& elementId);
     static std::optional<MaterialAssetEditorBinding> parseMaterialAssetEditorFieldElementId(const Rml::String& elementId);
-    static std::string makeDataAssetEditorGroupElementId(const std::string& fieldKey);
-    static std::string makeDataAssetEditorIconElementId(const std::string& fieldKey);
-    static std::string makeDataAssetEditorBodyElementId(const std::string& fieldKey);
-    static std::string makeDataAssetEditorNodeGroupElementId(const std::string& fieldKey, const std::string& nodePath);
-    static std::string makeDataAssetEditorFieldElementId(const std::string& fieldKey, const std::string& nodePath);
+    static std::string makeDataAssetEditorBindingToken(const InspectorFieldBinding& binding);
+    static std::optional<InspectorFieldBinding> parseDataAssetEditorBindingToken(const std::string& token);
+    static std::string makeDataAssetEditorGroupElementId(const InspectorFieldBinding& binding);
+    static std::string makeDataAssetEditorIconElementId(const InspectorFieldBinding& binding);
+    static std::string makeDataAssetEditorBodyElementId(const InspectorFieldBinding& binding);
+    static std::string makeDataAssetEditorNodeGroupElementId(const InspectorFieldBinding& binding, const std::string& nodePath);
+    static std::string makeDataAssetEditorFieldElementId(const InspectorFieldBinding& binding, const std::string& nodePath);
     static std::optional<InspectorFieldBinding> parseDataAssetEditorGroupElementId(const Rml::String& elementId);
     static std::optional<DataAssetEditorBinding> parseDataAssetEditorNodeGroupElementId(const Rml::String& elementId);
     static std::optional<DataAssetEditorBinding> parseDataAssetEditorFieldElementId(const Rml::String& elementId);
@@ -250,7 +253,10 @@ private:
     bool shouldRefreshInspectorPresentation() const;
     const component_meta::ComponentFieldDescriptor* findInspectorFieldDescriptor(const InspectorFieldBinding& binding) const;
     bool isMaterialAssetInspectorField(const InspectorFieldBinding& binding) const;
-    bool isDataAssetSceneField(const InspectorFieldBinding& binding) const;
+    bool isDataAssetInspectorField(const InspectorFieldBinding& binding) const;
+    std::optional<std::string> getDataAssetInspectorAssetPath(const InspectorFieldBinding& binding) const;
+    std::vector<InspectorFieldBinding> collectVisibleDataAssetInspectorBindings() const;
+    void refreshVisibleDataAssetEditorsForAsset(const std::string& normalizedAssetPath);
     bool applyInspectorFieldValue(const InspectorFieldBinding& binding, const std::string& value);
     bool applyMaterialAssetEditorFieldValue(const MaterialAssetEditorBinding& binding, const std::string& value);
     bool applyDataAssetEditorFieldValue(const DataAssetEditorBinding& binding, const std::string& value);

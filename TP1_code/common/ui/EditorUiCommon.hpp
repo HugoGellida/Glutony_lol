@@ -101,6 +101,7 @@ enum class DragPayloadKind
     MaterialAsset,
     DataAsset,
     SceneScriptAsset,
+    ComponentScriptAsset,
     TextureAsset,
 };
 

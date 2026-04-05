@@ -155,6 +155,7 @@ set(GLUTONY_APP_COMMON_SOURCES
 set(GLUTONY_RUNTIME_SOURCES
     common/gameobject/Transform.cpp
     common/gameobject/component/MeshRenderer.cpp
+    common/gameobject/component/ScriptComponent.cpp
     common/physics/PhysicEngine.cpp
     common/physics/RigidBody.cpp
     common/stb_image_impl.cpp

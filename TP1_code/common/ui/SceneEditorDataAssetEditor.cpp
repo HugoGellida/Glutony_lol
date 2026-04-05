@@ -181,6 +181,15 @@ int decodeHexDigit(char value)
     return -1;
 }
 
+std::string encodeElementToken(const std::string& value)
+{
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0');
+    for (unsigned char character : value)
+        stream << std::setw(2) << static_cast<int>(character);
+    return stream.str();
+}
+
 std::optional<std::string> decodeElementToken(const std::string& token)
 {
     if ((token.size() % 2) != 0)
@@ -416,37 +425,52 @@ const char* dataAssetNodeKindLabel(asset::DataAssetValueKind kind)
 }
 }
 
-std::string SceneEditorController::makeDataAssetEditorGroupElementId(const std::string& fieldKey)
+std::string SceneEditorController::makeDataAssetEditorBindingToken(const InspectorFieldBinding& binding)
 {
-    return "scene_data_asset_group__" + fieldKey;
+    switch (binding.target)
+    {
+    case InspectorFieldBinding::Target::Scene:
+        return encodeElementToken(makeSceneFieldElementId(binding.fieldKey));
+    case InspectorFieldBinding::Target::Transform:
+        return encodeElementToken(makeTransformFieldElementId(binding.nodeId, binding.fieldKey));
+    case InspectorFieldBinding::Target::Component:
+    default:
+        return encodeElementToken(makeInspectorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey));
+    }
 }
 
-std::string SceneEditorController::makeDataAssetEditorIconElementId(const std::string& fieldKey)
+std::optional<SceneEditorController::InspectorFieldBinding> SceneEditorController::parseDataAssetEditorBindingToken(const std::string& token)
 {
-    return "scene_data_asset_icon__" + fieldKey;
+    const std::optional<std::string> decodedFieldId = decodeElementToken(token);
+    if (!decodedFieldId.has_value())
+        return std::nullopt;
+
+    return parseInspectorFieldElementId(*decodedFieldId);
 }
 
-std::string SceneEditorController::makeDataAssetEditorBodyElementId(const std::string& fieldKey)
+std::string SceneEditorController::makeDataAssetEditorGroupElementId(const InspectorFieldBinding& binding)
 {
-    return "scene_data_asset_body__" + fieldKey;
+    return "scene_data_asset_group__" + makeDataAssetEditorBindingToken(binding);
 }
 
-std::string SceneEditorController::makeDataAssetEditorNodeGroupElementId(const std::string& fieldKey, const std::string& nodePath)
+std::string SceneEditorController::makeDataAssetEditorIconElementId(const InspectorFieldBinding& binding)
 {
-    std::ostringstream stream;
-    stream << std::hex << std::setfill('0');
-    for (unsigned char character : nodePath)
-        stream << std::setw(2) << static_cast<int>(character);
-    return "scene_data_asset_node_group__" + fieldKey + "__" + stream.str();
+    return "scene_data_asset_icon__" + makeDataAssetEditorBindingToken(binding);
 }
 
-std::string SceneEditorController::makeDataAssetEditorFieldElementId(const std::string& fieldKey, const std::string& nodePath)
+std::string SceneEditorController::makeDataAssetEditorBodyElementId(const InspectorFieldBinding& binding)
 {
-    std::ostringstream stream;
-    stream << std::hex << std::setfill('0');
-    for (unsigned char character : nodePath)
-        stream << std::setw(2) << static_cast<int>(character);
-    return "scene_data_asset_field__" + fieldKey + "__" + stream.str();
+    return "scene_data_asset_body__" + makeDataAssetEditorBindingToken(binding);
+}
+
+std::string SceneEditorController::makeDataAssetEditorNodeGroupElementId(const InspectorFieldBinding& binding, const std::string& nodePath)
+{
+    return "scene_data_asset_node_group__" + makeDataAssetEditorBindingToken(binding) + "__" + encodeElementToken(nodePath);
+}
+
+std::string SceneEditorController::makeDataAssetEditorFieldElementId(const InspectorFieldBinding& binding, const std::string& nodePath)
+{
+    return "scene_data_asset_field__" + makeDataAssetEditorBindingToken(binding) + "__" + encodeElementToken(nodePath);
 }
 
 std::optional<SceneEditorController::InspectorFieldBinding> SceneEditorController::parseDataAssetEditorGroupElementId(const Rml::String& elementId)
@@ -456,11 +480,7 @@ std::optional<SceneEditorController::InspectorFieldBinding> SceneEditorControlle
     if (!editor_ui::startsWith(value, prefix))
         return std::nullopt;
 
-    InspectorFieldBinding binding;
-    binding.target = InspectorFieldBinding::Target::Scene;
-    binding.nodeId = 0;
-    binding.fieldKey = value.substr(prefix.size());
-    return binding;
+    return parseDataAssetEditorBindingToken(value.substr(prefix.size()));
 }
 
 std::optional<SceneEditorController::DataAssetEditorBinding> SceneEditorController::parseDataAssetEditorNodeGroupElementId(const Rml::String& elementId)
@@ -474,14 +494,16 @@ std::optional<SceneEditorController::DataAssetEditorBinding> SceneEditorControll
     if (separator == std::string::npos)
         return std::nullopt;
 
+    const std::optional<InspectorFieldBinding> parentBinding = parseDataAssetEditorBindingToken(value.substr(prefix.size(), separator - prefix.size()));
+    if (!parentBinding.has_value())
+        return std::nullopt;
+
     const std::optional<std::string> decodedNodePath = decodeElementToken(value.substr(separator + 2));
     if (!decodedNodePath.has_value())
         return std::nullopt;
 
     DataAssetEditorBinding binding;
-    binding.parentField.target = InspectorFieldBinding::Target::Scene;
-    binding.parentField.nodeId = 0;
-    binding.parentField.fieldKey = value.substr(prefix.size(), separator - prefix.size());
+    binding.parentField = *parentBinding;
     binding.nodePath = *decodedNodePath;
     return binding;
 }
@@ -497,29 +519,128 @@ std::optional<SceneEditorController::DataAssetEditorBinding> SceneEditorControll
     if (separator == std::string::npos)
         return std::nullopt;
 
+    const std::optional<InspectorFieldBinding> parentBinding = parseDataAssetEditorBindingToken(value.substr(prefix.size(), separator - prefix.size()));
+    if (!parentBinding.has_value())
+        return std::nullopt;
+
     const std::optional<std::string> decodedNodePath = decodeElementToken(value.substr(separator + 2));
     if (!decodedNodePath.has_value())
         return std::nullopt;
 
     DataAssetEditorBinding binding;
-    binding.parentField.target = InspectorFieldBinding::Target::Scene;
-    binding.parentField.nodeId = 0;
-    binding.parentField.fieldKey = value.substr(prefix.size(), separator - prefix.size());
+    binding.parentField = *parentBinding;
     binding.nodePath = *decodedNodePath;
     return binding;
 }
 
-bool SceneEditorController::isDataAssetSceneField(const InspectorFieldBinding& binding) const
+bool SceneEditorController::isDataAssetInspectorField(const InspectorFieldBinding& binding) const
 {
-    return binding.target == InspectorFieldBinding::Target::Scene && binding.fieldKey == "dataAsset";
+    if (binding.target == InspectorFieldBinding::Target::Scene)
+        return binding.fieldKey == "dataAsset";
+
+    const component_meta::ComponentFieldDescriptor* field = findInspectorFieldDescriptor(binding);
+    return field != nullptr && field->assetReferenceKind == component_meta::AssetReferenceKind::Data;
+}
+
+std::optional<std::string> SceneEditorController::getDataAssetInspectorAssetPath(const InspectorFieldBinding& binding) const
+{
+    if (!isDataAssetInspectorField(binding))
+        return std::nullopt;
+
+    if (binding.target == InspectorFieldBinding::Target::Scene)
+    {
+        if (m_scene == nullptr)
+            return std::nullopt;
+
+        return asset::AssetManager::normalizeRelativePath(m_scene->getDataAssetPath());
+    }
+
+    const UiGOHierarchyNode* node = findHierarchyNodeById(binding.nodeId);
+    if (node == nullptr || node->gameObject == nullptr)
+        return std::nullopt;
+
+    const component::Component* component = node->gameObject->getComponentAt(binding.componentIndex);
+    const component_meta::ComponentFieldDescriptor* field = findInspectorFieldDescriptor(binding);
+    if (component == nullptr || field == nullptr || !field->read)
+        return std::nullopt;
+
+    const component_meta::SerializedValue value = field->read(*component);
+    const std::string* assetPath = std::get_if<std::string>(&value);
+    if (assetPath == nullptr)
+        return std::nullopt;
+
+    return asset::AssetManager::normalizeRelativePath(*assetPath);
+}
+
+std::vector<SceneEditorController::InspectorFieldBinding> SceneEditorController::collectVisibleDataAssetInspectorBindings() const
+{
+    std::vector<InspectorFieldBinding> bindings;
+    const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
+    if (selectedNode == nullptr)
+        return bindings;
+
+    if (selectedNode->gameObject == nullptr)
+    {
+        InspectorFieldBinding binding;
+        binding.target = InspectorFieldBinding::Target::Scene;
+        binding.nodeId = 0;
+        binding.fieldKey = "dataAsset";
+        bindings.push_back(binding);
+        return bindings;
+    }
+
+    for (size_t componentIndex = 0; componentIndex < selectedNode->gameObject->getComponentCount(); ++componentIndex)
+    {
+        const component::Component* component = selectedNode->gameObject->getComponentAt(componentIndex);
+        if (component == nullptr)
+            continue;
+
+        const component_meta::ComponentDescriptor* descriptor = component->getComponentDescriptor();
+        if (descriptor == nullptr)
+            continue;
+
+        for (const component_meta::ComponentFieldDescriptor& field : descriptor->fields)
+        {
+            if (field.assetReferenceKind != component_meta::AssetReferenceKind::Data)
+                continue;
+
+            InspectorFieldBinding binding;
+            binding.target = InspectorFieldBinding::Target::Component;
+            binding.nodeId = selectedNode->id;
+            binding.componentIndex = componentIndex;
+            binding.fieldKey = field.key;
+            bindings.push_back(binding);
+        }
+    }
+
+    return bindings;
+}
+
+void SceneEditorController::refreshVisibleDataAssetEditorsForAsset(const std::string& normalizedAssetPath)
+{
+    if (normalizedAssetPath.empty())
+        return;
+
+    for (const InspectorFieldBinding& binding : collectVisibleDataAssetInspectorBindings())
+    {
+        const std::optional<std::string> bindingAssetPath = getDataAssetInspectorAssetPath(binding);
+        if (!bindingAssetPath.has_value() || *bindingAssetPath != normalizedAssetPath)
+            continue;
+
+        refreshDataAssetEditorPresentation(binding);
+    }
 }
 
 bool SceneEditorController::applyDataAssetEditorFieldValue(const DataAssetEditorBinding& binding, const std::string& value)
 {
-    if (m_scene == nullptr || !isDataAssetSceneField(binding.parentField))
+    if (m_scene == nullptr || !isDataAssetInspectorField(binding.parentField))
         return false;
 
-    asset::editor::DataAssetEditorModel editorModel = asset::editor::loadDataAssetEditorModel(m_scene->getDataAssetPath());
+    const std::optional<std::string> assetPath = getDataAssetInspectorAssetPath(binding.parentField);
+    if (!assetPath.has_value())
+        return false;
+
+    asset::editor::DataAssetEditorModel editorModel = asset::editor::loadDataAssetEditorModel(*assetPath);
     if (!editorModel.valid)
         return false;
 
@@ -617,7 +738,7 @@ bool SceneEditorController::applyDataAssetEditorFieldValue(const DataAssetEditor
 
 void SceneEditorController::toggleDataAssetEditor(const InspectorFieldBinding& binding)
 {
-    const std::string editorId = makeDataAssetEditorGroupElementId(binding.fieldKey);
+    const std::string editorId = makeDataAssetEditorGroupElementId(binding);
     const auto it = m_collapsedDataAssetEditors.find(editorId);
     if (it != m_collapsedDataAssetEditors.end())
         m_collapsedDataAssetEditors.erase(it);
@@ -627,12 +748,12 @@ void SceneEditorController::toggleDataAssetEditor(const InspectorFieldBinding& b
 
 bool SceneEditorController::isDataAssetEditorCollapsed(const InspectorFieldBinding& binding) const
 {
-    return m_collapsedDataAssetEditors.count(makeDataAssetEditorGroupElementId(binding.fieldKey)) > 0;
+    return m_collapsedDataAssetEditors.count(makeDataAssetEditorGroupElementId(binding)) > 0;
 }
 
 void SceneEditorController::toggleDataAssetEditorNode(const DataAssetEditorBinding& binding)
 {
-    const std::string groupId = makeDataAssetEditorNodeGroupElementId(binding.parentField.fieldKey, binding.nodePath);
+    const std::string groupId = makeDataAssetEditorNodeGroupElementId(binding.parentField, binding.nodePath);
     const auto it = m_collapsedDataAssetEditorNodes.find(groupId);
     if (it != m_collapsedDataAssetEditorNodes.end())
         m_collapsedDataAssetEditorNodes.erase(it);
@@ -642,15 +763,15 @@ void SceneEditorController::toggleDataAssetEditorNode(const DataAssetEditorBindi
 
 bool SceneEditorController::isDataAssetEditorNodeCollapsed(const DataAssetEditorBinding& binding) const
 {
-    return m_collapsedDataAssetEditorNodes.count(makeDataAssetEditorNodeGroupElementId(binding.parentField.fieldKey, binding.nodePath)) > 0;
+    return m_collapsedDataAssetEditorNodes.count(makeDataAssetEditorNodeGroupElementId(binding.parentField, binding.nodePath)) > 0;
 }
 
 std::string SceneEditorController::buildDataAssetEditorMarkup(const InspectorFieldBinding& binding, const std::string& assetPath) const
 {
     const bool collapsed = isDataAssetEditorCollapsed(binding);
-    const std::string groupId = makeDataAssetEditorGroupElementId(binding.fieldKey);
-    const std::string iconId = makeDataAssetEditorIconElementId(binding.fieldKey);
-    const std::string bodyId = makeDataAssetEditorBodyElementId(binding.fieldKey);
+    const std::string groupId = makeDataAssetEditorGroupElementId(binding);
+    const std::string iconId = makeDataAssetEditorIconElementId(binding);
+    const std::string bodyId = makeDataAssetEditorBodyElementId(binding);
 
     std::ostringstream stream;
     stream << "<div class='inspector_foldout inspector_asset_editor_foldout'>";
@@ -700,7 +821,7 @@ std::string SceneEditorController::buildDataAssetEditorNodeMarkup(const Inspecto
         nodeBinding.parentField = binding;
         nodeBinding.nodePath = nodePath;
         const bool collapsed = isDataAssetEditorNodeCollapsed(nodeBinding);
-        const std::string groupId = makeDataAssetEditorNodeGroupElementId(binding.fieldKey, nodePath);
+        const std::string groupId = makeDataAssetEditorNodeGroupElementId(binding, nodePath);
 
         stream << "<div class='inspector_foldout inspector_asset_editor_foldout' style='margin-left: " << indentPixels << "px;'>";
         stream << "<div id='" << groupId << "' class='inspector_foldout_header inspector_asset_editor_header'>";
@@ -727,7 +848,7 @@ std::string SceneEditorController::buildDataAssetEditorNodeMarkup(const Inspecto
 
     stream << "<div style='margin-left: " << indentPixels << "px;'>";
     stream << buildInspectorFieldMarkup(
-        makeDataAssetEditorFieldElementId(binding.fieldKey, nodePath),
+        makeDataAssetEditorFieldElementId(binding, nodePath),
         node.name + " (" + dataAssetNodeKindLabel(node.kind) + ")",
         asset::editor::fieldKindFromDataAssetValueKind(node.kind),
         asset::editor::serializedValueFromDataAssetNode(node),
@@ -740,15 +861,17 @@ std::string SceneEditorController::buildDataAssetEditorNodeMarkup(const Inspecto
 
 void SceneEditorController::refreshDataAssetEditorPresentation(const InspectorFieldBinding& binding)
 {
-    if (m_document == nullptr || !isDataAssetSceneField(binding) || m_scene == nullptr)
+    if (m_document == nullptr || !isDataAssetInspectorField(binding))
         return;
 
-    const std::string currentAssetPath = m_scene->getDataAssetPath();
+    const std::optional<std::string> currentAssetPath = getDataAssetInspectorAssetPath(binding);
+    if (!currentAssetPath.has_value())
+        return;
 
-    if (Rml::Element* icon = m_document->GetElementById(makeDataAssetEditorIconElementId(binding.fieldKey)))
+    if (Rml::Element* icon = m_document->GetElementById(makeDataAssetEditorIconElementId(binding)))
         icon->SetInnerRML(isDataAssetEditorCollapsed(binding) ? ">" : "v");
 
-    if (Rml::Element* body = m_document->GetElementById(makeDataAssetEditorBodyElementId(binding.fieldKey)))
+    if (Rml::Element* body = m_document->GetElementById(makeDataAssetEditorBodyElementId(binding)))
     {
         if (isDataAssetEditorCollapsed(binding))
         {
@@ -757,7 +880,7 @@ void SceneEditorController::refreshDataAssetEditorPresentation(const InspectorFi
             return;
         }
 
-        const asset::editor::DataAssetEditorModel editorModel = asset::editor::loadDataAssetEditorModel(currentAssetPath);
+        const asset::editor::DataAssetEditorModel editorModel = asset::editor::loadDataAssetEditorModel(*currentAssetPath);
         const std::string nextStructureSignature = buildDataAssetEditorStructureSignature(editorModel);
         const std::string currentStructureSignature = body->GetAttribute<Rml::String>("data-data-structure", "").c_str();
 
@@ -766,7 +889,7 @@ void SceneEditorController::refreshDataAssetEditorPresentation(const InspectorFi
             if (elementIsFocusedOrContainsFocus(m_context, body))
                 return;
 
-            body->SetInnerRML(buildDataAssetEditorBodyMarkup(binding, currentAssetPath));
+            body->SetInnerRML(buildDataAssetEditorBodyMarkup(binding, *currentAssetPath));
             body->SetAttribute("data-data-structure", nextStructureSignature);
             return;
         }
@@ -785,7 +908,7 @@ void SceneEditorController::refreshDataAssetEditorPresentation(const InspectorFi
             patchDataAssetEditorFieldValue(
                 m_document,
                 m_context,
-                makeDataAssetEditorFieldElementId(binding.fieldKey, nodePath),
+                makeDataAssetEditorFieldElementId(binding, nodePath),
                 formatSerializedValueLocal(asset::editor::serializedValueFromDataAssetNode(node)));
         };
 
@@ -838,14 +961,7 @@ void SceneEditorController::pollRuntimePreviewDataAssetState()
         return;
     }
 
-    if (asset::AssetManager::normalizeRelativePath(m_scene->getDataAssetPath()) == normalizedDataAssetPath)
-    {
-        InspectorFieldBinding binding;
-        binding.target = InspectorFieldBinding::Target::Scene;
-        binding.nodeId = 0;
-        binding.fieldKey = "dataAsset";
-        refreshDataAssetEditorPresentation(binding);
-    }
+    refreshVisibleDataAssetEditorsForAsset(normalizedDataAssetPath);
 
     m_runtimeDataAssetStateSequence = nextSequence;
 }

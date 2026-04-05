@@ -8,6 +8,7 @@
 #include <common/shader/Shader.hpp>
 #include "gameobject/component/Mesh.hpp"
 #include "gameobject/component/MeshRenderer.hpp"
+#include "gameobject/component/ScriptComponent.hpp"
 #include "gameobject/component/MeshNoiseDeformPerlinHeight.hpp"
 #include "physics/RigidBody.hpp"
 #include "InputProccessor.hpp"
@@ -225,6 +226,7 @@ public:
         using namespace component;
 
         (void)component::MeshRenderer::componentDescriptor();
+        (void)component::ScriptComponent::componentDescriptor();
         (void)physics::RigidBody::componentDescriptor();
         (void)physics::SphereCollider::componentDescriptor();
         (void)physics::PlaneCollider::componentDescriptor();
