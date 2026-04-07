@@ -172,6 +172,7 @@ set(GLUTONY_EDITOR_SUPPORT_SOURCES
     common/ui/SceneEditorDataAssetEditor.cpp
     common/ui/SceneEditorMaterialAssetEditor.cpp
     common/ui/SceneViewportOverlay.cpp
+    common/ui/UIBinder.cpp
     common/ui/UIRenderer.cpp
     common/ui/UiBuilderController.cpp
     common/ui/widget/Widget.cpp

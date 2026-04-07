@@ -10,6 +10,29 @@ namespace UI
     class MenuEntry : public AUIElement
     {
     protected:
+        std::string buttonDomIdOverride;
+        std::string dropdownDomIdOverride;
+
+        const char* getElementType() const override
+        {
+            return "menu";
+        }
+
+        std::string buildRML(const std::string& hierarchicalId) const override
+        {
+            std::ostringstream stream;
+            const std::string buttonId = buttonDomIdOverride.empty() ? hierarchicalId + ".button" : buttonDomIdOverride;
+            const std::string dropdownId = dropdownDomIdOverride.empty() ? hierarchicalId + ".dropdown" : dropdownDomIdOverride;
+
+            stream << "<div" << buildCommonAttributes(hierarchicalId) << " data-ui-kind='menu-entry'>";
+            stream << "<div id='" << escapeRML(buttonId) << "' data-ui-slot='menu-button' class='builder_menu_button'>" << escapeRML(title) << "</div>";
+            stream << "<div id='" << escapeRML(dropdownId) << "' data-ui-slot='menu-dropdown' class='builder_menu_dropdown' data-ui-expanded='" << (expanded ? "true" : "false") << "' style='display: " << (expanded ? "block" : "none") << ";'>";
+            stream << renderChildren(hierarchicalId);
+            stream << "</div>";
+            stream << "</div>";
+            return stream.str();
+        }
+
         std::string title;
         bool expanded = false;
 
@@ -18,6 +41,7 @@ namespace UI
             : AUIElement(width, height, Direction::VERTICAL),
               title(title)
         {
+                        addClassName("builder_menu");
         }
 
         void setTitle(const std::string& value)
@@ -40,16 +64,14 @@ namespace UI
             return expanded;
         }
 
-        std::string getRML() const override
+        void setButtonDomIdOverride(const std::string& value)
         {
-            std::ostringstream stream;
-            stream << "<div" << buildCommonAttributes() << " data-ui-kind='menu-entry'>";
-            stream << "<div data-ui-slot='menu-button'>" << escapeRML(title) << "</div>";
-            stream << "<div data-ui-slot='menu-dropdown' data-ui-expanded='" << (expanded ? "true" : "false") << "'>";
-            stream << getChildrenRML();
-            stream << "</div>";
-            stream << "</div>";
-            return stream.str();
+            buttonDomIdOverride = value;
+        }
+
+        void setDropdownDomIdOverride(const std::string& value)
+        {
+            dropdownDomIdOverride = value;
         }
     };
 }

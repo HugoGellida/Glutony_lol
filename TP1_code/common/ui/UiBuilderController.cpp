@@ -4,6 +4,17 @@
 
 #include <RmlUi/Core/Elements/ElementFormControl.h>
 
+#include <common/UI/Container.hpp>
+#include <common/UI/MarkupBlock.hpp>
+#include <common/UI/Panel.hpp>
+#include <common/UI/PanelHeader.hpp>
+#include <common/UI/Placeholder.hpp>
+#include <common/UI/SplitContainer.hpp>
+#include <common/UI/TextBlock.hpp>
+#include <common/UI/ToolbarButton.hpp>
+#include <common/UI/ToolbarGroup.hpp>
+
+
 #include <common/ui/widget/WidgetRegistry.hpp>
 
 #include <common/platform/NativeFileDialog.hpp>
@@ -70,6 +81,265 @@ std::string escapeRmlText(const std::string& value)
     }
     return escaped;
 }
+
+std::string buildPlaceholderPanelMarkup(const std::string& panelTitle, const std::string& placeholderTitle, const std::string& placeholderText)
+{
+    UI::Panel panel(0, 0);
+    UI::PanelHeader header(0, 0, panelTitle);
+    UI::Placeholder placeholder(0, 0);
+    placeholder.setTitle(placeholderTitle);
+    placeholder.setDescription(placeholderText);
+
+    panel.addChild(&header);
+    panel.addChild(&placeholder);
+    return panel.getRML();
+}
+
+std::string buildPanelShellMarkup(
+    const std::string& panelTitle,
+    const std::string& bodyMarkup,
+    const std::string& bodyClassName,
+    const std::string& shellClassName = "",
+    const std::string& bodyDomId = "")
+{
+    UI::Panel shell(0, 0);
+    if (!shellClassName.empty())
+        shell.addClassName(shellClassName);
+    if (!bodyClassName.empty())
+        shell.addContentClassName(bodyClassName);
+    if (!bodyDomId.empty())
+        shell.setContentDomIdOverride(bodyDomId);
+
+    UI::PanelHeader header(0, 0, panelTitle);
+
+    UI::MarkupBlock bodyBlock(0, 0, bodyMarkup);
+
+    shell.addChild(&header);
+    shell.addChild(&bodyBlock);
+    return shell.getRML();
+}
+
+std::string buildPreviewShellMarkup()
+{
+    UI::Container shell(0, 0, UI::VERTICAL);
+    shell.addClassName("preview_shell");
+
+    UI::Container toolbar(0, 0, UI::HORIZONTAL);
+    toolbar.addClassName("preview_toolbar");
+
+    UI::ToolbarGroup zoomGroup(0, 0);
+    UI::ToolbarButton zoomOut(0, 0, "-");
+    zoomOut.setDomIdOverride("preview_zoom_out");
+    UI::TextBlock zoomLabel(0, 0, "100%");
+    zoomLabel.setDomIdOverride("preview_zoom_label");
+    zoomLabel.addClassName("preview_zoom_label");
+    UI::ToolbarButton zoomIn(0, 0, "+");
+    zoomIn.setDomIdOverride("preview_zoom_in");
+    zoomGroup.addChild(&zoomOut);
+    zoomGroup.addChild(&zoomLabel);
+    zoomGroup.addChild(&zoomIn);
+
+    UI::ToolbarGroup modeGroup(0, 0);
+    UI::ToolbarButton modeToggle(0, 0, "Render");
+    modeToggle.setDomIdOverride("preview_mode_toggle");
+    UI::ToolbarButton zoomFit(0, 0, "Fit");
+    zoomFit.setDomIdOverride("preview_zoom_fit");
+    modeGroup.addChild(&modeToggle);
+    modeGroup.addChild(&zoomFit);
+
+    toolbar.addChild(&zoomGroup);
+    toolbar.addChild(&modeGroup);
+
+    UI::Container canvas(0, 0, UI::VERTICAL);
+    canvas.setDomIdOverride("preview_canvas");
+    canvas.addClassName("preview_canvas");
+
+    UI::Container window(0, 0, UI::VERTICAL);
+    window.setDomIdOverride("preview_window");
+    window.addClassName("preview_window");
+
+    UI::Container host(0, 0, UI::VERTICAL);
+    host.setDomIdOverride("preview_host");
+    host.addClassName("preview_host");
+
+    UI::Container resizeRight(0, 0, UI::VERTICAL);
+    resizeRight.setDomIdOverride("preview_resize_right");
+    resizeRight.addClassName("preview_resize_handle");
+    resizeRight.addClassName("preview_resize_right");
+
+    UI::Container resizeBottom(0, 0, UI::VERTICAL);
+    resizeBottom.setDomIdOverride("preview_resize_bottom");
+    resizeBottom.addClassName("preview_resize_handle");
+    resizeBottom.addClassName("preview_resize_bottom");
+
+    UI::Container resizeCorner(0, 0, UI::VERTICAL);
+    resizeCorner.setDomIdOverride("preview_resize_corner");
+    resizeCorner.addClassName("preview_resize_handle");
+    resizeCorner.addClassName("preview_resize_corner");
+
+    window.addChild(&host);
+    window.addChild(&resizeRight);
+    window.addChild(&resizeBottom);
+    window.addChild(&resizeCorner);
+    canvas.addChild(&window);
+
+    shell.addChild(&toolbar);
+    shell.addChild(&canvas);
+    return shell.getRML();
+}
+
+void applyPreviewShell(UIBinder& binder, Rml::Element* mountPoint)
+{
+    if (mountPoint == nullptr)
+        return;
+
+    UI::Container shell(0, 0, UI::VERTICAL);
+    shell.addClassName("preview_shell");
+
+    UI::Container toolbar(0, 0, UI::HORIZONTAL);
+    toolbar.addClassName("preview_toolbar");
+
+    UI::ToolbarGroup zoomGroup(0, 0);
+    UI::ToolbarButton zoomOut(0, 0, "-");
+    zoomOut.setDomIdOverride("preview_zoom_out");
+    UI::TextBlock zoomLabel(0, 0, "100%");
+    zoomLabel.setDomIdOverride("preview_zoom_label");
+    zoomLabel.addClassName("preview_zoom_label");
+    UI::ToolbarButton zoomIn(0, 0, "+");
+    zoomIn.setDomIdOverride("preview_zoom_in");
+    zoomGroup.addChild(&zoomOut);
+    zoomGroup.addChild(&zoomLabel);
+    zoomGroup.addChild(&zoomIn);
+
+    UI::ToolbarGroup modeGroup(0, 0);
+    UI::ToolbarButton modeToggle(0, 0, "Render");
+    modeToggle.setDomIdOverride("preview_mode_toggle");
+    UI::ToolbarButton zoomFit(0, 0, "Fit");
+    zoomFit.setDomIdOverride("preview_zoom_fit");
+    modeGroup.addChild(&modeToggle);
+    modeGroup.addChild(&zoomFit);
+
+    toolbar.addChild(&zoomGroup);
+    toolbar.addChild(&modeGroup);
+
+    UI::Container canvas(0, 0, UI::VERTICAL);
+    canvas.setDomIdOverride("preview_canvas");
+    canvas.addClassName("preview_canvas");
+
+    UI::Container window(0, 0, UI::VERTICAL);
+    window.setDomIdOverride("preview_window");
+    window.addClassName("preview_window");
+
+    UI::Container host(0, 0, UI::VERTICAL);
+    host.setDomIdOverride("preview_host");
+    host.addClassName("preview_host");
+
+    UI::Container resizeRight(0, 0, UI::VERTICAL);
+    resizeRight.setDomIdOverride("preview_resize_right");
+    resizeRight.addClassName("preview_resize_handle");
+    resizeRight.addClassName("preview_resize_right");
+
+    UI::Container resizeBottom(0, 0, UI::VERTICAL);
+    resizeBottom.setDomIdOverride("preview_resize_bottom");
+    resizeBottom.addClassName("preview_resize_handle");
+    resizeBottom.addClassName("preview_resize_bottom");
+
+    UI::Container resizeCorner(0, 0, UI::VERTICAL);
+    resizeCorner.setDomIdOverride("preview_resize_corner");
+    resizeCorner.addClassName("preview_resize_handle");
+    resizeCorner.addClassName("preview_resize_corner");
+
+    window.addChild(&host);
+    window.addChild(&resizeRight);
+    window.addChild(&resizeBottom);
+    window.addChild(&resizeCorner);
+    canvas.addChild(&window);
+
+    shell.addChild(&toolbar);
+    shell.addChild(&canvas);
+    binder.apply(mountPoint, shell);
+}
+
+std::string buildUiBuilderLeftColumnMarkup()
+{
+    UI::SplitContainer split(0, 0, UI::VERTICAL);
+    split.setSplitterDomIdOverride("left_horizontal_splitter");
+    split.addSplitterClassName("splitter_horizontal_nested");
+
+    UI::Container topHost(0, 0, UI::VERTICAL);
+    topHost.setDomIdOverride("left_top_panel");
+    topHost.addClassName("panel");
+    topHost.addClassName("panel_nested");
+
+    UI::Panel topPanel(0, 0);
+    UI::PanelHeader topHeader(0, 0, "Hierarchy");
+    UI::Placeholder topPlaceholder(0, 0);
+    topPlaceholder.setTitle("Document tree");
+    topPlaceholder.setDescription("The live hierarchy of the previewed document will appear here.");
+    topPanel.addChild(&topHeader);
+    topPanel.addChild(&topPlaceholder);
+    topHost.addChild(&topPanel);
+
+    UI::Container bottomHost(0, 0, UI::VERTICAL);
+    bottomHost.setDomIdOverride("left_bottom_panel");
+    bottomHost.addClassName("panel");
+    bottomHost.addClassName("panel_nested");
+
+    UI::Panel bottomPanel(0, 0);
+    UI::PanelHeader bottomHeader(0, 0, "Widgets & Templates");
+    UI::Placeholder bottomPlaceholder(0, 0);
+    bottomPlaceholder.setTitle("Widget catalog");
+    bottomPlaceholder.setDescription("Reusable widgets and templates will be listed here for drag and drop.");
+    bottomPanel.addChild(&bottomHeader);
+    bottomPanel.addChild(&bottomPlaceholder);
+    bottomHost.addChild(&bottomPanel);
+
+    split.addChild(&topHost);
+    split.addChild(&bottomHost);
+    return split.getRML();
+}
+
+void applyUiBuilderLeftColumnShell(UIBinder& binder, Rml::Element* mountPoint)
+{
+    if (mountPoint == nullptr)
+        return;
+
+    UI::SplitContainer split(0, 0, UI::VERTICAL);
+    split.setSplitterDomIdOverride("left_horizontal_splitter");
+    split.addSplitterClassName("splitter_horizontal_nested");
+
+    UI::Container topHost(0, 0, UI::VERTICAL);
+    topHost.setDomIdOverride("left_top_panel");
+    topHost.addClassName("panel");
+    topHost.addClassName("panel_nested");
+
+    UI::Panel topPanel(0, 0);
+    UI::PanelHeader topHeader(0, 0, "Hierarchy");
+    UI::Placeholder topPlaceholder(0, 0);
+    topPlaceholder.setTitle("Document tree");
+    topPlaceholder.setDescription("The live hierarchy of the previewed document will appear here.");
+    topPanel.addChild(&topHeader);
+    topPanel.addChild(&topPlaceholder);
+    topHost.addChild(&topPanel);
+
+    UI::Container bottomHost(0, 0, UI::VERTICAL);
+    bottomHost.setDomIdOverride("left_bottom_panel");
+    bottomHost.addClassName("panel");
+    bottomHost.addClassName("panel_nested");
+
+    UI::Panel bottomPanel(0, 0);
+    UI::PanelHeader bottomHeader(0, 0, "Widgets & Templates");
+    UI::Placeholder bottomPlaceholder(0, 0);
+    bottomPlaceholder.setTitle("Widget catalog");
+    bottomPlaceholder.setDescription("Reusable widgets and templates will be listed here for drag and drop.");
+    bottomPanel.addChild(&bottomHeader);
+    bottomPanel.addChild(&bottomPlaceholder);
+    bottomHost.addChild(&bottomPanel);
+
+    split.addChild(&topHost);
+    split.addChild(&bottomHost);
+    binder.apply(mountPoint, split);
+}
 }
 
 bool UiBuilderController::initialize(Rml::Context* context)
@@ -133,6 +403,8 @@ void UiBuilderController::shutdown()
 {
     unloadPreviewDocument();
     m_previewRenderer.shutdown();
+    m_leftShellBinder.clear();
+    m_previewShellBinder.clear();
     detachListeners();
 
     if (m_context != nullptr && m_document != nullptr)
@@ -987,59 +1259,16 @@ void UiBuilderController::refreshModePresentation()
         m_builderHeader == nullptr)
         return;
 
-    m_leftPanel->SetInnerRML(
-        R"RML(<div id='left_top_panel' class='panel panel_nested'>
-    <div class='panel_shell'>
-        <div class='panel_header'>Hierarchy</div>
-        <div class='panel_body'>
-            <div class='placeholder_block'>
-                <div class='placeholder_title'>Document tree</div>
-                <div class='placeholder_text'>The live hierarchy of the previewed document will appear here.</div>
-            </div>
-        </div>
-    </div>
-</div>
-<div id='left_horizontal_splitter' class='splitter splitter_horizontal_nested'></div>
-<div id='left_bottom_panel' class='panel panel_nested'>
-    <div class='panel_shell'>
-        <div class='panel_header'>Widgets &amp; Templates</div>
-        <div class='panel_body'>
-            <div class='placeholder_block'>
-                <div class='placeholder_title'>Widget catalog</div>
-                <div class='placeholder_text'>Reusable widgets and templates will be listed here for drag and drop.</div>
-            </div>
-        </div>
-    </div>
-</div>)RML"
-    );
+    applyUiBuilderLeftColumnShell(m_leftShellBinder, m_leftPanel);
 
     m_rightPanel->SetInnerRML(
-        R"RML(<div class='panel_shell'><div class='panel_header'>Inspector</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>Inspector panel</div><div class='placeholder_text'>The selected UI element will expose its editable properties here.</div></div></div></div>)RML"
+        buildPlaceholderPanelMarkup(
+            "Inspector",
+            "Inspector panel",
+            "The selected UI element will expose its editable properties here.")
     );
 
-    m_viewportPanel->SetInnerRML(
-        R"RML(<div class='preview_shell'>
-    <div class='preview_toolbar'>
-        <div class='preview_toolbar_group'>
-            <div id='preview_zoom_out' class='preview_toolbar_button'>-</div>
-            <div id='preview_zoom_label' class='preview_zoom_label'>100%</div>
-            <div id='preview_zoom_in' class='preview_toolbar_button'>+</div>
-        </div>
-        <div class='preview_toolbar_group'>
-            <div id='preview_mode_toggle' class='preview_toolbar_button'>Render</div>
-            <div id='preview_zoom_fit' class='preview_toolbar_button'>Fit</div>
-        </div>
-    </div>
-    <div id='preview_canvas' class='preview_canvas'>
-        <div id='preview_window' class='preview_window'>
-            <div id='preview_host' class='preview_host'></div>
-            <div id='preview_resize_right' class='preview_resize_handle preview_resize_right'></div>
-            <div id='preview_resize_bottom' class='preview_resize_handle preview_resize_bottom'></div>
-            <div id='preview_resize_corner' class='preview_resize_handle preview_resize_corner'></div>
-        </div>
-    </div>
-</div>)RML"
-    );
+    applyPreviewShell(m_previewShellBinder, m_viewportPanel);
 
     m_leftTopPanel = m_document->GetElementById("left_top_panel");
     m_leftHorizontalSplitter = m_document->GetElementById("left_horizontal_splitter");
@@ -1146,7 +1375,10 @@ std::string UiBuilderController::buildInspectorPanelMarkup() const
     const UiHierarchyNode* selectedNode = findSelectedHierarchyNode();
     if (selectedNode == nullptr || selectedNode->id == m_hierarchyRoot.id)
     {
-        return R"RML(<div class='panel_shell'><div class='panel_header'>Inspector</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>Root</div><div class='placeholder_text'>Select a non-root widget to inspect its metadata and widget-specific settings.</div></div></div></div>)RML";
+        return buildPlaceholderPanelMarkup(
+            "Inspector",
+            "Root",
+            "Select a non-root widget to inspect its metadata and widget-specific settings.");
     }
 
     const ui::widget::Widget* widget = ui::widget::findWidgetByKey(selectedNode->elementKey);
@@ -1154,7 +1386,7 @@ std::string UiBuilderController::buildInspectorPanelMarkup() const
     if (widget == nullptr)
     {
         const std::string fallback = std::string("<div class='placeholder_block'><div class='placeholder_title'>") + escapeRmlText(selectedNode->label) + "</div><div class='placeholder_text'>Unknown widget type.</div></div>";
-        return std::string("<div class='panel_shell'><div class='panel_header'>Inspector</div><div class='panel_body'>") + fallback + "</div></div>";
+        return buildPanelShellMarkup("Inspector", fallback, "inspector_panel_body");
     }
 
     const ui::widget::InspectorModel model = widget->buildInspectorModel(selectedNode->label, selectedNode->properties);
@@ -1217,17 +1449,24 @@ std::string UiBuilderController::buildInspectorPanelMarkup() const
         bodyStream << "</div>";
     }
 
-    return std::string("<div class='panel_shell'><div class='panel_header'>Inspector</div><div class='panel_body inspector_panel_body'>") + bodyStream.str() + "</div></div>";
+    return buildPanelShellMarkup("Inspector", bodyStream.str(), "inspector_panel_body");
 }
 
 std::string UiBuilderController::buildHierarchyMarkup() const
 {
-    return std::string(
-    "<div class='panel_shell hierarchy_shell'><div class='panel_header'>Hierarchy</div><div class='panel_body hierarchy_body'>") +
-        buildHierarchyNodeMarkup(m_hierarchyRoot, 0) +
-    "</div>" +
-    buildHierarchyContextMenuMarkup() +
-    "</div>";
+    UI::Panel shell(0, 0);
+    shell.addClassName("hierarchy_shell");
+    shell.addContentClassName("hierarchy_body");
+
+    UI::PanelHeader header(0, 0, "Hierarchy");
+
+    UI::MarkupBlock hierarchyBody(0, 0, buildHierarchyNodeMarkup(m_hierarchyRoot, 0));
+    UI::MarkupBlock contextMenu(0, 0, buildHierarchyContextMenuMarkup());
+
+    shell.addChild(&header);
+    shell.addChild(&hierarchyBody);
+    shell.addChild(&contextMenu);
+    return shell.getRML();
 }
 
 std::string UiBuilderController::buildHierarchyNodeMarkup(const UiHierarchyNode& node, int depth) const
@@ -1274,7 +1513,6 @@ std::string UiBuilderController::buildHierarchyNodeMarkup(const UiHierarchyNode&
 std::string UiBuilderController::buildWidgetCatalogMarkup() const
 {
     std::ostringstream stream;
-    stream << "<div class='panel_shell'><div class='panel_header'>Elements &amp; Classes</div><div class='panel_body widget_catalog_body'>";
     for (const ui::widget::Widget* widget : ui::widget::getWidgets())
     {
         stream << "<div id='widget_catalog_item_" << widget->key() << "' class='widget_catalog_item'>";
@@ -1282,8 +1520,7 @@ std::string UiBuilderController::buildWidgetCatalogMarkup() const
         stream << "<div class='widget_catalog_text'>" << widget->description() << "</div>";
         stream << "</div>";
     }
-    stream << "</div></div>";
-    return stream.str();
+    return buildPanelShellMarkup("Elements &amp; Classes", stream.str(), "widget_catalog_body");
 }
 
 std::string UiBuilderController::buildHierarchyContextMenuMarkup() const

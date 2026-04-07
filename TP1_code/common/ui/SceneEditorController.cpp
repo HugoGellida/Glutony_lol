@@ -2,6 +2,22 @@
 
 #include "EditorUiDocuments.hpp"
 
+#include <common/UI/MenuBar.hpp>
+#include <common/UI/MenuEntry.hpp>
+#include <common/UI/MenuItem.hpp>
+#include <common/UI/MarkupBlock.hpp>
+#include <common/UI/Placeholder.hpp>
+#include <common/UI/Panel.hpp>
+#include <common/UI/PanelAction.hpp>
+#include <common/UI/PanelHeader.hpp>
+#include <common/UI/TabButton.hpp>
+#include <common/UI/TabHeader.hpp>
+#include <common/UI/TabItem.hpp>
+#include <common/UI/TabPanel.hpp>
+#include <common/UI/TextBlock.hpp>
+#include <common/UI/ToolbarButton.hpp>
+#include <common/UI/ToolbarGroup.hpp>
+
 #include <common/app/RuntimePreviewSession.hpp>
 #include <common/platform/NativeFileDialog.hpp>
 #include <common/Scene.hpp>
@@ -78,6 +94,88 @@ int estimateAddComponentMenuHeight()
     }
 
     return estimateSingleActionMenuHeight(descriptorCount);
+}
+
+std::string buildSceneEditorMenuMarkup(bool isFileMenuOpen, bool isEditMenuOpen, bool isWindowMenuOpen)
+{
+    UI::MenuBar menuBar(0, 0);
+    menuBar.setDomIdOverride("scene_editor_menu_bar");
+    menuBar.setSegmentId("menuBar");
+
+    UI::MenuEntry fileMenu(0, 0, "File");
+    fileMenu.setDomIdOverride("scene_menu_file");
+    fileMenu.setButtonDomIdOverride("scene_menu_file_button");
+    fileMenu.setDropdownDomIdOverride("scene_menu_file_dropdown");
+    fileMenu.setExpanded(isFileMenuOpen);
+
+    UI::MenuItem saveAs(0, 0, "Save Scene As");
+    saveAs.setDomIdOverride("scene_menu_save_as");
+    UI::MenuItem loadSave(0, 0, "Load Save");
+    loadSave.setDomIdOverride("scene_menu_load_save");
+    fileMenu.addChild(&saveAs);
+    fileMenu.addChild(&loadSave);
+
+    UI::MenuEntry editMenu(0, 0, "Edit");
+    editMenu.setDomIdOverride("scene_menu_edit");
+    editMenu.setButtonDomIdOverride("scene_menu_edit_button");
+    editMenu.setDropdownDomIdOverride("scene_menu_edit_dropdown");
+    editMenu.setExpanded(isEditMenuOpen);
+
+    UI::MenuItem buildItem(0, 0, "Build");
+    buildItem.setDomIdOverride("scene_menu_build");
+    UI::MenuItem buildRunItem(0, 0, "Build & Run");
+    buildRunItem.setDomIdOverride("scene_menu_build_run");
+    editMenu.addChild(&buildItem);
+    editMenu.addChild(&buildRunItem);
+
+    UI::MenuEntry windowMenu(0, 0, "Window");
+    windowMenu.setDomIdOverride("builder_menu_window");
+    windowMenu.setButtonDomIdOverride("builder_menu_window_button");
+    windowMenu.setDropdownDomIdOverride("builder_menu_window_dropdown");
+    windowMenu.setExpanded(isWindowMenuOpen);
+
+    UI::MenuItem openUiBuilder(0, 0, "UI Builder");
+    openUiBuilder.setDomIdOverride("builder_menu_open_ui_builder");
+    windowMenu.addChild(&openUiBuilder);
+
+    menuBar.addChild(&fileMenu);
+    menuBar.addChild(&editMenu);
+    menuBar.addChild(&windowMenu);
+    return menuBar.getRML();
+}
+
+std::string buildInspectorShellMarkup(const std::string& bodyMarkup, const std::string& overlayMarkup)
+{
+    UI::Panel panel(0, 0);
+    panel.addClassName("inspector_shell");
+
+    UI::PanelHeader header(0, 0, "Inspector");
+    UI::Container body(0, 0, UI::VERTICAL);
+    body.setDomIdOverride("scene_inspector_panel_body");
+    body.addClassName("inspector_panel_body");
+
+    UI::MarkupBlock bodyMarkupBlock(0, 0, bodyMarkup);
+    body.addChild(&bodyMarkupBlock);
+
+    UI::Container overlay(0, 0, UI::VERTICAL);
+    overlay.setDomIdOverride("scene_inspector_overlay");
+    overlay.addClassName("inspector_overlay");
+
+    UI::MarkupBlock overlayMarkupBlock(0, 0, overlayMarkup);
+    overlay.addChild(&overlayMarkupBlock);
+
+    panel.addChild(&header);
+    panel.addChild(&body);
+    panel.addChild(&overlay);
+    return panel.getRML();
+}
+
+std::string buildInspectorPlaceholderMarkup(const std::string& title, const std::string& description)
+{
+    UI::Placeholder placeholder(0, 0);
+    placeholder.setTitle(title);
+    placeholder.setDescription(description);
+    return placeholder.getRML();
 }
 
 std::string shellQuote(const std::string& value)
@@ -2236,23 +2334,7 @@ void SceneEditorController::refreshPresentation()
     if (m_builderHeader == nullptr || m_leftPanel == nullptr || m_rightPanel == nullptr || m_bottomPanel == nullptr)
         return;
 
-    std::ostringstream headerStream;
-    headerStream << "<div id='scene_editor_menu_bar' class='builder_menu_bar'>";
-    headerStream << "<div id='scene_menu_file' class='builder_menu'><div id='scene_menu_file_button' class='builder_menu_button'>File</div>";
-    headerStream << "<div id='scene_menu_file_dropdown' class='builder_menu_dropdown' style='display: " << (m_isFileMenuOpen ? "block" : "none") << ";'>";
-    headerStream << "<div id='scene_menu_save_as' class='builder_menu_item'>Save Scene As</div>";
-    headerStream << "<div id='scene_menu_load_save' class='builder_menu_item'>Load Save</div>";
-    headerStream << "</div></div>";
-    headerStream << "<div id='scene_menu_edit' class='builder_menu'><div id='scene_menu_edit_button' class='builder_menu_button'>Edit</div>";
-    headerStream << "<div id='scene_menu_edit_dropdown' class='builder_menu_dropdown' style='display: " << (m_isEditMenuOpen ? "block" : "none") << ";'>";
-    headerStream << "<div id='scene_menu_build' class='builder_menu_item'>Build</div>";
-    headerStream << "<div id='scene_menu_build_run' class='builder_menu_item'>Build &amp; Run</div>";
-    headerStream << "</div></div>";
-    headerStream << "<div id='builder_menu_window' class='builder_menu'><div id='builder_menu_window_button' class='builder_menu_button'>Window</div>";
-    headerStream << "<div id='builder_menu_window_dropdown' class='builder_menu_dropdown' style='display: " << (m_isWindowMenuOpen ? "block" : "none") << ";'>";
-    headerStream << "<div id='builder_menu_open_ui_builder' class='builder_menu_item'>UI Builder</div>";
-    headerStream << "</div></div></div>";
-    m_builderHeader->SetInnerRML(headerStream.str());
+    m_builderHeader->SetInnerRML(buildSceneEditorMenuMarkup(m_isFileMenuOpen, m_isEditMenuOpen, m_isWindowMenuOpen));
 
     m_leftPanel->SetInnerRML(
         buildHierarchyMarkup()
@@ -2684,14 +2766,23 @@ void SceneEditorController::refreshCachedRects()
 
 std::string SceneEditorController::buildHierarchyMarkup() const
 {
-    std::ostringstream stream;
-    stream << "<div class='panel_shell hierarchy_shell'><div class='panel_header panel_header_with_action'><div>Scene</div><div id='scene_hierarchy_add' class='panel_header_action'>+</div></div><div class='panel_body hierarchy_body'>";
+    UI::Panel panel(0, 0);
+    panel.addClassName("hierarchy_shell");
+    panel.setContentDomIdOverride("scene_hierarchy_body");
+    panel.addContentClassName("hierarchy_body");
 
-    stream << buildHierarchyNodeMarkup(m_hierarchyRoot, 0);
+    UI::PanelHeader header(0, 0, "Scene");
+    header.addClassName("panel_header_with_action");
 
-    stream << buildHierarchyContextMenuMarkup();
-    stream << "</div></div>";
-    return stream.str();
+    UI::PanelAction addAction(0, 0, "+");
+    addAction.setDomIdOverride("scene_hierarchy_add");
+    header.addChild(&addAction);
+
+    UI::MarkupBlock body(0, 0, buildHierarchyNodeMarkup(m_hierarchyRoot, 0) + buildHierarchyContextMenuMarkup());
+
+    panel.addChild(&header);
+    panel.addChild(&body);
+    return panel.getRML();
 }
 
 std::string SceneEditorController::buildHierarchyContextMenuMarkup() const
@@ -2737,7 +2828,9 @@ std::string SceneEditorController::buildInspectorMarkup() const
     const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
     if (selectedNode == nullptr)
     {
-        return R"RML(<div class='panel_shell inspector_shell'><div class='panel_header'>Inspector</div><div class='panel_body'><div class='placeholder_block'><div class='placeholder_title'>Inspector</div><div class='placeholder_text'>Select a game object in the scene hierarchy.</div></div></div><div id='scene_inspector_overlay' class='inspector_overlay'></div></div>)RML";
+        return buildInspectorShellMarkup(
+            buildInspectorPlaceholderMarkup("Inspector", "Select a game object in the scene hierarchy."),
+            std::string());
     }
 
     if (selectedNode->gameObject == nullptr)
@@ -2750,7 +2843,6 @@ std::string SceneEditorController::buildInspectorMarkup() const
         dataAssetBinding.fieldKey = "dataAsset";
 
         std::ostringstream stream;
-        stream << "<div class='panel_shell inspector_shell'><div class='panel_header'>Inspector</div><div id='scene_inspector_panel_body' class='panel_body inspector_panel_body'>";
         stream << "<div class='inspector_summary'>";
         stream << "<div class='inspector_summary_title'>" << escapeRmlText(selectedNode->label) << "</div>";
         stream << "<div class='inspector_summary_text'>Scene Root</div>";
@@ -2775,10 +2867,7 @@ std::string SceneEditorController::buildInspectorMarkup() const
             dataAssetFieldId == m_hoveredInspectorFieldId);
         stream << buildDataAssetEditorMarkup(dataAssetBinding, m_scene != nullptr ? m_scene->getDataAssetPath() : std::string());
         stream << "</div>";
-        stream << "</div><div id='scene_inspector_overlay' class='inspector_overlay'>";
-        stream << buildInspectorOverlayMarkup();
-        stream << "</div></div>";
-        return stream.str();
+        return buildInspectorShellMarkup(stream.str(), buildInspectorOverlayMarkup());
     }
 
     const glm::vec3& position = selectedNode->gameObject->transform.getPosition();
@@ -2786,7 +2875,6 @@ std::string SceneEditorController::buildInspectorMarkup() const
     const glm::vec3& scale = selectedNode->gameObject->transform.getScale();
 
     std::ostringstream stream;
-    stream << "<div class='panel_shell inspector_shell'><div class='panel_header'>Inspector</div><div id='scene_inspector_panel_body' class='panel_body inspector_panel_body'>";
     stream << "<div class='inspector_summary'>";
     stream << "<div class='inspector_summary_title'>" << escapeRmlText(selectedNode->label) << "</div>";
     stream << "<div class='inspector_summary_text'>GameObject</div>";
@@ -2893,10 +2981,7 @@ std::string SceneEditorController::buildInspectorMarkup() const
     }
 
     stream << "<div class='inspector_add_component_row'><div id='scene_inspector_add_component' class='panel_header_action inspector_add_component_button'>Add Component</div></div>";
-    stream << "</div><div id='scene_inspector_overlay' class='inspector_overlay'>";
-    stream << buildInspectorOverlayMarkup();
-    stream << "</div></div>";
-    return stream.str();
+    return buildInspectorShellMarkup(stream.str(), buildInspectorOverlayMarkup());
 }
 
 std::string SceneEditorController::buildInspectorOverlayMarkup() const
@@ -2936,27 +3021,50 @@ std::string SceneEditorController::buildAssetBrowserMarkup() const
 {
     const bool showAssetBrowser = m_bottomPanelTab == BottomPanelTab::AssetBrowser;
 
-    std::ostringstream stream;
-    stream << "<div class='panel_shell'><div class='panel_header panel_header_tabs'>";
-    stream << "<div class='panel_tabs'>";
-    stream << "<div id='scene_bottom_tab_asset_browser' class='panel_tab_button" << (showAssetBrowser ? " active" : "") << "'>Asset Browser</div>";
-    stream << "<div id='scene_bottom_tab_console' class='panel_tab_button" << (!showAssetBrowser ? " active" : "") << "'>Console</div>";
-    stream << "</div>";
-    if (!showAssetBrowser)
-        stream << "<div id='scene_console_clear' class='panel_header_action'>Clear</div>";
-    stream << "</div><div class='panel_body panel_body_no_padding'>";
+    UI::TabPanel panel(0, 0);
+    panel.setContentWithoutPadding(true);
 
+    UI::TabHeader header(0, 0);
+
+    UI::Container tabsWrapper(0, 0, UI::HORIZONTAL);
+    tabsWrapper.addClassName("panel_tabs");
+
+    UI::TabButton assetBrowserButton(0, 0, "Asset Browser");
+    assetBrowserButton.setDomIdOverride("scene_bottom_tab_asset_browser");
+    assetBrowserButton.setActive(showAssetBrowser);
+
+    UI::TabButton consoleButton(0, 0, "Console");
+    consoleButton.setDomIdOverride("scene_bottom_tab_console");
+    consoleButton.setActive(!showAssetBrowser);
+
+    tabsWrapper.addChild(&assetBrowserButton);
+    tabsWrapper.addChild(&consoleButton);
+    header.addChild(&tabsWrapper);
+
+    UI::PanelAction clearAction(0, 0, "Clear");
     if (!showAssetBrowser)
     {
-        stream << buildConsoleMarkup();
-        stream << "</div></div>";
-        return stream.str();
+        clearAction.setDomIdOverride("scene_console_clear");
+        header.addChild(&clearAction);
     }
 
-    stream << "<div id='scene_asset_browser_workspace' class='asset_browser_workspace'>";
-    stream << buildAssetBrowserWorkspaceMarkup();
-    stream << "</div></div></div>";
-    return stream.str();
+    UI::TabItem assetBrowserTab(0, 0, "Asset Browser");
+    UI::MarkupBlock assetBrowserContent(0, 0);
+    assetBrowserContent.setMarkup(
+        std::string("<div id='scene_asset_browser_workspace' class='asset_browser_workspace'>") +
+        buildAssetBrowserWorkspaceMarkup() +
+        "</div>");
+    assetBrowserTab.addChild(&assetBrowserContent);
+
+    UI::TabItem consoleTab(0, 0, "Console");
+    UI::MarkupBlock consoleContent(0, 0, buildConsoleMarkup());
+    consoleTab.addChild(&consoleContent);
+
+    panel.setTabHeader(&header);
+    panel.addTab(&assetBrowserTab);
+    panel.addTab(&consoleTab);
+    panel.setActiveTabIndex(showAssetBrowser ? 0U : 1U);
+    return panel.getRML();
 }
 
 std::string SceneEditorController::buildAssetBrowserWorkspaceMarkup() const
@@ -3118,45 +3226,65 @@ std::string SceneEditorController::buildViewportMarkup() const
     const bool buildRunning = m_activeProcessKind == ActiveProcessKind::Build;
     const bool previewPlayerRunning = m_activeProcessKind == ActiveProcessKind::Player;
 
-    std::ostringstream stream;
-    stream << "<div class='scene_viewport_shell'>";
-    stream << "<div class='scene_viewport_toolbar'><div class='preview_toolbar_group'>";
+    UI::Container shell(0, 0, UI::VERTICAL);
+    shell.addClassName("scene_viewport_shell");
+
+    UI::Container toolbar(0, 0, UI::HORIZONTAL);
+    toolbar.addClassName("scene_viewport_toolbar");
+
+    UI::ToolbarGroup actions(0, 0);
+    UI::ToolbarButton stopButton(0, 0, "Stop");
+    stopButton.setDomIdOverride("scene_stop_button");
+    UI::ToolbarButton pauseButton(0, 0, "Pause");
+    pauseButton.setDomIdOverride("scene_pause_button");
+    UI::ToolbarButton resumeButton(0, 0, "Resume");
+    resumeButton.setDomIdOverride("scene_play_button");
+    UI::ToolbarButton playButton(0, 0, "Play");
+    playButton.setDomIdOverride("scene_play_button");
 
     if (buildRunning)
     {
-        stream << "<div id='scene_stop_button' class='preview_toolbar_button'>Stop</div>";
+        actions.addChild(&stopButton);
+        toolbar.addChild(&actions);
     }
     else if (previewPlayerRunning && m_playbackState == PlaybackState::Playing)
     {
-        stream << "<div id='scene_pause_button' class='preview_toolbar_button'>Pause</div>";
-        stream << "<div id='scene_stop_button' class='preview_toolbar_button'>Stop</div>";
+        actions.addChild(&pauseButton);
+        actions.addChild(&stopButton);
+        toolbar.addChild(&actions);
     }
     else if (previewPlayerRunning && m_playbackState == PlaybackState::Paused)
     {
-        stream << "<div id='scene_play_button' class='preview_toolbar_button'>Resume</div>";
-        stream << "<div id='scene_stop_button' class='preview_toolbar_button'>Stop</div>";
+        actions.addChild(&resumeButton);
+        actions.addChild(&stopButton);
+        toolbar.addChild(&actions);
     }
     else
     {
-        stream << "<div id='scene_play_button' class='preview_toolbar_button'>Play</div>";
+        actions.addChild(&playButton);
+        toolbar.addChild(&actions);
     }
 
-    stream << "</div><div class='preview_toolbar_group'>";
-    stream << "<div class='scene_document_status'>";
-    if (m_currentSceneFilePath.empty())
-        stream << "Untitled scene";
-    else
-        stream << escapeRmlText(m_currentSceneFilePath);
-    stream << "</div>";
+    UI::ToolbarGroup statusGroup(0, 0);
+    UI::TextBlock documentStatus(0, 0, m_currentSceneFilePath.empty() ? std::string("Untitled scene") : m_currentSceneFilePath);
+    documentStatus.addClassName("scene_document_status");
+    UI::TextBlock playbackStatus(0, 0, buildPlaybackStatusText());
+    playbackStatus.setDomIdOverride("scene_playback_status");
+    playbackStatus.addClassName("scene_playback_status");
+    statusGroup.addChild(&documentStatus);
+    statusGroup.addChild(&playbackStatus);
+    toolbar.addChild(&statusGroup);
 
-    (void)buildRunning;
-    (void)previewPlayerRunning;
-    stream << "<div id='scene_playback_status' class='scene_playback_status'>" << escapeRmlText(buildPlaybackStatusText()) << "</div>";
-    stream << "</div></div>";
-    stream << "<div id='scene_viewport_surface' class='scene_viewport_surface'></div>";
-    stream << buildSceneDirtyPromptMarkup();
-    stream << "</div>";
-    return stream.str();
+    UI::Container viewportSurface(0, 0, UI::VERTICAL);
+    viewportSurface.setDomIdOverride("scene_viewport_surface");
+    viewportSurface.addClassName("scene_viewport_surface");
+
+    UI::MarkupBlock dirtyPrompt(0, 0, buildSceneDirtyPromptMarkup());
+
+    shell.addChild(&toolbar);
+    shell.addChild(&viewportSurface);
+    shell.addChild(&dirtyPrompt);
+    return shell.getRML();
 }
 
 std::string SceneEditorController::buildSceneDirtyPromptMarkup() const

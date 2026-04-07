@@ -8,19 +8,26 @@ namespace UI
 {
     class MenuBar : public AUIElement
     {
+    protected:
+        const char* getElementType() const override
+        {
+            return "menuBar";
+        }
+
+        std::string buildRML(const std::string& hierarchicalId) const override
+        {
+            std::ostringstream stream;
+            stream << "<div" << buildCommonAttributes(hierarchicalId) << " data-ui-kind='menu-bar'>";
+            stream << renderChildren(hierarchicalId);
+            stream << "</div>";
+            return stream.str();
+        }
+
     public:
         explicit MenuBar(int width, int height)
             : AUIElement(width, height, Direction::HORIZONTAL)
         {
-        }
-
-        std::string getRML() const override
-        {
-            std::ostringstream stream;
-            stream << "<div" << buildCommonAttributes() << " data-ui-kind='menu-bar'>";
-            stream << getChildrenRML();
-            stream << "</div>";
-            return stream.str();
+            addClassName("builder_menu_bar");
         }
     };
 }

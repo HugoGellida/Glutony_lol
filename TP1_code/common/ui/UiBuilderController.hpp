@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <common/ui/UIRenderer.hpp>
+#include <common/ui/UIBinder.hpp>
 #include <common/ui/widget/Widget.hpp>
 
 #include "EditorUiModeController.hpp"
@@ -123,6 +124,8 @@ private:
     Rml::ElementDocument* m_document = nullptr;
     Rml::ElementDocument* m_previewDocument = nullptr;
     UIRenderer m_previewRenderer;
+    UIBinder m_leftShellBinder;
+    UIBinder m_previewShellBinder;
 
     Rml::Element* m_root = nullptr;
     Rml::Element* m_builderHeader = nullptr;

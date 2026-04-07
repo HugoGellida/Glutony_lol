@@ -207,6 +207,31 @@ const char* kEditorLayoutDocument = R"RML(
             min-height: 0px;
             padding: 12px;
             overflow: auto;
+            scrollbar-margin: 12px;
+        }
+
+        .panel_shell > div[data-ui-slot='content'].panel_body scrollbarvertical {
+            width: 12px;
+            min-width: 12px;
+            max-width: 12px;
+        }
+
+        .panel_shell > div[data-ui-slot='content'].panel_body scrollbarvertical slidertrack {
+            background-color: #141b21;
+            border-left: 1px #25323b;
+        }
+
+        .panel_shell > div[data-ui-slot='content'].panel_body scrollbarvertical sliderbar {
+            width: 12px;
+            min-width: 12px;
+            max-width: 12px;
+            min-height: 28px;
+            margin-left: 1px;
+            background-color: #4a6273;
+        }
+
+        .panel_shell > div[data-ui-slot='content'].panel_body scrollbarvertical sliderbar:hover {
+            background-color: #6f8a9c;
         }
 
         .panel_body_no_padding {
