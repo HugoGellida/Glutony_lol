@@ -223,7 +223,7 @@ namespace component
         {
             if (!m_onGPU || m_mesh == nullptr)
                 return;
-
+            
             prepareRenderState();
 
             material.bind(camera, transform);

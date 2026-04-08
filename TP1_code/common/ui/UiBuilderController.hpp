@@ -4,11 +4,16 @@
 #include <optional>
 #include <string>
 #include <unordered_set>
-#include <vector>
 
+#include <common/UI/UiBuilderHierarchyModel.hpp>
+#include <common/UI/UiBuilderHierarchyPresenter.hpp>
+#include <common/UI/UiBuilderIdCodec.hpp>
+#include <common/UI/UiBuilderInspectorPresenter.hpp>
+#include <common/UI/UiBuilderDocumentSerializer.hpp>
+#include <common/UI/UiBuilderLayoutManager.hpp>
+#include <common/UI/UiBuilderWidgetCatalogPresenter.hpp>
 #include <common/ui/UIRenderer.hpp>
 #include <common/ui/UIBinder.hpp>
-#include <common/ui/widget/Widget.hpp>
 
 #include "EditorUiModeController.hpp"
 
@@ -37,30 +42,6 @@ private:
         Render,
     };
 
-    struct UiHierarchyNode
-    {
-        int id = 0;
-        std::string elementKey;
-        std::string tagName;
-        std::string label;
-        ui::widget::WidgetPropertyMap properties;
-        std::vector<UiHierarchyNode> children;
-    };
-
-    enum class DragTarget
-    {
-        None,
-        LeftSplitter,
-        LeftHorizontalSplitter,
-        PreviewResizeRight,
-        PreviewResizeBottom,
-        PreviewResizeCorner,
-        RightSplitter,
-        HorizontalSplitter,
-    };
-
-    void applyLayout();
-    void refreshCachedRects();
     void refreshModePresentation();
     void refreshBuilderMenuState();
     void refreshHierarchyPresentation();
@@ -70,53 +51,21 @@ private:
     void requestHierarchyRefresh();
     void requestPreviewRefreshFromHierarchy();
     void refreshPreviewFromHierarchy();
-    void resetHierarchyModel();
     void fitPreviewZoom();
-    DragTarget getPreviewResizeTargetAt(float mouseX, float mouseY) const;
-    void updatePreviewCursor(float mouseX, float mouseY);
     void reloadPreviewDocument();
     void unloadPreviewDocument();
-    void updatePreviewDocumentPlacement();
     bool loadPreviewDocumentFromFile(const std::string& filePath);
     bool savePreviewDocumentToFile(const std::string& filePath) const;
     void setPreviewZoom(float zoom);
     std::string buildInspectorPanelMarkup() const;
     std::string buildHierarchyMarkup() const;
-    std::string buildHierarchyNodeMarkup(const UiHierarchyNode& node, int depth) const;
     std::string buildWidgetCatalogMarkup() const;
-    std::string buildHierarchyContextMenuMarkup() const;
     std::string buildPreviewDocumentSourceFromHierarchy() const;
-    std::string buildPreviewNodeMarkup(const UiHierarchyNode& node, int depth) const;
     std::string buildRenderDocumentSourceFromHierarchy() const;
     std::string buildExportDocumentSourceFromHierarchy() const;
-    std::string buildExportNodeMarkup(const UiHierarchyNode& node, int depth) const;
-    bool rebuildHierarchyFromCurrentPreviewDocument();
-    bool appendHierarchyNodesFromElement(UiHierarchyNode& parentNode, const Rml::Element* element);
-    static std::string makeHierarchyNodeElementId(int nodeId);
-    static std::string makeHierarchyDropElementId(int nodeId, HierarchyDropMode dropMode);
-    static std::string makeInspectorFieldElementId(int nodeId, const std::string& fieldKey);
-    static std::optional<int> parseHierarchyNodeId(const Rml::String& elementId);
-    static std::optional<std::pair<int, HierarchyDropMode>> parseHierarchyDropId(const Rml::String& elementId);
-    static std::optional<std::pair<int, std::string>> parseInspectorFieldElementId(const Rml::String& elementId);
-    UiHierarchyNode* findHierarchyNodeById(int nodeId);
-    const UiHierarchyNode* findHierarchyNodeById(int nodeId) const;
-    UiHierarchyNode* findParentNodeOf(int nodeId);
-    std::optional<ui::widget::InspectorField> findInspectorFieldDefinition(const UiHierarchyNode& node, const std::string& fieldKey) const;
-    bool applyInspectorFieldValue(int nodeId, const std::string& fieldKey, const std::string& value);
-    bool removeHierarchyNodeById(int nodeId, UiHierarchyNode* removedNode);
-    bool insertHierarchyNodeBefore(int targetNodeId, UiHierarchyNode node);
-    bool insertHierarchyNodeAfter(int targetNodeId, UiHierarchyNode node);
-    bool insertHierarchyNodeInside(int targetNodeId, UiHierarchyNode node);
-    bool isHierarchyNodeDescendantOf(int nodeId, int ancestorNodeId) const;
-    bool moveHierarchyNodeUp(int nodeId);
-    bool moveHierarchyNodeDown(int nodeId);
-    bool canMoveHierarchyNodeUp(int nodeId) const;
-    bool canMoveHierarchyNodeDown(int nodeId) const;
     void closeHierarchyContextMenu();
     void toggleInspectorGroup(const std::string& groupId);
     bool isInspectorGroupCollapsed(const std::string& groupId) const;
-    const UiHierarchyNode* findSelectedHierarchyNode() const;
-    UiHierarchyNode makeHierarchyNodeForElementKey(const std::string& elementKey);
     void attachListeners();
     void detachListeners();
 
@@ -126,6 +75,12 @@ private:
     UIRenderer m_previewRenderer;
     UIBinder m_leftShellBinder;
     UIBinder m_previewShellBinder;
+    UI::UiBuilderHierarchyModel m_hierarchyModel;
+    UI::UiBuilderHierarchyPresenter m_hierarchyPresenter;
+    UI::UiBuilderInspectorPresenter m_inspectorPresenter;
+    UI::UiBuilderDocumentSerializer m_documentSerializer;
+    UI::UiBuilderLayoutManager m_layoutManager;
+    UI::UiBuilderWidgetCatalogPresenter m_widgetCatalogPresenter;
 
     Rml::Element* m_root = nullptr;
     Rml::Element* m_builderHeader = nullptr;
@@ -157,8 +112,6 @@ private:
     bool m_uiBuilderShowStylePanel = false;
     bool m_isFileMenuOpen = false;
     bool m_isWindowMenuOpen = false;
-    int m_selectedHierarchyNodeId = 1;
-    int m_nextHierarchyNodeId = 2;
     DragPayloadKind m_dragPayloadKind = DragPayloadKind::None;
     std::string m_draggedWidgetKey;
     int m_draggedHierarchyNodeId = 0;
@@ -177,21 +130,5 @@ private:
     std::string m_previewDocumentSource;
     std::string m_previewDocumentPath;
 
-    float m_leftTopRatio = 0.62f;
-    float m_leftRatio = 0.22f;
-    float m_rightRatio = 0.22f;
-    float m_viewportRatio = 0.78f;
-    float m_previewZoom = 1.0f;
-    int m_previewDocumentWidth = 1280;
-    int m_previewDocumentHeight = 720;
-    DragTarget m_dragTarget = DragTarget::None;
-
-    UiRect m_leftPanelRect;
-    UiRect m_viewportRect;
-    UiRect m_centerRect;
-    UiRect m_previewCanvasRect;
-    UiRect m_previewPageRect;
-    UiRect m_previewWindowRect;
-    UiRect m_previewHostRect;
-    UiHierarchyNode m_hierarchyRoot = {1, "root", "root", "Root", {}, {}};
+    UI::UiBuilderLayoutManager::DragTarget m_dragTarget = UI::UiBuilderLayoutManager::DragTarget::None;
 };

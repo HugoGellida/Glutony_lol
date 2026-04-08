@@ -8,6 +8,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include <common/UI/SceneEditorLayoutManager.hpp>
+#include <common/UI/SceneEditorDomIdCodec.hpp>
 #include <common/gameobject/component/ComponentSerialization.hpp>
 #include <common/scene/SceneSerialization.hpp>
 
@@ -208,14 +210,6 @@ private:
     std::string buildSceneDirtyPromptMarkup() const;
     void requestHierarchyRefresh();
     void requestSelectionRefresh();
-    static std::string makeHierarchyNodeElementId(int nodeId);
-    static std::string makeAssetDirectoryElementId(const std::string& directoryId);
-    static std::string makeAssetDirectoryToggleElementId(const std::string& directoryId);
-    static std::string makeAssetFileElementId(const std::string& fileId);
-    static std::optional<int> parseHierarchyNodeId(const Rml::String& elementId);
-    static std::optional<std::string> parseAssetDirectoryElementId(const Rml::String& elementId);
-    static std::optional<std::string> parseAssetDirectoryToggleElementId(const Rml::String& elementId);
-    static std::optional<std::string> parseAssetFileElementId(const Rml::String& elementId);
     static std::string makeTransformFieldElementId(int nodeId, const std::string& fieldKey);
     static std::string makeSceneFieldElementId(const std::string& fieldKey);
     static std::string makeInspectorFieldElementId(int nodeId, size_t componentIndex, const std::string& fieldKey);
@@ -334,10 +328,7 @@ private:
     std::function<void(editor_ui::EditorMode)> m_modeChangeCallback;
     int m_windowWidth = 1;
     int m_windowHeight = 1;
-    float m_leftRatio = 0.22f;
-    float m_rightRatio = 0.22f;
-    float m_viewportRatio = 0.78f;
-    float m_bottomBrowserTreeRatio = 0.34f;
+    UI::SceneEditorLayoutManager m_layoutManager;
     BottomPanelTab m_bottomPanelTab = BottomPanelTab::AssetBrowser;
     bool m_isFileMenuOpen = false;
     bool m_isEditMenuOpen = false;
@@ -363,8 +354,6 @@ private:
     std::string m_draggedAssetFileId;
     std::string m_draggedAssetRuntimePath;
     std::string m_hoveredInspectorFieldId;
-    UiRect m_viewportRect;
-    UiRect m_centerRect;
     int m_selectedHierarchyNodeId = 0;
     bool m_hierarchyRefreshPending = false;
     bool m_selectionRefreshPending = false;

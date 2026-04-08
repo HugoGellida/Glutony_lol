@@ -1062,6 +1062,11 @@ bool SceneEditorController::initialize(Rml::Context* context)
     m_context = context;
     m_expandedAssetDirectoryIds.insert("Assets");
     m_expandedAssetDirectoryIds.insert("built-in");
+    if (m_context != nullptr)
+    {
+        const Rml::Vector2i dimensions = m_context->GetDimensions();
+        m_layoutManager.setWindowSize(std::max(dimensions.x, 1), std::max(dimensions.y, 1));
+    }
     return m_context != nullptr;
 }
 
@@ -1110,6 +1115,7 @@ void SceneEditorController::activate()
     const Rml::Vector2i dimensions = m_context->GetDimensions();
     m_windowWidth = std::max(dimensions.x, 1);
     m_windowHeight = std::max(dimensions.y, 1);
+    m_layoutManager.setWindowSize(m_windowWidth, m_windowHeight);
 
     rescanAssetBrowser();
     attachListeners();
@@ -1149,8 +1155,6 @@ void SceneEditorController::deactivate()
     m_dragPayloadKind = DragPayloadKind::None;
     m_draggedAssetFileId.clear();
     m_draggedAssetRuntimePath.clear();
-    m_viewportRect = {};
-    m_centerRect = {};
     m_isFileMenuOpen = false;
     m_runtimeSceneSnapshot.reset();
     m_assetBrowserContextMenuOpen = false;
@@ -1164,6 +1168,7 @@ void SceneEditorController::deactivate()
     m_pendingLaunchAction = PendingLaunchAction::None;
     m_pendingLaunchScenePath.clear();
     m_consolePartialLine.clear();
+    m_layoutManager.clear();
 }
 
 void SceneEditorController::setModeChangeCallback(const std::function<void(EditorMode)>& callback)
@@ -1175,6 +1180,7 @@ void SceneEditorController::syncToWindow(int width, int height)
 {
     m_windowWidth = std::max(width, 1);
     m_windowHeight = std::max(height, 1);
+    m_layoutManager.setWindowSize(m_windowWidth, m_windowHeight);
 }
 
 void SceneEditorController::sync(Scene& scene)
@@ -1264,12 +1270,12 @@ void SceneEditorController::render()
 
 UiRect SceneEditorController::getViewportRect() const
 {
-    return m_viewportRect;
+    return m_layoutManager.viewportRect();
 }
 
 bool SceneEditorController::isViewportHovered(double mouseX, double mouseY) const
 {
-    return m_viewportRect.contains(mouseX, mouseY);
+    return m_layoutManager.viewportRect().contains(mouseX, mouseY);
 }
 
 bool SceneEditorController::isDragging() const
@@ -1343,16 +1349,16 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         [](const Rml::String& candidateId) { return candidateId == "builder_menu_open_ui_builder"; });
     const Rml::String hierarchyNodeElementId = ::findAncestorElementId(
         targetElement,
-        [&](const Rml::String& candidateId) { return parseHierarchyNodeId(candidateId).has_value(); });
+        [&](const Rml::String& candidateId) { return UI::SceneEditorDomIdCodec::parseHierarchyNodeId(candidateId).has_value(); });
     const Rml::String assetDirectoryElementId = ::findAncestorElementId(
         targetElement,
-        [&](const Rml::String& candidateId) { return parseAssetDirectoryElementId(candidateId).has_value(); });
+        [&](const Rml::String& candidateId) { return UI::SceneEditorDomIdCodec::parseAssetDirectoryElementId(candidateId).has_value(); });
     const Rml::String assetDirectoryToggleElementId = ::findAncestorElementId(
         targetElement,
-        [&](const Rml::String& candidateId) { return parseAssetDirectoryToggleElementId(candidateId).has_value(); });
+        [&](const Rml::String& candidateId) { return UI::SceneEditorDomIdCodec::parseAssetDirectoryToggleElementId(candidateId).has_value(); });
     const Rml::String assetFileElementId = ::findAncestorElementId(
         targetElement,
-        [&](const Rml::String& candidateId) { return parseAssetFileElementId(candidateId).has_value(); });
+        [&](const Rml::String& candidateId) { return UI::SceneEditorDomIdCodec::parseAssetFileElementId(candidateId).has_value(); });
     Rml::Element* assetBrowserWorkspaceElement = ::findAncestorElement(
         targetElement,
         [](const Rml::Element& candidate) { return candidate.GetId() == "scene_asset_browser_workspace"; });
@@ -1807,7 +1813,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
-        if (const std::optional<std::string> directoryId = parseAssetDirectoryToggleElementId(assetDirectoryToggleElementId))
+        if (const std::optional<std::string> directoryId = UI::SceneEditorDomIdCodec::parseAssetDirectoryToggleElementId(assetDirectoryToggleElementId))
         {
             if (const AssetBrowserDirectoryNode* directory = findAssetDirectoryById(*directoryId))
             {
@@ -1820,7 +1826,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
-        if (const std::optional<std::string> directoryId = parseAssetDirectoryElementId(assetDirectoryElementId))
+        if (const std::optional<std::string> directoryId = UI::SceneEditorDomIdCodec::parseAssetDirectoryElementId(assetDirectoryElementId))
         {
             m_assetBrowserContextMenuOpen = false;
             m_hierarchyContextMenuOpen = false;
@@ -1833,7 +1839,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
-        if (const std::optional<std::string> fileId = parseAssetFileElementId(assetFileElementId))
+        if (const std::optional<std::string> fileId = UI::SceneEditorDomIdCodec::parseAssetFileElementId(assetFileElementId))
         {
             m_assetBrowserContextMenuOpen = false;
             m_hierarchyContextMenuOpen = false;
@@ -1844,7 +1850,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
-        if (const std::optional<int> hierarchyNodeId = parseHierarchyNodeId(hierarchyNodeElementId))
+        if (const std::optional<int> hierarchyNodeId = UI::SceneEditorDomIdCodec::parseHierarchyNodeId(hierarchyNodeElementId))
         {
             m_hierarchyContextMenuOpen = false;
             const UiGOHierarchyNode* hierarchyNode = findHierarchyNodeById(*hierarchyNodeId);
@@ -1908,7 +1914,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Dblclick)
     {
-        if (const std::optional<std::string> fileId = parseAssetFileElementId(assetFileElementId))
+        if (const std::optional<std::string> fileId = UI::SceneEditorDomIdCodec::parseAssetFileElementId(assetFileElementId))
         {
             if (const AssetBrowserFileEntry* file = findAssetFileById(*fileId))
             {
@@ -1924,7 +1930,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Dragstart)
     {
-        if (const std::optional<std::string> fileId = parseAssetFileElementId(assetFileElementId))
+        if (const std::optional<std::string> fileId = UI::SceneEditorDomIdCodec::parseAssetFileElementId(assetFileElementId))
         {
             if (const AssetBrowserFileEntry* file = findAssetFileById(*fileId))
             {
@@ -2027,7 +2033,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
         if (mouseButton == 1)
         {
-            if (const std::optional<int> hierarchyNodeId = parseHierarchyNodeId(hierarchyNodeElementId))
+            if (const std::optional<int> hierarchyNodeId = UI::SceneEditorDomIdCodec::parseHierarchyNodeId(hierarchyNodeElementId))
             {
                 m_assetBrowserContextMenuOpen = false;
                 m_addComponentMenuOpen = false;
@@ -2122,38 +2128,19 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (m_dragTarget == DragTarget::LeftSplitter || m_dragTarget == DragTarget::RightSplitter)
     {
-        const int totalWidth = std::max(m_windowWidth, 1);
-        int leftWidth = static_cast<int>(std::lround(totalWidth * m_leftRatio));
-        int rightWidth = static_cast<int>(std::lround(totalWidth * m_rightRatio));
-        rightWidth = clampInt(rightWidth, MinColumnWidth, totalWidth - leftWidth - MinCenterWidth - (2 * SplitterThickness));
-
         if (m_dragTarget == DragTarget::LeftSplitter)
-        {
-            const int maxLeftWidth = totalWidth - MinCenterWidth - rightWidth - (2 * SplitterThickness);
-            leftWidth = clampInt(static_cast<int>(std::lround(mouseX)), MinColumnWidth, maxLeftWidth);
-            m_leftRatio = static_cast<float>(leftWidth) / static_cast<float>(totalWidth);
-        }
+            m_layoutManager.dragLeftSplitter(mouseX);
         else
-        {
-            leftWidth = clampInt(leftWidth, MinColumnWidth, totalWidth - MinCenterWidth - MinColumnWidth - (2 * SplitterThickness));
-            rightWidth = clampInt(
-                totalWidth - static_cast<int>(std::lround(mouseX)) - SplitterThickness,
-                MinColumnWidth,
-                totalWidth - leftWidth - MinCenterWidth - (2 * SplitterThickness));
-            m_rightRatio = static_cast<float>(rightWidth) / static_cast<float>(totalWidth);
-        }
+            m_layoutManager.dragRightSplitter(mouseX);
 
         applyLayout();
         event.StopPropagation();
         return;
     }
 
-    if (m_dragTarget == DragTarget::HorizontalSplitter && m_centerRect.isValid())
+    if (m_dragTarget == DragTarget::HorizontalSplitter)
     {
-        const int localY = static_cast<int>(std::lround(mouseY)) - m_centerRect.y;
-        const int maxViewportHeight = m_centerRect.height - MinBottomHeight - SplitterThickness;
-        const int viewportHeight = clampInt(localY, MinViewportHeight, maxViewportHeight);
-        m_viewportRatio = static_cast<float>(viewportHeight) / static_cast<float>(std::max(m_centerRect.height, 1));
+        m_layoutManager.dragHorizontalSplitter(mouseY);
         applyLayout();
         event.StopPropagation();
         return;
@@ -2161,11 +2148,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (m_dragTarget == DragTarget::BottomBrowserSplitter && m_bottomPanel != nullptr)
     {
-        const int totalWidth = std::max(static_cast<int>(std::lround(m_bottomPanel->GetClientWidth())), 1);
-        const int localX = static_cast<int>(std::lround(mouseX)) - static_cast<int>(std::lround(m_bottomPanel->GetAbsoluteLeft()));
-        const int maxTreeWidth = totalWidth - MinAssetBrowserPaneWidth - SplitterThickness;
-        const int treeWidth = clampInt(localX, MinAssetBrowserPaneWidth, maxTreeWidth);
-        m_bottomBrowserTreeRatio = static_cast<float>(treeWidth) / static_cast<float>(totalWidth);
+        m_layoutManager.dragBottomBrowserSplitter(mouseX);
         applyLayout();
         event.StopPropagation();
     }
@@ -2209,124 +2192,23 @@ void SceneEditorController::detachListeners()
 
 void SceneEditorController::applyLayout()
 {
-    if (m_root == nullptr)
-        return;
-
-    const int totalWidth = std::max(m_windowWidth, 1);
-    const int totalHeight = std::max(m_windowHeight, 1);
-    const int contentTop = BuilderHeaderHeight;
-    const int contentHeight = std::max(1, totalHeight - contentTop);
-
-    int leftWidth = static_cast<int>(std::lround(totalWidth * m_leftRatio));
-    int rightWidth = static_cast<int>(std::lround(totalWidth * m_rightRatio));
-
-    leftWidth = clampInt(leftWidth, MinColumnWidth, totalWidth - MinCenterWidth - MinColumnWidth - (2 * SplitterThickness));
-    rightWidth = clampInt(rightWidth, MinColumnWidth, totalWidth - leftWidth - MinCenterWidth - (2 * SplitterThickness));
-
-    int centerWidth = totalWidth - leftWidth - rightWidth - (2 * SplitterThickness);
-    if (centerWidth < MinCenterWidth)
-    {
-        const int deficit = MinCenterWidth - centerWidth;
-        if (rightWidth - deficit >= MinColumnWidth)
-            rightWidth -= deficit;
-        else
-            leftWidth = std::max(MinColumnWidth, leftWidth - (deficit - (rightWidth - MinColumnWidth)));
-
-        rightWidth = clampInt(rightWidth, MinColumnWidth, totalWidth - leftWidth - MinCenterWidth - (2 * SplitterThickness));
-        centerWidth = totalWidth - leftWidth - rightWidth - (2 * SplitterThickness);
-    }
-
-    m_leftRatio = static_cast<float>(leftWidth) / static_cast<float>(totalWidth);
-    m_rightRatio = static_cast<float>(rightWidth) / static_cast<float>(totalWidth);
-
-    const int centerX = leftWidth + SplitterThickness;
-    const int rightSplitterX = centerX + centerWidth;
-    const int rightX = rightSplitterX + SplitterThickness;
-
-    m_centerRect = {centerX, contentTop, centerWidth, contentHeight};
-
-    m_root->SetProperty("width", pixels(totalWidth));
-    m_root->SetProperty("height", pixels(totalHeight));
-    m_builderHeader->SetProperty("display", "block");
-    m_builderHeader->SetProperty("left", pixels(0));
-    m_builderHeader->SetProperty("top", pixels(0));
-    m_builderHeader->SetProperty("width", pixels(totalWidth));
-    m_builderHeader->SetProperty("height", pixels(BuilderHeaderHeight));
-
-    m_leftPanel->SetProperty("left", pixels(0));
-    m_leftPanel->SetProperty("top", pixels(contentTop));
-    m_leftPanel->SetProperty("width", pixels(leftWidth));
-    m_leftPanel->SetProperty("height", pixels(contentHeight));
-
-    m_leftSplitter->SetProperty("left", pixels(leftWidth));
-    m_leftSplitter->SetProperty("top", pixels(contentTop));
-    m_leftSplitter->SetProperty("width", pixels(SplitterThickness));
-    m_leftSplitter->SetProperty("height", pixels(contentHeight));
-
-    m_centerPanel->SetProperty("left", pixels(centerX));
-    m_centerPanel->SetProperty("top", pixels(contentTop));
-    m_centerPanel->SetProperty("width", pixels(centerWidth));
-    m_centerPanel->SetProperty("height", pixels(contentHeight));
-
-    m_rightSplitter->SetProperty("left", pixels(rightSplitterX));
-    m_rightSplitter->SetProperty("top", pixels(contentTop));
-    m_rightSplitter->SetProperty("width", pixels(SplitterThickness));
-    m_rightSplitter->SetProperty("height", pixels(contentHeight));
-
-    m_rightPanel->SetProperty("left", pixels(rightX));
-    m_rightPanel->SetProperty("top", pixels(contentTop));
-    m_rightPanel->SetProperty("width", pixels(rightWidth));
-    m_rightPanel->SetProperty("height", pixels(contentHeight));
-
-    const int viewportHeight = clampInt(
-        static_cast<int>(std::lround(static_cast<float>(contentHeight) * m_viewportRatio)),
-        MinViewportHeight,
-        contentHeight - MinBottomHeight - SplitterThickness);
-    const int bottomHeight = contentHeight - viewportHeight - SplitterThickness;
-
-    m_viewportPanel->SetProperty("display", "block");
-    m_viewportPanel->SetProperty("left", pixels(0));
-    m_viewportPanel->SetProperty("top", pixels(0));
-    m_viewportPanel->SetProperty("width", pixels(centerWidth));
-    m_viewportPanel->SetProperty("height", pixels(viewportHeight));
-
-    m_horizontalSplitter->SetProperty("display", "block");
-    m_horizontalSplitter->SetProperty("left", pixels(0));
-    m_horizontalSplitter->SetProperty("top", pixels(viewportHeight));
-    m_horizontalSplitter->SetProperty("width", pixels(centerWidth));
-    m_horizontalSplitter->SetProperty("height", pixels(SplitterThickness));
-
-    m_bottomPanel->SetProperty("display", "block");
-    m_bottomPanel->SetProperty("left", pixels(0));
-    m_bottomPanel->SetProperty("top", pixels(viewportHeight + SplitterThickness));
-    m_bottomPanel->SetProperty("width", pixels(centerWidth));
-    m_bottomPanel->SetProperty("height", pixels(bottomHeight));
-
-    if (m_bottomBrowserFilesPane != nullptr && m_bottomBrowserTreePane != nullptr && m_bottomBrowserSplitter != nullptr)
-    {
-        const int totalBrowserWidth = std::max(centerWidth, 1);
-        const int browserContentHeight = std::max(bottomHeight - kPanelHeaderHeight, 1);
-        const int treeWidth = clampInt(
-            static_cast<int>(std::lround(static_cast<float>(totalBrowserWidth) * m_bottomBrowserTreeRatio)),
-            MinAssetBrowserPaneWidth,
-            totalBrowserWidth - MinAssetBrowserPaneWidth - SplitterThickness);
-        const int filesWidth = totalBrowserWidth - treeWidth - SplitterThickness;
-
-        m_bottomBrowserTreePane->SetProperty("left", pixels(0));
-        m_bottomBrowserTreePane->SetProperty("top", pixels(0));
-        m_bottomBrowserTreePane->SetProperty("width", pixels(treeWidth));
-        m_bottomBrowserTreePane->SetProperty("height", pixels(browserContentHeight));
-
-        m_bottomBrowserSplitter->SetProperty("left", pixels(treeWidth));
-        m_bottomBrowserSplitter->SetProperty("top", pixels(0));
-        m_bottomBrowserSplitter->SetProperty("width", pixels(SplitterThickness));
-        m_bottomBrowserSplitter->SetProperty("height", pixels(browserContentHeight));
-
-        m_bottomBrowserFilesPane->SetProperty("left", pixels(treeWidth + SplitterThickness));
-        m_bottomBrowserFilesPane->SetProperty("top", pixels(0));
-        m_bottomBrowserFilesPane->SetProperty("width", pixels(filesWidth));
-        m_bottomBrowserFilesPane->SetProperty("height", pixels(browserContentHeight));
-    }
+    m_layoutManager.setElements({
+        m_root,
+        m_builderHeader,
+        m_leftPanel,
+        m_leftSplitter,
+        m_centerPanel,
+        m_viewportPanel,
+        m_horizontalSplitter,
+        m_bottomPanel,
+        m_bottomBrowserFilesPane,
+        m_bottomBrowserSplitter,
+        m_bottomBrowserTreePane,
+        m_rightSplitter,
+        m_rightPanel,
+    });
+    m_layoutManager.setViewportSurface(m_viewportSurface);
+    m_layoutManager.applyLayout();
 }
 
 void SceneEditorController::refreshPresentation()
@@ -2367,6 +2249,7 @@ void SceneEditorController::refreshViewportPresentation()
 
     m_viewportPanel->SetInnerRML(buildViewportMarkup());
     m_viewportSurface = m_document != nullptr ? m_document->GetElementById("scene_viewport_surface") : nullptr;
+    m_layoutManager.setViewportSurface(m_viewportSurface);
     m_playbackStatusElement = m_document != nullptr ? m_document->GetElementById("scene_playback_status") : nullptr;
     updatePlaybackStatusPresentation();
 }
@@ -2574,7 +2457,7 @@ void SceneEditorController::refreshAssetBrowserFileSelectionPresentation(const s
         if (file == nullptr)
             return;
 
-        Rml::Element* element = m_document->GetElementById(makeAssetFileElementId(fileId));
+        Rml::Element* element = m_document->GetElementById(UI::SceneEditorDomIdCodec::makeAssetFileElementId(fileId));
         if (element == nullptr)
             return;
 
@@ -2608,7 +2491,7 @@ void SceneEditorController::refreshAssetBrowserDirectorySelectionPresentation(co
         if (directory == nullptr)
             return;
 
-        Rml::Element* element = m_document->GetElementById(makeAssetDirectoryElementId(directoryId));
+        Rml::Element* element = m_document->GetElementById(UI::SceneEditorDomIdCodec::makeAssetDirectoryElementId(directoryId));
         if (element == nullptr)
             return;
 
@@ -2748,19 +2631,8 @@ void SceneEditorController::refreshInspectorValuesPresentation()
 
 void SceneEditorController::refreshCachedRects()
 {
-    if (m_viewportPanel == nullptr || m_centerPanel == nullptr)
-        return;
-
-    Rml::Element* viewportTarget = m_viewportSurface != nullptr ? m_viewportSurface : m_viewportPanel;
-    m_viewportRect.x = static_cast<int>(std::lround(viewportTarget->GetAbsoluteLeft() + viewportTarget->GetClientLeft()));
-    m_viewportRect.y = static_cast<int>(std::lround(viewportTarget->GetAbsoluteTop() + viewportTarget->GetClientTop()));
-    m_viewportRect.width = static_cast<int>(std::lround(viewportTarget->GetClientWidth()));
-    m_viewportRect.height = static_cast<int>(std::lround(viewportTarget->GetClientHeight()));
-
-    m_centerRect.x = static_cast<int>(std::lround(m_centerPanel->GetAbsoluteLeft() + m_centerPanel->GetClientLeft()));
-    m_centerRect.y = static_cast<int>(std::lround(m_centerPanel->GetAbsoluteTop() + m_centerPanel->GetClientTop()));
-    m_centerRect.width = static_cast<int>(std::lround(m_centerPanel->GetClientWidth()));
-    m_centerRect.height = static_cast<int>(std::lround(m_centerPanel->GetClientHeight()));
+    m_layoutManager.setViewportSurface(m_viewportSurface);
+    m_layoutManager.refreshCachedRects();
 }
 
 
@@ -2803,7 +2675,7 @@ std::string SceneEditorController::buildHierarchyNodeMarkup(const UiGOHierarchyN
 
     std::ostringstream stream;
     stream << "<div class='hierarchy_node depth_" << depth << "'>";
-    stream << "<div id='" << makeHierarchyNodeElementId(node.id) << "' class='hierarchy_row scene_hierarchy_row";
+    stream << "<div id='" << UI::SceneEditorDomIdCodec::makeHierarchyNodeElementId(node.id) << "' class='hierarchy_row scene_hierarchy_row";
     if (isSelected)
         stream << " selected";
     stream << "'>";
@@ -3153,14 +3025,14 @@ std::string SceneEditorController::buildAssetBrowserDirectoryMarkup(const AssetB
 
     std::ostringstream stream;
     stream << "<div class='asset_browser_tree_node depth_" << depth << "'>";
-    stream << "<div id='" << makeAssetDirectoryElementId(node.id) << "' class='asset_browser_tree_row ";
+    stream << "<div id='" << UI::SceneEditorDomIdCodec::makeAssetDirectoryElementId(node.id) << "' class='asset_browser_tree_row ";
     stream << assetBrowserRootClass(node.rootKind);
     if (selected)
         stream << " selected";
     if (expanded)
         stream << " expanded";
     stream << "'>";
-    stream << "<div id='" << makeAssetDirectoryToggleElementId(node.id) << "' class='asset_browser_tree_toggle'>" << (node.children.empty() ? "-" : (expanded ? "v" : ">")) << "</div>";
+    stream << "<div id='" << UI::SceneEditorDomIdCodec::makeAssetDirectoryToggleElementId(node.id) << "' class='asset_browser_tree_toggle'>" << (node.children.empty() ? "-" : (expanded ? "v" : ">")) << "</div>";
     stream << "<div class='asset_browser_tree_label'>" << escapeRmlText(node.label) << "</div>";
     stream << "<div class='asset_browser_tree_meta'>" << escapeRmlText(assetBrowserRootLabel(node.rootKind)) << "</div>";
     stream << "</div>";
@@ -3193,7 +3065,7 @@ std::string SceneEditorController::buildAssetBrowserFileGridMarkup(const AssetBr
     stream << "<div class='asset_browser_file_grid'>";
     for (const AssetBrowserFileEntry& file : directory->files)
     {
-        stream << "<div id='" << makeAssetFileElementId(file.id) << "' class='asset_browser_file_card ";
+        stream << "<div id='" << UI::SceneEditorDomIdCodec::makeAssetFileElementId(file.id) << "' class='asset_browser_file_card ";
         stream << assetBrowserRootClass(file.rootKind) << " " << assetBrowserFileKindClass(file.fileKind);
         if (file.id == m_selectedAssetFileId)
             stream << " selected";
@@ -3304,26 +3176,6 @@ std::string SceneEditorController::buildSceneDirtyPromptMarkup() const
     return stream.str();
 }
 
-std::string SceneEditorController::makeHierarchyNodeElementId(int nodeId)
-{
-    return "hierarchy_node_" + std::to_string(nodeId);
-}
-
-std::string SceneEditorController::makeAssetDirectoryElementId(const std::string& directoryId)
-{
-    return "asset_directory_" + encodeElementToken(directoryId);
-}
-
-std::string SceneEditorController::makeAssetDirectoryToggleElementId(const std::string& directoryId)
-{
-    return "asset_directory_toggle_" + encodeElementToken(directoryId);
-}
-
-std::string SceneEditorController::makeAssetFileElementId(const std::string& fileId)
-{
-    return "asset_file_" + encodeElementToken(fileId);
-}
-
 std::string SceneEditorController::makeTransformFieldElementId(int nodeId, const std::string& fieldKey)
 {
     return makeSceneTransformFieldElementId(nodeId, fieldKey);
@@ -3362,31 +3214,6 @@ std::optional<SceneEditorController::InspectorGroupBinding> SceneEditorControlle
     return binding;
 }
 
-
-std::optional<int> SceneEditorController::parseHierarchyNodeId(const Rml::String& elementId)
-{
-    const std::string value = elementId;
-    const std::string prefix = "hierarchy_node_";
-    if (!startsWith(value, prefix))
-        return std::nullopt;
-
-    return std::stoi(value.substr(prefix.size()));
-}
-
-std::optional<std::string> SceneEditorController::parseAssetDirectoryElementId(const Rml::String& elementId)
-{
-    return parseEncodedElementId(elementId, "asset_directory_", [](const std::string& value) { return !value.empty(); });
-}
-
-std::optional<std::string> SceneEditorController::parseAssetDirectoryToggleElementId(const Rml::String& elementId)
-{
-    return parseEncodedElementId(elementId, "asset_directory_toggle_", [](const std::string& value) { return !value.empty(); });
-}
-
-std::optional<std::string> SceneEditorController::parseAssetFileElementId(const Rml::String& elementId)
-{
-    return parseEncodedElementId(elementId, "asset_file_", [](const std::string& value) { return !value.empty(); });
-}
 
 std::optional<SceneEditorController::InspectorFieldBinding> SceneEditorController::parseInspectorFieldElementId(const Rml::String& elementId)
 {
@@ -4073,8 +3900,9 @@ bool SceneEditorController::startPreviewPlayer(const std::string& scenePath)
         return false;
     }
 
-    const int previewWidth = std::max(m_viewportRect.width, 1);
-    const int previewHeight = std::max(m_viewportRect.height, 1);
+    const UiRect viewportRect = m_layoutManager.viewportRect();
+    const int previewWidth = std::max(viewportRect.width, 1);
+    const int previewHeight = std::max(viewportRect.height, 1);
 
     int childPid = -1;
     int outputFd = -1;

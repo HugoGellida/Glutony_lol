@@ -162,6 +162,13 @@ set(GLUTONY_RUNTIME_SOURCES
 )
 
 set(GLUTONY_EDITOR_SUPPORT_SOURCES
+    common/UI/SceneEditorLayoutManager.cpp
+    common/UI/UiBuilderDocumentSerializer.cpp
+    common/UI/UiBuilderHierarchyModel.cpp
+    common/UI/UiBuilderHierarchyPresenter.cpp
+    common/UI/UiBuilderInspectorPresenter.cpp
+    common/UI/UiBuilderLayoutManager.cpp
+    common/UI/UiBuilderWidgetCatalogPresenter.cpp
     common/platform/NativeFileDialog.cpp
     common/ui/EditorUi.cpp
     common/ui/EditorUiCommon.cpp
