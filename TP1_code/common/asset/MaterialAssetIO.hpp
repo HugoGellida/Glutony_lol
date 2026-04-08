@@ -43,6 +43,7 @@ struct MaterialAssetDefinition
 {
     MaterialAssetKind kind = MaterialAssetKind::Lit;
     std::string shaderPath;
+    std::string renderPassPath;
     std::vector<MaterialUniformDefinition> uniforms;
 };
 
@@ -327,6 +328,7 @@ public:
             return false;
 
         definition.shaderPath = shaderValue;
+    extractString(content, "renderPass", definition.renderPassPath);
 
         size_t uniformsValueStart = 0;
         if (findValueStart(content, "uniforms", uniformsValueStart))
@@ -360,6 +362,7 @@ public:
         output << "{\n";
         output << "  \"type\": \"" << (definition.kind == MaterialAssetKind::Unlit ? "unlit" : "lit") << "\",\n";
         output << "  \"shader\": \"" << definition.shaderPath << "\",\n";
+        output << "  \"renderPass\": \"" << definition.renderPassPath << "\",\n";
         output << "  \"uniforms\": [\n";
 
         for (size_t index = 0; index < definition.uniforms.size(); ++index)

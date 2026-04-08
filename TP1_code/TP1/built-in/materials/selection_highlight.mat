@@ -1,6 +1,7 @@
 {
   "type": "unlit",
   "shader": "built-in/shaders/unlit",
+  "renderPass": "built-in/render_pass/forward_unlit.render_pass",
   "uniforms": [
     { "name": "_mainCol", "type": "vec3", "value": [1.0, 0.58, 0.14] }
   ]

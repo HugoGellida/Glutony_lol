@@ -1,0 +1,7 @@
+{
+  "name": "validation_composite",
+  "includes": [],
+  "before": [],
+  "after": ["built-in/render_phase/lighting.render_phase"],
+  "additionalIterator": "none"
+}

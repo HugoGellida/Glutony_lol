@@ -155,6 +155,7 @@ set(GLUTONY_APP_COMMON_SOURCES
 set(GLUTONY_RUNTIME_SOURCES
     common/gameobject/Transform.cpp
     common/gameobject/component/MeshRenderer.cpp
+    common/gameobject/component/PointLight.cpp
     common/gameobject/component/ScriptComponent.cpp
     common/physics/PhysicEngine.cpp
     common/physics/RigidBody.cpp
@@ -162,6 +163,8 @@ set(GLUTONY_RUNTIME_SOURCES
 )
 
 set(GLUTONY_EDITOR_SUPPORT_SOURCES
+    common/UI/SceneEditorAssetBrowserModel.cpp
+    common/UI/SceneEditorHierarchyModel.cpp
     common/UI/SceneEditorLayoutManager.cpp
     common/UI/UiBuilderDocumentSerializer.cpp
     common/UI/UiBuilderHierarchyModel.cpp
@@ -176,6 +179,7 @@ set(GLUTONY_EDITOR_SUPPORT_SOURCES
     common/ui/EditorUiDocuments.cpp
     common/ui/EditorUiPreviewDocument.cpp
     common/ui/SceneEditorController.cpp
+    common/ui/SceneEditorControllerPresentation.cpp
     common/ui/SceneEditorDataAssetEditor.cpp
     common/ui/SceneEditorMaterialAssetEditor.cpp
     common/ui/SceneViewportOverlay.cpp

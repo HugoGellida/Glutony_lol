@@ -555,7 +555,7 @@ std::optional<std::string> SceneEditorController::getDataAssetInspectorAssetPath
         return asset::AssetManager::normalizeRelativePath(m_scene->getDataAssetPath());
     }
 
-    const UiGOHierarchyNode* node = findHierarchyNodeById(binding.nodeId);
+    const UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(binding.nodeId);
     if (node == nullptr || node->gameObject == nullptr)
         return std::nullopt;
 
@@ -575,7 +575,7 @@ std::optional<std::string> SceneEditorController::getDataAssetInspectorAssetPath
 std::vector<SceneEditorController::InspectorFieldBinding> SceneEditorController::collectVisibleDataAssetInspectorBindings() const
 {
     std::vector<InspectorFieldBinding> bindings;
-    const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
+    const UiGOHierarchyNode* selectedNode = m_hierarchyModel.findSelectedNode();
     if (selectedNode == nullptr)
         return bindings;
 

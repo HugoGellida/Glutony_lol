@@ -57,6 +57,7 @@ uint64_t g_materialSequence = 0;
 uint64_t g_materialStateSequence = 0;
 bool g_remoteInputCapture = false;
 bool g_previewPaused = false;
+bool g_sceneSimulationEnabled = false;
 bool g_sceneScriptStartPending = false;
 int g_lastPublishedSelectedGameObjectId = -2;
 int g_lastPublishedFps = -1;
@@ -64,6 +65,14 @@ int g_lastPublishedCaptureEnabled = -1;
 std::unordered_map<std::string, std::string> g_lastPublishedDataAssetPayloads;
 std::string g_lastPublishedObjectStatePayload;
 std::string g_lastPublishedScenePayload;
+
+void applySceneSimulationState()
+{
+    if (g_scene == nullptr)
+        return;
+
+    g_scene->setPhysicsSimulationEnabled(g_sceneSimulationEnabled && !g_previewPaused);
+}
 
 std::vector<std::string> collectReferencedDataAssetPaths(const Scene& scene)
 {
@@ -649,7 +658,7 @@ void pollPreviewPauseRequests()
         return;
 
     g_previewPaused = (paused != 0);
-    g_scene->setPhysicsSimulationEnabled(!g_previewPaused);
+    applySceneSimulationState();
     g_pauseSequence = nextSequence;
 }
 
@@ -695,7 +704,8 @@ void pollPreviewSceneSyncRequests()
         if (g_windowFramebufferHeight > 0)
             g_scene->updateCamSettings((float)g_windowFramebufferWidth / (float)g_windowFramebufferHeight);
 
-        g_scene->setPhysicsSimulationEnabled(!g_previewPaused);
+        g_sceneSimulationEnabled = g_scene->isPhysicsSimulationEnabled();
+        applySceneSimulationState();
         g_scene->setFpsControlEnabled(g_remoteInputCapture, g_window, true, g_windowFramebufferWidth * 0.5, g_windowFramebufferHeight * 0.5);
         g_lastPublishedSelectedGameObjectId = -2;
         g_lastPublishedObjectStatePayload.clear();
@@ -857,7 +867,10 @@ int main(int argc, char** argv)
         std::cout << "\033[33m[player] No scene argument provided, starting with the default scene.\033[0m" << std::endl;
     }
 
-    g_scene->setPhysicsSimulationEnabled(true);
+    if (g_windowFramebufferHeight > 0)
+        g_scene->updateCamSettings((float)g_windowFramebufferWidth / (float)g_windowFramebufferHeight);
+    g_sceneSimulationEnabled = g_scene->isPhysicsSimulationEnabled();
+    applySceneSimulationState();
     g_scene->setFpsControlEnabled(!runtimeOptions.hiddenPreviewWindow, g_window, false);
     gameplay::bootstrap();
     g_sceneScriptStartPending = true;
@@ -919,10 +932,7 @@ int main(int argc, char** argv)
 
         glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-        if (g_publishPreviewFrames)
-            g_scene->renderSceneWithSelectionHighlight();
-        else
-            g_scene->renderScene();
+        g_scene->renderScene();
         publishRuntimeState(currentFps);
         publishSelectedObjectState();
         publishDirtyDataAssetState();

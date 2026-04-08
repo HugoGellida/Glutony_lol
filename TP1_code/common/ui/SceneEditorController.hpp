@@ -8,6 +8,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include <common/UI/SceneEditorAssetBrowserModel.hpp>
+#include <common/UI/SceneEditorHierarchyModel.hpp>
 #include <common/UI/SceneEditorLayoutManager.hpp>
 #include <common/UI/SceneEditorDomIdCodec.hpp>
 #include <common/gameobject/component/ComponentSerialization.hpp>
@@ -21,6 +23,12 @@ class Scene;
 class SceneEditorController : public EditorUiModeController
 {
 public:
+    using UiGOHierarchyNode = UI::SceneEditorHierarchyModel::Node;
+    using AssetBrowserRootKind = UI::SceneEditorAssetBrowserModel::RootKind;
+    using AssetBrowserFileKind = UI::SceneEditorAssetBrowserModel::FileKind;
+    using AssetBrowserFileEntry = UI::SceneEditorAssetBrowserModel::FileEntry;
+    using AssetBrowserDirectoryNode = UI::SceneEditorAssetBrowserModel::DirectoryNode;
+
     bool initialize(Rml::Context* context) override;
     void shutdown() override;
     void activate() override;
@@ -83,58 +91,7 @@ public:
         BottomBrowserSplitter,
     };
 
-    enum class AssetBrowserRootKind
-    {
-        Assets,
-        BuiltIn,
-    };
-
-    enum class AssetBrowserFileKind
-    {
-        Generic,
-        Material,
-        Data,
-        Mesh,
-        SceneScript,
-        ComponentScript,
-        Shader,
-        Texture,
-        Scene,
-    };
-
-    struct AssetBrowserFileEntry
-    {
-        std::string id;
-        std::string label;
-        std::string runtimePath;
-        std::string diskPath;
-        std::string extension;
-        AssetBrowserRootKind rootKind = AssetBrowserRootKind::Assets;
-        AssetBrowserFileKind fileKind = AssetBrowserFileKind::Generic;
-        DragPayloadKind dragPayloadKind = DragPayloadKind::AssetFile;
-    };
-
-    struct AssetBrowserDirectoryNode
-    {
-        std::string id;
-        std::string label;
-        std::string runtimePath;
-        std::string diskPath;
-        AssetBrowserRootKind rootKind = AssetBrowserRootKind::Assets;
-        std::vector<AssetBrowserDirectoryNode> children;
-        std::vector<AssetBrowserFileEntry> files;
-    };
-
 private:
-
-    struct UiGOHierarchyNode
-    {
-        int id = 0;
-        std::string label;
-        std::string tagName;
-        const GameObject* gameObject = nullptr;
-        std::vector<UiGOHierarchyNode> children;
-    };
 
     struct InspectorFieldBinding
     {
@@ -186,10 +143,6 @@ private:
     void refreshAssetBrowserDirectorySelectionPresentation(const std::string& previousDirectoryId);
     void refreshAssetBrowserFileSelectionPresentation(const std::string& previousFileId);
     void refreshCachedRects();
-    void rescanAssetBrowser();
-    void rebuildHierarchyFromScene(const Scene& scene);
-    void appendHierarchyNodeFromGameObject(UiGOHierarchyNode& parentNode, const GameObject& gameObject);
-    static bool hierarchyNodesEqual(const UiGOHierarchyNode& lhs, const UiGOHierarchyNode& rhs);
     std::string buildHierarchyMarkup() const;
     std::string buildHierarchyNodeMarkup(const UiGOHierarchyNode& node, int depth) const;
     std::string buildHierarchyContextMenuMarkup() const;
@@ -232,18 +185,6 @@ private:
     static std::optional<InspectorFieldBinding> parseDataAssetEditorGroupElementId(const Rml::String& elementId);
     static std::optional<DataAssetEditorBinding> parseDataAssetEditorNodeGroupElementId(const Rml::String& elementId);
     static std::optional<DataAssetEditorBinding> parseDataAssetEditorFieldElementId(const Rml::String& elementId);
-    UiGOHierarchyNode* findHierarchyNodeById(int nodeId);
-    const UiGOHierarchyNode* findHierarchyNodeById(int nodeId) const;
-    UiGOHierarchyNode* findHierarchyNodeByGameObject(const GameObject* gameObject);
-    const UiGOHierarchyNode* findHierarchyNodeByGameObject(const GameObject* gameObject) const;
-    const UiGOHierarchyNode* findSelectedHierarchyNode() const;
-    AssetBrowserDirectoryNode* findAssetDirectoryById(const std::string& directoryId);
-    const AssetBrowserDirectoryNode* findAssetDirectoryById(const std::string& directoryId) const;
-    const AssetBrowserFileEntry* findAssetFileById(const std::string& fileId) const;
-    const AssetBrowserDirectoryNode* findSelectedAssetDirectory() const;
-    void selectAssetDirectory(const std::string& directoryId);
-    void toggleAssetDirectoryExpansion(const std::string& directoryId);
-    bool isAssetDirectoryExpanded(const AssetBrowserDirectoryNode& node) const;
     bool shouldRefreshInspectorPresentation() const;
     const component_meta::ComponentFieldDescriptor* findInspectorFieldDescriptor(const InspectorFieldBinding& binding) const;
     bool isMaterialAssetInspectorField(const InspectorFieldBinding& binding) const;
@@ -329,6 +270,8 @@ private:
     int m_windowWidth = 1;
     int m_windowHeight = 1;
     UI::SceneEditorLayoutManager m_layoutManager;
+    UI::SceneEditorHierarchyModel m_hierarchyModel;
+    UI::SceneEditorAssetBrowserModel m_assetBrowserModel;
     BottomPanelTab m_bottomPanelTab = BottomPanelTab::AssetBrowser;
     bool m_isFileMenuOpen = false;
     bool m_isEditMenuOpen = false;
@@ -354,14 +297,8 @@ private:
     std::string m_draggedAssetFileId;
     std::string m_draggedAssetRuntimePath;
     std::string m_hoveredInspectorFieldId;
-    int m_selectedHierarchyNodeId = 0;
     bool m_hierarchyRefreshPending = false;
     bool m_selectionRefreshPending = false;
-    UiGOHierarchyNode m_hierarchyRoot = {0, "Scene", "scene", nullptr, {}};
-    std::vector<AssetBrowserDirectoryNode> m_assetBrowserRoots;
-    std::unordered_set<std::string> m_expandedAssetDirectoryIds;
-    std::string m_selectedAssetDirectoryId;
-    std::string m_selectedAssetFileId;
     int m_assetBrowserContextMenuX = 0;
     int m_assetBrowserContextMenuY = 0;
     int m_hierarchyContextMenuX = 0;

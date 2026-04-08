@@ -1,0 +1,13 @@
+{
+  "passes": [
+    {
+      "phase": "built-in/render_phase/geometry.render_phase",
+      "shader": "built-in/shaders/unlit",
+      "uniforms": [],
+      "target": { "name": "final", "shared": true },
+      "clear": false,
+      "blend": false,
+      "depth": "preserve"
+    }
+  ]
+}

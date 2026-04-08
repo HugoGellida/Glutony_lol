@@ -34,6 +34,8 @@ enum class AssetReferenceKind
     Mesh,
     Shader,
     Material,
+    RenderPhase,
+    RenderPass,
     Texture,
     Data,
     SceneScript,

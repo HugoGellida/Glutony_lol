@@ -1,0 +1,27 @@
+{
+  "passes": [
+    {
+      "phase": "built-in/render_phase/geometry.render_phase",
+      "shader": "built-in/shaders/lit_base",
+      "uniforms": [],
+      "target": { "name": "final", "shared": true },
+      "clear": false,
+      "blend": false,
+      "depth": "preserve"
+    },
+    {
+      "phase": "built-in/render_phase/lighting.render_phase",
+      "shader": "built-in/shaders/lit",
+      "uniforms": [],
+      "target": { "name": "final", "shared": true },
+      "clear": false,
+      "blend": {
+        "enabled": true,
+        "op": "add",
+        "src": "one",
+        "dst": "one"
+      },
+      "depth": "preserve"
+    }
+  ]
+}

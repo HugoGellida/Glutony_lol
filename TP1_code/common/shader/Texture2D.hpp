@@ -9,6 +9,7 @@ class Texture2D
 private:
     bool m_on_GPU = false;
     bool m_empty = false;
+    bool m_ownsGpuResource = false;
     int m_width = 0;
     int m_height = 0;
     int m_nbChannels = 0;
@@ -18,6 +19,14 @@ private:
 public:
       
     Texture2D(){m_empty = true; m_slot = 0;} // ONLY FOR UNINITIALIZED TEXTURES - FORBIDDEN USE ON SHADERS
+    Texture2D(GLuint textureId, GLuint slot, bool ownsGpuResource = false)
+    {
+        m_textureID = textureId;
+        m_slot = slot;
+        m_empty = (textureId == 0);
+        m_on_GPU = (textureId != 0);
+        m_ownsGpuResource = ownsGpuResource;
+    }
     Texture2D(const unsigned int width, const unsigned int height)
     {
         // TODO
@@ -33,11 +42,17 @@ public:
         glBindTexture(GL_TEXTURE_2D, m_textureID);
         
         // tex params
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
         // send tex to GPU
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_width, m_height, 0, GL_RGB, GL_UNSIGNED_BYTE, m_data.data());
         // genMipmaps
         glGenerateMipmap(GL_TEXTURE_2D);
+        m_on_GPU = true;
+        m_ownsGpuResource = true;
     }
 
     Texture2D(const std::string path, const GLuint slot)
@@ -73,7 +88,7 @@ public:
     ~Texture2D()
     {
         // TODO
-        if (!m_on_GPU || m_empty)
+        if (!m_on_GPU || m_empty || !m_ownsGpuResource)
             return;
         glDeleteTextures(1, &m_textureID);
 

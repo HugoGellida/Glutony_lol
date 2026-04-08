@@ -883,6 +883,25 @@ std::optional<std::string> decodeElementToken(const std::string& token)
     return decoded;
 }
 
+bool parseSceneRenderTargetFieldKey(const std::string& fieldKey, std::string& renderTargetName, std::string& propertyKey)
+{
+    const std::string prefix = "render_target__";
+    if (!startsWith(fieldKey, prefix))
+        return false;
+
+    const size_t separator = fieldKey.find("__", prefix.size());
+    if (separator == std::string::npos)
+        return false;
+
+    const std::optional<std::string> decodedName = decodeElementToken(fieldKey.substr(prefix.size(), separator - prefix.size()));
+    if (!decodedName.has_value())
+        return false;
+
+    renderTargetName = render::normalizeRenderTargetName(*decodedName);
+    propertyKey = fieldKey.substr(separator + 2);
+    return !renderTargetName.empty() && !propertyKey.empty();
+}
+
 template <typename Predicate>
 std::optional<std::string> parseEncodedElementId(const Rml::String& elementId, const std::string& prefix, Predicate&& validator)
 {
@@ -958,6 +977,10 @@ SceneEditorController::AssetBrowserFileKind classifyAssetBrowserFileKind(const s
     const std::string extension = path.extension().string();
     if (extension == ".mat")
         return SceneEditorController::AssetBrowserFileKind::Material;
+    if (extension == ".render_phase")
+        return SceneEditorController::AssetBrowserFileKind::RenderPhase;
+    if (extension == ".render_pass")
+        return SceneEditorController::AssetBrowserFileKind::RenderPass;
     if (extension == ".data")
         return SceneEditorController::AssetBrowserFileKind::Data;
     if (extension == ".obj" || extension == ".off")
@@ -981,6 +1004,10 @@ DragPayloadKind dragPayloadKindForAssetFileKind(SceneEditorController::AssetBrow
     {
     case SceneEditorController::AssetBrowserFileKind::Material:
         return DragPayloadKind::MaterialAsset;
+    case SceneEditorController::AssetBrowserFileKind::RenderPhase:
+        return DragPayloadKind::RenderPhaseAsset;
+    case SceneEditorController::AssetBrowserFileKind::RenderPass:
+        return DragPayloadKind::RenderPassAsset;
     case SceneEditorController::AssetBrowserFileKind::Data:
         return DragPayloadKind::DataAsset;
     case SceneEditorController::AssetBrowserFileKind::Mesh:
@@ -1004,6 +1031,10 @@ const char* assetBrowserFileKindLabel(SceneEditorController::AssetBrowserFileKin
     {
     case SceneEditorController::AssetBrowserFileKind::Material:
         return "Material";
+    case SceneEditorController::AssetBrowserFileKind::RenderPhase:
+        return "RenderPhase";
+    case SceneEditorController::AssetBrowserFileKind::RenderPass:
+        return "RenderPass";
     case SceneEditorController::AssetBrowserFileKind::Data:
         return "Data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:
@@ -1029,6 +1060,10 @@ const char* assetBrowserFileKindClass(SceneEditorController::AssetBrowserFileKin
     {
     case SceneEditorController::AssetBrowserFileKind::Material:
         return "material";
+    case SceneEditorController::AssetBrowserFileKind::RenderPhase:
+        return "render_phase";
+    case SceneEditorController::AssetBrowserFileKind::RenderPass:
+        return "render_pass";
     case SceneEditorController::AssetBrowserFileKind::Data:
         return "data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:
@@ -1060,8 +1095,8 @@ std::vector<platform::FileDialogFilter> buildSceneFileDialogFilters()
 bool SceneEditorController::initialize(Rml::Context* context)
 {
     m_context = context;
-    m_expandedAssetDirectoryIds.insert("Assets");
-    m_expandedAssetDirectoryIds.insert("built-in");
+    m_assetBrowserModel.clear();
+    m_hierarchyModel.clear();
     if (m_context != nullptr)
     {
         const Rml::Vector2i dimensions = m_context->GetDimensions();
@@ -1117,7 +1152,7 @@ void SceneEditorController::activate()
     m_windowHeight = std::max(dimensions.y, 1);
     m_layoutManager.setWindowSize(m_windowWidth, m_windowHeight);
 
-    rescanAssetBrowser();
+    m_assetBrowserModel.rescan(std::filesystem::current_path());
     attachListeners();
     refreshPresentation();
     m_document->Show();
@@ -1168,6 +1203,8 @@ void SceneEditorController::deactivate()
     m_pendingLaunchAction = PendingLaunchAction::None;
     m_pendingLaunchScenePath.clear();
     m_consolePartialLine.clear();
+    m_assetBrowserModel.clear();
+    m_hierarchyModel.clear();
     m_layoutManager.clear();
 }
 
@@ -1186,26 +1223,26 @@ void SceneEditorController::syncToWindow(int width, int height)
 void SceneEditorController::sync(Scene& scene)
 {
     m_scene = &scene;
-    const UiGOHierarchyNode previousHierarchy = m_hierarchyRoot;
-    const int previousSelectedHierarchyNodeId = m_selectedHierarchyNodeId;
+    const UiGOHierarchyNode previousHierarchy = m_hierarchyModel.root();
+    const int previousSelectedHierarchyNodeId = m_hierarchyModel.selectedNodeId();
 
-    rebuildHierarchyFromScene(scene);
+    m_hierarchyModel.rebuildFromScene(scene);
 
     if (const GameObject* selectedGameObject = scene.getSelectedGameObject())
     {
-        if (const UiGOHierarchyNode* selectedNode = findHierarchyNodeByGameObject(selectedGameObject))
-            m_selectedHierarchyNodeId = selectedNode->id;
+        if (const UiGOHierarchyNode* selectedNode = m_hierarchyModel.findNodeByGameObject(selectedGameObject))
+            m_hierarchyModel.setSelectedNodeId(selectedNode->id);
     }
     else
     {
-        m_selectedHierarchyNodeId = m_hierarchyRoot.id;
+        m_hierarchyModel.setSelectedNodeId(m_hierarchyModel.root().id);
     }
 
-    if (findHierarchyNodeById(m_selectedHierarchyNodeId) == nullptr)
-        m_selectedHierarchyNodeId = m_hierarchyRoot.id;
+    if (m_hierarchyModel.findNodeById(m_hierarchyModel.selectedNodeId()) == nullptr)
+        m_hierarchyModel.setSelectedNodeId(m_hierarchyModel.root().id);
 
-    const bool hierarchyChanged = !hierarchyNodesEqual(previousHierarchy, m_hierarchyRoot);
-    const bool selectionChanged = previousSelectedHierarchyNodeId != m_selectedHierarchyNodeId;
+    const bool hierarchyChanged = !UI::SceneEditorHierarchyModel::nodesEqual(previousHierarchy, m_hierarchyModel.root());
+    const bool selectionChanged = previousSelectedHierarchyNodeId != m_hierarchyModel.selectedNodeId();
     if (hierarchyChanged)
         requestHierarchyRefresh();
     else if (selectionChanged)
@@ -1673,7 +1710,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             m_hierarchyContextMenuOpen = false;
             if (m_scene != nullptr)
             {
-                const UiGOHierarchyNode* node = findHierarchyNodeById(m_hierarchyContextMenuNodeId);
+                const UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(m_hierarchyContextMenuNodeId);
                 if (node != nullptr && node->gameObject != nullptr)
                 {
                     m_scene->removeGameObject(node->gameObject->getId());
@@ -1711,7 +1748,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             const std::string prefix = "scene_add_component_";
             const std::optional<std::string> typeKey = decodeElementToken(std::string(addComponentItemElementId).substr(prefix.size()));
             const component_meta::ComponentDescriptor* descriptor = typeKey.has_value() ? component_meta::findComponentDescriptor(*typeKey) : nullptr;
-            const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
+            const UiGOHierarchyNode* selectedNode = m_hierarchyModel.findSelectedNode();
 
             m_addComponentMenuOpen = false;
             if (descriptor != nullptr && descriptor->factory != nullptr && selectedNode != nullptr && selectedNode->gameObject != nullptr && m_scene != nullptr)
@@ -1735,7 +1772,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             m_inspectorComponentContextMenuOpen = false;
             if (m_scene != nullptr)
             {
-                UiGOHierarchyNode* node = findHierarchyNodeById(m_inspectorComponentContextMenuNodeId);
+                UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(m_inspectorComponentContextMenuNodeId);
                 GameObject* gameObject = node != nullptr ? const_cast<GameObject*>(node->gameObject) : nullptr;
                 if (gameObject != nullptr && gameObject->removeComponentAt(m_inspectorComponentContextMenuIndex))
                 {
@@ -1752,7 +1789,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         if (::findAncestorElementId(targetElement, [](const Rml::String& candidateId) { return candidateId == "scene_asset_browser_refresh"; }) == "scene_asset_browser_refresh")
         {
             m_assetBrowserContextMenuOpen = false;
-            rescanAssetBrowser();
+            m_assetBrowserModel.rescan(std::filesystem::current_path());
             refreshAssetBrowserWorkspacePresentation(true);
             event.StopPropagation();
             return;
@@ -1815,10 +1852,10 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
         if (const std::optional<std::string> directoryId = UI::SceneEditorDomIdCodec::parseAssetDirectoryToggleElementId(assetDirectoryToggleElementId))
         {
-            if (const AssetBrowserDirectoryNode* directory = findAssetDirectoryById(*directoryId))
+            if (const AssetBrowserDirectoryNode* directory = m_assetBrowserModel.findDirectoryById(*directoryId))
             {
                 if (!directory->children.empty())
-                    toggleAssetDirectoryExpansion(*directoryId);
+                    m_assetBrowserModel.toggleDirectoryExpansion(*directoryId);
             }
 
             refreshAssetBrowserTreePresentation(true);
@@ -1830,8 +1867,8 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         {
             m_assetBrowserContextMenuOpen = false;
             m_hierarchyContextMenuOpen = false;
-            const std::string previousDirectoryId = m_selectedAssetDirectoryId;
-            selectAssetDirectory(*directoryId);
+            const std::string previousDirectoryId = m_assetBrowserModel.selectedDirectoryId();
+            m_assetBrowserModel.selectDirectory(*directoryId);
             refreshAssetBrowserDirectorySelectionPresentation(previousDirectoryId);
             refreshAssetBrowserFilesPresentation(false);
             refreshAssetBrowserOverlayPresentation();
@@ -1843,8 +1880,8 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         {
             m_assetBrowserContextMenuOpen = false;
             m_hierarchyContextMenuOpen = false;
-            const std::string previousFileId = m_selectedAssetFileId;
-            m_selectedAssetFileId = *fileId;
+            const std::string previousFileId = m_assetBrowserModel.selectedFileId();
+            m_assetBrowserModel.setSelectedFileId(*fileId);
             refreshAssetBrowserFileSelectionPresentation(previousFileId);
             event.StopPropagation();
             return;
@@ -1853,20 +1890,20 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         if (const std::optional<int> hierarchyNodeId = UI::SceneEditorDomIdCodec::parseHierarchyNodeId(hierarchyNodeElementId))
         {
             m_hierarchyContextMenuOpen = false;
-            const UiGOHierarchyNode* hierarchyNode = findHierarchyNodeById(*hierarchyNodeId);
+            const UiGOHierarchyNode* hierarchyNode = m_hierarchyModel.findNodeById(*hierarchyNodeId);
             if (hierarchyNode != nullptr && m_scene != nullptr)
             {
                 GameObject* clickedGameObject = const_cast<GameObject*>(hierarchyNode->gameObject);
                 m_scene->toggleSelectedGameObject(clickedGameObject);
                 if (m_activeProcessKind == ActiveProcessKind::Player)
                     m_pendingRuntimeSelectionId = m_scene->getSelectedGameObject() != nullptr ? std::optional<int>(m_scene->getSelectedGameObject()->getId()) : std::optional<int>(-1);
-                m_selectedHierarchyNodeId = (clickedGameObject != nullptr && m_scene->getSelectedGameObject() == clickedGameObject)
+                m_hierarchyModel.setSelectedNodeId((clickedGameObject != nullptr && m_scene->getSelectedGameObject() == clickedGameObject)
                     ? *hierarchyNodeId
-                    : m_hierarchyRoot.id;
+                    : m_hierarchyModel.root().id);
             }
             else
             {
-                m_selectedHierarchyNodeId = *hierarchyNodeId;
+                m_hierarchyModel.setSelectedNodeId(*hierarchyNodeId);
             }
 
             requestHierarchyRefresh();
@@ -1916,7 +1953,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     {
         if (const std::optional<std::string> fileId = UI::SceneEditorDomIdCodec::parseAssetFileElementId(assetFileElementId))
         {
-            if (const AssetBrowserFileEntry* file = findAssetFileById(*fileId))
+            if (const AssetBrowserFileEntry* file = m_assetBrowserModel.findFileById(*fileId))
             {
                 if (file->fileKind == AssetBrowserFileKind::Scene)
                 {
@@ -1932,12 +1969,12 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     {
         if (const std::optional<std::string> fileId = UI::SceneEditorDomIdCodec::parseAssetFileElementId(assetFileElementId))
         {
-            if (const AssetBrowserFileEntry* file = findAssetFileById(*fileId))
+            if (const AssetBrowserFileEntry* file = m_assetBrowserModel.findFileById(*fileId))
             {
                 m_dragPayloadKind = file->dragPayloadKind;
                 m_draggedAssetFileId = *fileId;
                 m_draggedAssetRuntimePath = file->runtimePath;
-                m_selectedAssetFileId = *fileId;
+                m_assetBrowserModel.setSelectedFileId(*fileId);
                 event.StopPropagation();
                 return;
             }
@@ -2049,13 +2086,13 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
                 m_hierarchyContextMenuX = position.x;
                 m_hierarchyContextMenuY = position.y;
 
-                const UiGOHierarchyNode* hierarchyNode = findHierarchyNodeById(*hierarchyNodeId);
+                const UiGOHierarchyNode* hierarchyNode = m_hierarchyModel.findNodeById(*hierarchyNodeId);
                 if (hierarchyNode != nullptr && m_scene != nullptr)
                 {
                     m_scene->setSelectedGameObject(const_cast<GameObject*>(hierarchyNode->gameObject));
                     if (m_activeProcessKind == ActiveProcessKind::Player)
                         m_pendingRuntimeSelectionId = hierarchyNode->gameObject != nullptr ? std::optional<int>(hierarchyNode->gameObject->getId()) : std::optional<int>(-1);
-                    m_selectedHierarchyNodeId = *hierarchyNodeId;
+                    m_hierarchyModel.setSelectedNodeId(*hierarchyNodeId);
                 }
 
                 requestSelectionRefresh();
@@ -2211,1202 +2248,6 @@ void SceneEditorController::applyLayout()
     m_layoutManager.applyLayout();
 }
 
-void SceneEditorController::refreshPresentation()
-{
-    if (m_builderHeader == nullptr || m_leftPanel == nullptr || m_rightPanel == nullptr || m_bottomPanel == nullptr)
-        return;
-
-    m_builderHeader->SetInnerRML(buildSceneEditorMenuMarkup(m_isFileMenuOpen, m_isEditMenuOpen, m_isWindowMenuOpen));
-
-    m_leftPanel->SetInnerRML(
-        buildHierarchyMarkup()
-    );
-    m_viewportPanel->SetInnerRML(buildViewportMarkup());
-    m_viewportSurface = m_document->GetElementById("scene_viewport_surface");
-    m_playbackStatusElement = m_document->GetElementById("scene_playback_status");
-    updatePlaybackStatusPresentation();
-    m_rightPanel->SetInnerRML(
-        buildInspectorMarkup()
-    );
-    m_bottomPanel->SetInnerRML(buildAssetBrowserMarkup());
-    m_bottomBrowserFilesPane = m_document->GetElementById("scene_asset_browser_files_pane");
-    m_bottomBrowserSplitter = m_document->GetElementById("scene_asset_browser_splitter");
-    m_bottomBrowserTreePane = m_document->GetElementById("scene_asset_browser_tree_pane");
-}
-
-void SceneEditorController::refreshHierarchyPresentation()
-{
-    if (m_leftPanel == nullptr)
-        return;
-
-    m_leftPanel->SetInnerRML(buildHierarchyMarkup());
-}
-
-void SceneEditorController::refreshViewportPresentation()
-{
-    if (m_viewportPanel == nullptr)
-        return;
-
-    m_viewportPanel->SetInnerRML(buildViewportMarkup());
-    m_viewportSurface = m_document != nullptr ? m_document->GetElementById("scene_viewport_surface") : nullptr;
-    m_layoutManager.setViewportSurface(m_viewportSurface);
-    m_playbackStatusElement = m_document != nullptr ? m_document->GetElementById("scene_playback_status") : nullptr;
-    updatePlaybackStatusPresentation();
-}
-
-void SceneEditorController::refreshInspectorPresentation(bool preserveScroll)
-{
-    if (m_rightPanel == nullptr)
-        return;
-
-    float previousScrollTop = 0.0f;
-    float previousScrollLeft = 0.0f;
-    if (preserveScroll && m_document != nullptr)
-    {
-        if (Rml::Element* inspectorBody = m_document->GetElementById("scene_inspector_panel_body"))
-        {
-            previousScrollTop = inspectorBody->GetScrollTop();
-            previousScrollLeft = inspectorBody->GetScrollLeft();
-        }
-    }
-
-    m_rightPanel->SetInnerRML(buildInspectorMarkup());
-
-    if (preserveScroll && m_document != nullptr)
-    {
-        if (Rml::Element* inspectorBody = m_document->GetElementById("scene_inspector_panel_body"))
-        {
-            inspectorBody->SetScrollTop(previousScrollTop);
-            inspectorBody->SetScrollLeft(previousScrollLeft);
-        }
-    }
-}
-
-void SceneEditorController::refreshInspectorOverlayPresentation()
-{
-    if (m_document == nullptr)
-        return;
-
-    if (Rml::Element* overlay = m_document->GetElementById("scene_inspector_overlay"))
-        overlay->SetInnerRML(buildInspectorOverlayMarkup());
-}
-
-void SceneEditorController::refreshBottomPanelPresentation(bool preserveScroll)
-{
-    if (m_bottomPanel == nullptr)
-        return;
-
-    float previousFilesScrollTop = 0.0f;
-    float previousFilesScrollLeft = 0.0f;
-    float previousTreeScrollTop = 0.0f;
-    float previousTreeScrollLeft = 0.0f;
-
-    if (preserveScroll)
-    {
-        if (m_bottomBrowserFilesPane != nullptr)
-        {
-            previousFilesScrollTop = m_bottomBrowserFilesPane->GetScrollTop();
-            previousFilesScrollLeft = m_bottomBrowserFilesPane->GetScrollLeft();
-        }
-
-        if (m_bottomBrowserTreePane != nullptr)
-        {
-            previousTreeScrollTop = m_bottomBrowserTreePane->GetScrollTop();
-            previousTreeScrollLeft = m_bottomBrowserTreePane->GetScrollLeft();
-        }
-    }
-
-    m_bottomPanel->SetInnerRML(buildAssetBrowserMarkup());
-    m_bottomBrowserFilesPane = m_document != nullptr ? m_document->GetElementById("scene_asset_browser_files_pane") : nullptr;
-    m_bottomBrowserSplitter = m_document != nullptr ? m_document->GetElementById("scene_asset_browser_splitter") : nullptr;
-    m_bottomBrowserTreePane = m_document != nullptr ? m_document->GetElementById("scene_asset_browser_tree_pane") : nullptr;
-
-    if (!preserveScroll)
-        return;
-
-    if (m_bottomBrowserFilesPane != nullptr)
-    {
-        m_bottomBrowserFilesPane->SetScrollTop(previousFilesScrollTop);
-        m_bottomBrowserFilesPane->SetScrollLeft(previousFilesScrollLeft);
-    }
-
-    if (m_bottomBrowserTreePane != nullptr)
-    {
-        m_bottomBrowserTreePane->SetScrollTop(previousTreeScrollTop);
-        m_bottomBrowserTreePane->SetScrollLeft(previousTreeScrollLeft);
-    }
-}
-
-void SceneEditorController::refreshAssetBrowserWorkspacePresentation(bool preserveScroll)
-{
-    if (m_document == nullptr)
-        return;
-
-    float previousFilesScrollTop = 0.0f;
-    float previousFilesScrollLeft = 0.0f;
-    float previousTreeScrollTop = 0.0f;
-    float previousTreeScrollLeft = 0.0f;
-
-    if (preserveScroll)
-    {
-        if (m_bottomBrowserFilesPane != nullptr)
-        {
-            previousFilesScrollTop = m_bottomBrowserFilesPane->GetScrollTop();
-            previousFilesScrollLeft = m_bottomBrowserFilesPane->GetScrollLeft();
-        }
-
-        if (m_bottomBrowserTreePane != nullptr)
-        {
-            previousTreeScrollTop = m_bottomBrowserTreePane->GetScrollTop();
-            previousTreeScrollLeft = m_bottomBrowserTreePane->GetScrollLeft();
-        }
-    }
-
-    Rml::Element* workspace = m_document->GetElementById("scene_asset_browser_workspace");
-    if (workspace == nullptr)
-        return;
-
-    workspace->SetInnerRML(buildAssetBrowserWorkspaceMarkup());
-    m_bottomBrowserFilesPane = m_document->GetElementById("scene_asset_browser_files_pane");
-    m_bottomBrowserSplitter = m_document->GetElementById("scene_asset_browser_splitter");
-    m_bottomBrowserTreePane = m_document->GetElementById("scene_asset_browser_tree_pane");
-
-    if (!preserveScroll)
-        return;
-
-    if (m_bottomBrowserFilesPane != nullptr)
-    {
-        m_bottomBrowserFilesPane->SetScrollTop(previousFilesScrollTop);
-        m_bottomBrowserFilesPane->SetScrollLeft(previousFilesScrollLeft);
-    }
-
-    if (m_bottomBrowserTreePane != nullptr)
-    {
-        m_bottomBrowserTreePane->SetScrollTop(previousTreeScrollTop);
-        m_bottomBrowserTreePane->SetScrollLeft(previousTreeScrollLeft);
-    }
-}
-
-void SceneEditorController::refreshAssetBrowserTreePresentation(bool preserveScroll)
-{
-    if (m_document == nullptr)
-        return;
-
-    float previousScrollTop = 0.0f;
-    float previousScrollLeft = 0.0f;
-    if (preserveScroll && m_bottomBrowserTreePane != nullptr)
-    {
-        previousScrollTop = m_bottomBrowserTreePane->GetScrollTop();
-        previousScrollLeft = m_bottomBrowserTreePane->GetScrollLeft();
-    }
-
-    if (Rml::Element* treePane = m_document->GetElementById("scene_asset_browser_tree_pane"))
-        treePane->SetInnerRML(buildAssetBrowserTreePaneMarkup());
-
-    m_bottomBrowserTreePane = m_document->GetElementById("scene_asset_browser_tree_pane");
-    if (preserveScroll && m_bottomBrowserTreePane != nullptr)
-    {
-        m_bottomBrowserTreePane->SetScrollTop(previousScrollTop);
-        m_bottomBrowserTreePane->SetScrollLeft(previousScrollLeft);
-    }
-}
-
-void SceneEditorController::refreshAssetBrowserFilesPresentation(bool preserveScroll)
-{
-    if (m_document == nullptr)
-        return;
-
-    float previousScrollTop = 0.0f;
-    float previousScrollLeft = 0.0f;
-    if (preserveScroll && m_bottomBrowserFilesPane != nullptr)
-    {
-        previousScrollTop = m_bottomBrowserFilesPane->GetScrollTop();
-        previousScrollLeft = m_bottomBrowserFilesPane->GetScrollLeft();
-    }
-
-    if (Rml::Element* filesPane = m_document->GetElementById("scene_asset_browser_files_pane"))
-        filesPane->SetInnerRML(buildAssetBrowserFilesPaneMarkup());
-
-    m_bottomBrowserFilesPane = m_document->GetElementById("scene_asset_browser_files_pane");
-    if (preserveScroll && m_bottomBrowserFilesPane != nullptr)
-    {
-        m_bottomBrowserFilesPane->SetScrollTop(previousScrollTop);
-        m_bottomBrowserFilesPane->SetScrollLeft(previousScrollLeft);
-    }
-}
-
-void SceneEditorController::refreshAssetBrowserOverlayPresentation()
-{
-    if (m_document == nullptr)
-        return;
-
-    if (Rml::Element* overlay = m_document->GetElementById("scene_asset_browser_overlay"))
-        overlay->SetInnerRML(buildAssetBrowserOverlayMarkup());
-}
-
-void SceneEditorController::refreshAssetBrowserFileSelectionPresentation(const std::string& previousFileId)
-{
-    if (m_document == nullptr)
-        return;
-
-    auto updateFileElementClass = [&](const std::string& fileId) {
-        if (fileId.empty())
-            return;
-
-        const AssetBrowserFileEntry* file = findAssetFileById(fileId);
-        if (file == nullptr)
-            return;
-
-        Rml::Element* element = m_document->GetElementById(UI::SceneEditorDomIdCodec::makeAssetFileElementId(fileId));
-        if (element == nullptr)
-            return;
-
-        std::string classNames = "asset_browser_file_card ";
-        classNames += assetBrowserRootClass(file->rootKind);
-        classNames += " ";
-        classNames += assetBrowserFileKindClass(file->fileKind);
-        if (fileId == m_selectedAssetFileId)
-            classNames += " selected";
-        if (fileId == m_draggedAssetFileId)
-            classNames += " dragging";
-
-        element->SetClassNames(classNames);
-    };
-
-    if (previousFileId != m_selectedAssetFileId)
-        updateFileElementClass(previousFileId);
-    updateFileElementClass(m_selectedAssetFileId);
-}
-
-void SceneEditorController::refreshAssetBrowserDirectorySelectionPresentation(const std::string& previousDirectoryId)
-{
-    if (m_document == nullptr)
-        return;
-
-    auto updateDirectoryElementClass = [&](const std::string& directoryId) {
-        if (directoryId.empty())
-            return;
-
-        const AssetBrowserDirectoryNode* directory = findAssetDirectoryById(directoryId);
-        if (directory == nullptr)
-            return;
-
-        Rml::Element* element = m_document->GetElementById(UI::SceneEditorDomIdCodec::makeAssetDirectoryElementId(directoryId));
-        if (element == nullptr)
-            return;
-
-        std::string classNames = "asset_browser_tree_row ";
-        classNames += assetBrowserRootClass(directory->rootKind);
-        if (directoryId == m_selectedAssetDirectoryId)
-            classNames += " selected";
-        if (isAssetDirectoryExpanded(*directory))
-            classNames += " expanded";
-        element->SetClassNames(classNames);
-    };
-
-    if (previousDirectoryId != m_selectedAssetDirectoryId)
-        updateDirectoryElementClass(previousDirectoryId);
-    updateDirectoryElementClass(m_selectedAssetDirectoryId);
-}
-
-void SceneEditorController::refreshInspectorValuesPresentation()
-{
-    const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
-    if (m_document == nullptr || selectedNode == nullptr)
-        return;
-
-    const Rml::Element* focusedElement = m_context != nullptr ? m_context->GetFocusElement() : nullptr;
-
-    auto isFieldFocused = [&](Rml::Element* fieldElement) {
-        if (fieldElement == nullptr)
-            return false;
-
-        for (const Rml::Element* element = focusedElement; element != nullptr; element = element->GetParentNode())
-        {
-            if (element == fieldElement)
-                return true;
-        }
-
-        return false;
-    };
-
-    auto refreshVec3FieldValue = [&](const std::string& elementId, const glm::vec3& value) {
-        Rml::Element* fieldElement = m_document->GetElementById(elementId);
-        Rml::ElementFormControl* formControl = dynamic_cast<Rml::ElementFormControl*>(fieldElement);
-        if (formControl == nullptr || isFieldFocused(fieldElement))
-            return;
-
-        const std::string formattedValue = formatSerializedValue(value);
-        if (formControl->GetValue() != formattedValue)
-            formControl->SetValue(formattedValue);
-    };
-
-    if (Rml::Element* childrenValue = m_document->GetElementById("scene_inspector_children_value"))
-        childrenValue->SetInnerRML(std::to_string(selectedNode->children.size()));
-
-    if (selectedNode->gameObject == nullptr)
-    {
-        auto refreshStringFieldValue = [&](const std::string& elementId, const std::string& value) {
-            Rml::Element* fieldElement = m_document->GetElementById(elementId);
-            Rml::ElementFormControl* formControl = dynamic_cast<Rml::ElementFormControl*>(fieldElement);
-            if (formControl == nullptr || isFieldFocused(fieldElement))
-                return;
-
-            if (formControl->GetValue() != value)
-                formControl->SetValue(value);
-        };
-
-        if (m_scene != nullptr)
-        {
-            refreshStringFieldValue(makeSceneFieldElementId("sceneScriptAsset"), m_scene->getSceneScriptAssetPath());
-            refreshStringFieldValue(makeSceneFieldElementId("dataAsset"), m_scene->getDataAssetPath());
-
-            InspectorFieldBinding dataAssetBinding;
-            dataAssetBinding.target = InspectorFieldBinding::Target::Scene;
-            dataAssetBinding.nodeId = 0;
-            dataAssetBinding.fieldKey = "dataAsset";
-            refreshDataAssetEditorPresentation(dataAssetBinding);
-        }
-        return;
-    }
-
-    const glm::vec3& position = selectedNode->gameObject->transform.getPosition();
-    refreshVec3FieldValue(makeTransformFieldElementId(selectedNode->id, "position"), position);
-
-    const glm::vec3& rotation = selectedNode->gameObject->transform.getRotation();
-    refreshVec3FieldValue(makeTransformFieldElementId(selectedNode->id, "rotation"), rotation);
-
-    const glm::vec3& scale = selectedNode->gameObject->transform.getScale();
-    refreshVec3FieldValue(makeTransformFieldElementId(selectedNode->id, "scale"), scale);
-
-    for (size_t componentIndex = 0; componentIndex < selectedNode->gameObject->getComponentCount(); ++componentIndex)
-    {
-        const component::Component* component = selectedNode->gameObject->getComponentAt(componentIndex);
-        if (component == nullptr)
-            continue;
-
-        const component_meta::ComponentDescriptor* descriptor = component->getComponentDescriptor();
-        if (descriptor == nullptr)
-            continue;
-
-        for (const component_meta::ComponentFieldDescriptor& field : descriptor->fields)
-        {
-            if (!field.read)
-                continue;
-
-            Rml::Element* fieldElement = m_document->GetElementById(makeInspectorFieldElementId(selectedNode->id, componentIndex, field.key));
-            Rml::ElementFormControl* formControl = dynamic_cast<Rml::ElementFormControl*>(fieldElement);
-            if (formControl == nullptr)
-                continue;
-
-            if (isFieldFocused(fieldElement))
-                continue;
-
-            const std::string formattedValue = formatSerializedValue(field.read(*component));
-            if (formControl->GetValue() != formattedValue)
-                formControl->SetValue(formattedValue);
-
-            if (field.assetReferenceKind == component_meta::AssetReferenceKind::Material)
-            {
-                InspectorFieldBinding binding;
-                binding.target = InspectorFieldBinding::Target::Component;
-                binding.nodeId = selectedNode->id;
-                binding.componentIndex = componentIndex;
-                binding.fieldKey = field.key;
-                refreshMaterialAssetEditorPresentation(binding);
-            }
-            else if (field.assetReferenceKind == component_meta::AssetReferenceKind::Data)
-            {
-                InspectorFieldBinding binding;
-                binding.target = InspectorFieldBinding::Target::Component;
-                binding.nodeId = selectedNode->id;
-                binding.componentIndex = componentIndex;
-                binding.fieldKey = field.key;
-                refreshDataAssetEditorPresentation(binding);
-            }
-
-        }
-    }
-}
-
-void SceneEditorController::refreshCachedRects()
-{
-    m_layoutManager.setViewportSurface(m_viewportSurface);
-    m_layoutManager.refreshCachedRects();
-}
-
-
-std::string SceneEditorController::buildHierarchyMarkup() const
-{
-    UI::Panel panel(0, 0);
-    panel.addClassName("hierarchy_shell");
-    panel.setContentDomIdOverride("scene_hierarchy_body");
-    panel.addContentClassName("hierarchy_body");
-
-    UI::PanelHeader header(0, 0, "Scene");
-    header.addClassName("panel_header_with_action");
-
-    UI::PanelAction addAction(0, 0, "+");
-    addAction.setDomIdOverride("scene_hierarchy_add");
-    header.addChild(&addAction);
-
-    UI::MarkupBlock body(0, 0, buildHierarchyNodeMarkup(m_hierarchyRoot, 0) + buildHierarchyContextMenuMarkup());
-
-    panel.addChild(&header);
-    panel.addChild(&body);
-    return panel.getRML();
-}
-
-std::string SceneEditorController::buildHierarchyContextMenuMarkup() const
-{
-    if (!m_hierarchyContextMenuOpen || m_hierarchyContextMenuNodeId == m_hierarchyRoot.id)
-        return "";
-
-    std::ostringstream stream;
-    stream << "<div class='hierarchy_context_menu' style='left: " << m_hierarchyContextMenuX << "px; top: " << m_hierarchyContextMenuY << "px;'>";
-    stream << "<div id='scene_hierarchy_delete' class='hierarchy_context_item danger'>Delete</div>";
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildHierarchyNodeMarkup(const UiGOHierarchyNode& node, int depth) const
-{
-    const bool isSelected = node.id == m_selectedHierarchyNodeId;
-
-    std::ostringstream stream;
-    stream << "<div class='hierarchy_node depth_" << depth << "'>";
-    stream << "<div id='" << UI::SceneEditorDomIdCodec::makeHierarchyNodeElementId(node.id) << "' class='hierarchy_row scene_hierarchy_row";
-    if (isSelected)
-        stream << " selected";
-    stream << "'>";
-    stream << "<div class='hierarchy_label'>" << escapeRmlText(node.label) << "</div>";
-    stream << "<div class='hierarchy_meta'>&lt;" << escapeRmlText(node.tagName) << "&gt;</div>";
-    stream << "</div>";
-
-    if (!node.children.empty())
-    {
-        stream << "<div class='hierarchy_children'>";
-        for (const UiGOHierarchyNode& child : node.children)
-            stream << buildHierarchyNodeMarkup(child, depth + 1);
-        stream << "</div>";
-    }
-
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildInspectorMarkup() const
-{
-    const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
-    if (selectedNode == nullptr)
-    {
-        return buildInspectorShellMarkup(
-            buildInspectorPlaceholderMarkup("Inspector", "Select a game object in the scene hierarchy."),
-            std::string());
-    }
-
-    if (selectedNode->gameObject == nullptr)
-    {
-        const std::string sceneScriptFieldId = makeSceneFieldElementId("sceneScriptAsset");
-        const std::string dataAssetFieldId = makeSceneFieldElementId("dataAsset");
-        InspectorFieldBinding dataAssetBinding;
-        dataAssetBinding.target = InspectorFieldBinding::Target::Scene;
-        dataAssetBinding.nodeId = 0;
-        dataAssetBinding.fieldKey = "dataAsset";
-
-        std::ostringstream stream;
-        stream << "<div class='inspector_summary'>";
-        stream << "<div class='inspector_summary_title'>" << escapeRmlText(selectedNode->label) << "</div>";
-        stream << "<div class='inspector_summary_text'>Scene Root</div>";
-        stream << "</div>";
-        stream << "<div class='inspector_section'>";
-        stream << "<div class='inspector_field_row'><div class='inspector_field_name'>Children</div><div id='scene_inspector_children_value' class='inspector_field_input'>" << selectedNode->children.size() << "</div></div>";
-        stream << buildInspectorFieldMarkup(
-            sceneScriptFieldId,
-            "SceneScript",
-            component_meta::FieldKind::Asset,
-            m_scene != nullptr ? component_meta::SerializedValue(m_scene->getSceneScriptAssetPath()) : component_meta::SerializedValue(std::string()),
-            {},
-            component_meta::AssetReferenceKind::SceneScript,
-            sceneScriptFieldId == m_hoveredInspectorFieldId);
-        stream << buildInspectorFieldMarkup(
-            dataAssetFieldId,
-            "DataAsset",
-            component_meta::FieldKind::Asset,
-            m_scene != nullptr ? component_meta::SerializedValue(m_scene->getDataAssetPath()) : component_meta::SerializedValue(std::string()),
-            {},
-            component_meta::AssetReferenceKind::Data,
-            dataAssetFieldId == m_hoveredInspectorFieldId);
-        stream << buildDataAssetEditorMarkup(dataAssetBinding, m_scene != nullptr ? m_scene->getDataAssetPath() : std::string());
-        stream << "</div>";
-        return buildInspectorShellMarkup(stream.str(), buildInspectorOverlayMarkup());
-    }
-
-    const glm::vec3& position = selectedNode->gameObject->transform.getPosition();
-    const glm::vec3& rotation = selectedNode->gameObject->transform.getRotation();
-    const glm::vec3& scale = selectedNode->gameObject->transform.getScale();
-
-    std::ostringstream stream;
-    stream << "<div class='inspector_summary'>";
-    stream << "<div class='inspector_summary_title'>" << escapeRmlText(selectedNode->label) << "</div>";
-    stream << "<div class='inspector_summary_text'>GameObject</div>";
-    stream << "</div>";
-
-    stream << "<div class='inspector_section'>";
-    stream << "<div class='inspector_field_row'><div class='inspector_field_name'>Children</div><div id='scene_inspector_children_value' class='inspector_field_input'>" << selectedNode->children.size() << "</div></div>";
-    stream << buildInspectorFieldMarkup(
-        makeTransformFieldElementId(selectedNode->id, "position"),
-        "Position",
-        component_meta::FieldKind::Vec3,
-        position,
-        {},
-        component_meta::AssetReferenceKind::None,
-        false
-    );
-    stream << buildInspectorFieldMarkup(
-        makeTransformFieldElementId(selectedNode->id, "rotation"),
-        "Rotation",
-        component_meta::FieldKind::Vec3,
-        rotation,
-        {},
-        component_meta::AssetReferenceKind::None,
-        false
-    );
-    stream << buildInspectorFieldMarkup(
-        makeTransformFieldElementId(selectedNode->id, "scale"),
-        "Scale",
-        component_meta::FieldKind::Vec3,
-        scale,
-        {},
-        component_meta::AssetReferenceKind::None,
-        false
-    );
-    stream << "</div>";
-
-    size_t serializableComponentCount = 0;
-    for (size_t componentIndex = 0; componentIndex < selectedNode->gameObject->getComponentCount(); ++componentIndex)
-    {
-        const component::Component* component = selectedNode->gameObject->getComponentAt(componentIndex);
-        if (component == nullptr)
-            continue;
-
-        const component_meta::ComponentDescriptor* descriptor = component->getComponentDescriptor();
-        if (descriptor == nullptr)
-            continue;
-
-        ++serializableComponentCount;
-        const std::string groupId = makeInspectorGroupElementId(selectedNode->id, componentIndex);
-        const bool collapsed = isInspectorGroupCollapsed(groupId);
-        stream << "<div class='inspector_foldout'>";
-        stream << "<div id='" << groupId << "' class='inspector_foldout_header'>";
-        stream << "<div class='inspector_foldout_icon'>" << (collapsed ? ">" : "v") << "</div>";
-        stream << "<div class='inspector_foldout_title'>" << escapeRmlText(descriptor->displayName) << "</div>";
-        stream << "</div>";
-        if (!collapsed)
-        {
-            stream << "<div class='inspector_foldout_body'>";
-            stream << "<div class='inspector_summary_text'>type: " << escapeRmlText(descriptor->typeKey) << " | version: " << descriptor->version << "</div>";
-            for (const component_meta::ComponentFieldDescriptor& field : descriptor->fields)
-            {
-                if (!field.read)
-                    continue;
-
-                const std::string fieldId = makeInspectorFieldElementId(selectedNode->id, componentIndex, field.key);
-                const component_meta::SerializedValue fieldValue = field.read(*component);
-                if (field.assetReferenceKind == component_meta::AssetReferenceKind::Material)
-                {
-                    InspectorFieldBinding binding;
-                    binding.target = InspectorFieldBinding::Target::Component;
-                    binding.nodeId = selectedNode->id;
-                    binding.componentIndex = componentIndex;
-                    binding.fieldKey = field.key;
-                    const std::string* assetPath = std::get_if<std::string>(&fieldValue);
-
-                    stream << buildInspectorFieldMarkup(selectedNode->id, componentIndex, field, fieldValue, fieldId == m_hoveredInspectorFieldId);
-                    stream << buildMaterialAssetEditorMarkup(binding, assetPath != nullptr ? *assetPath : std::string());
-                }
-                else if (field.assetReferenceKind == component_meta::AssetReferenceKind::Data)
-                {
-                    InspectorFieldBinding binding;
-                    binding.target = InspectorFieldBinding::Target::Component;
-                    binding.nodeId = selectedNode->id;
-                    binding.componentIndex = componentIndex;
-                    binding.fieldKey = field.key;
-                    const std::string* assetPath = std::get_if<std::string>(&fieldValue);
-
-                    stream << buildInspectorFieldMarkup(selectedNode->id, componentIndex, field, fieldValue, fieldId == m_hoveredInspectorFieldId);
-                    stream << buildDataAssetEditorMarkup(binding, assetPath != nullptr ? *assetPath : std::string());
-                }
-                else
-                {
-                    stream << buildInspectorFieldMarkup(selectedNode->id, componentIndex, field, fieldValue, fieldId == m_hoveredInspectorFieldId);
-                }
-            }
-            stream << "</div>";
-        }
-        stream << "</div>";
-    }
-
-    if (serializableComponentCount == 0)
-    {
-        stream << "<div class='placeholder_block'><div class='placeholder_title'>Serializable components</div><div class='placeholder_text'>No serializable component descriptor is registered on this game object yet.</div></div>";
-    }
-
-    stream << "<div class='inspector_add_component_row'><div id='scene_inspector_add_component' class='panel_header_action inspector_add_component_button'>Add Component</div></div>";
-    return buildInspectorShellMarkup(stream.str(), buildInspectorOverlayMarkup());
-}
-
-std::string SceneEditorController::buildInspectorOverlayMarkup() const
-{
-    return buildInspectorAddComponentMenuMarkup() + buildInspectorComponentContextMenuMarkup();
-}
-
-std::string SceneEditorController::buildInspectorAddComponentMenuMarkup() const
-{
-    if (!m_addComponentMenuOpen)
-        return "";
-
-    std::vector<const component_meta::ComponentDescriptor*> descriptors;
-    for (const auto& entry : component_meta::componentDescriptorRegistry())
-    {
-        if (entry.second != nullptr)
-            descriptors.push_back(entry.second);
-    }
-
-    std::sort(descriptors.begin(), descriptors.end(), [](const auto* lhs, const auto* rhs) {
-        return lhs->displayName < rhs->displayName;
-    });
-
-    std::ostringstream stream;
-    stream << "<div class='hierarchy_context_menu inspector_add_component_menu' style='left: " << m_addComponentMenuX << "px; top: " << m_addComponentMenuY << "px;'>";
-    for (const component_meta::ComponentDescriptor* descriptor : descriptors)
-    {
-        stream << "<div id='scene_add_component_" << encodeElementToken(descriptor->typeKey) << "' class='hierarchy_context_item'>";
-        stream << escapeRmlText(descriptor->displayName);
-        stream << "</div>";
-    }
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildAssetBrowserMarkup() const
-{
-    const bool showAssetBrowser = m_bottomPanelTab == BottomPanelTab::AssetBrowser;
-
-    UI::TabPanel panel(0, 0);
-    panel.setContentWithoutPadding(true);
-
-    UI::TabHeader header(0, 0);
-
-    UI::Container tabsWrapper(0, 0, UI::HORIZONTAL);
-    tabsWrapper.addClassName("panel_tabs");
-
-    UI::TabButton assetBrowserButton(0, 0, "Asset Browser");
-    assetBrowserButton.setDomIdOverride("scene_bottom_tab_asset_browser");
-    assetBrowserButton.setActive(showAssetBrowser);
-
-    UI::TabButton consoleButton(0, 0, "Console");
-    consoleButton.setDomIdOverride("scene_bottom_tab_console");
-    consoleButton.setActive(!showAssetBrowser);
-
-    tabsWrapper.addChild(&assetBrowserButton);
-    tabsWrapper.addChild(&consoleButton);
-    header.addChild(&tabsWrapper);
-
-    UI::PanelAction clearAction(0, 0, "Clear");
-    if (!showAssetBrowser)
-    {
-        clearAction.setDomIdOverride("scene_console_clear");
-        header.addChild(&clearAction);
-    }
-
-    UI::TabItem assetBrowserTab(0, 0, "Asset Browser");
-    UI::MarkupBlock assetBrowserContent(0, 0);
-    assetBrowserContent.setMarkup(
-        std::string("<div id='scene_asset_browser_workspace' class='asset_browser_workspace'>") +
-        buildAssetBrowserWorkspaceMarkup() +
-        "</div>");
-    assetBrowserTab.addChild(&assetBrowserContent);
-
-    UI::TabItem consoleTab(0, 0, "Console");
-    UI::MarkupBlock consoleContent(0, 0, buildConsoleMarkup());
-    consoleTab.addChild(&consoleContent);
-
-    panel.setTabHeader(&header);
-    panel.addTab(&assetBrowserTab);
-    panel.addTab(&consoleTab);
-    panel.setActiveTabIndex(showAssetBrowser ? 0U : 1U);
-    return panel.getRML();
-}
-
-std::string SceneEditorController::buildAssetBrowserWorkspaceMarkup() const
-{
-    std::ostringstream stream;
-    stream << "<div id='scene_asset_browser_tree_pane' class='asset_browser_pane asset_browser_tree_pane'>";
-    stream << buildAssetBrowserTreePaneMarkup();
-    stream << "</div>";
-
-    stream << "<div id='scene_asset_browser_splitter' class='splitter splitter_vertical_nested'></div>";
-
-    stream << "<div id='scene_asset_browser_files_pane' class='asset_browser_pane asset_browser_files_pane'>";
-    stream << buildAssetBrowserFilesPaneMarkup();
-    stream << "</div>";
-
-    stream << "<div id='scene_asset_browser_overlay' class='asset_browser_overlay'>";
-    stream << buildAssetBrowserOverlayMarkup();
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildAssetBrowserTreePaneMarkup() const
-{
-    std::ostringstream stream;
-    stream << "<div class='asset_browser_section_header'>Folders</div><div class='asset_browser_section_body asset_browser_tree_body'>";
-    for (const AssetBrowserDirectoryNode& root : m_assetBrowserRoots)
-        stream << buildAssetBrowserDirectoryMarkup(root, 0);
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildAssetBrowserFilesPaneMarkup() const
-{
-    const AssetBrowserDirectoryNode* selectedDirectory = findSelectedAssetDirectory();
-
-    std::ostringstream stream;
-    stream << "<div class='asset_browser_section_header'>Files";
-    if (selectedDirectory != nullptr)
-        stream << "<span class='asset_browser_section_path'>" << escapeRmlText(selectedDirectory->runtimePath) << "</span>";
-    stream << "</div><div class='asset_browser_section_body asset_browser_files_body'>";
-    stream << buildAssetBrowserFileGridMarkup(selectedDirectory);
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildAssetBrowserOverlayMarkup() const
-{
-    return buildAssetBrowserContextMenuMarkup();
-}
-
-std::string SceneEditorController::buildInspectorComponentContextMenuMarkup() const
-{
-    if (!m_inspectorComponentContextMenuOpen)
-        return "";
-
-    std::ostringstream stream;
-    stream << "<div class='hierarchy_context_menu inspector_component_context_menu' style='left: " << m_inspectorComponentContextMenuX << "px; top: " << m_inspectorComponentContextMenuY << "px;'>";
-    stream << "<div id='scene_inspector_component_delete' class='hierarchy_context_item danger'>Delete component</div>";
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildConsoleMarkup() const
-{
-    std::ostringstream stream;
-    stream << "<div class='console_workspace'><div class='console_output'>";
-
-    if (m_consoleLines.empty())
-    {
-        stream << "<div class='placeholder_block'><div class='placeholder_title'>Console</div><div class='placeholder_text'>Build output and player logs will appear here.</div></div>";
-    }
-    else
-    {
-        for (const std::string& lineMarkup : m_consoleLines)
-            stream << "<div class='console_line'>" << lineMarkup << "</div>";
-    }
-
-    stream << "</div></div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildAssetBrowserDirectoryMarkup(const AssetBrowserDirectoryNode& node, int depth) const
-{
-    const bool expanded = isAssetDirectoryExpanded(node);
-    const bool selected = node.id == m_selectedAssetDirectoryId;
-
-    std::ostringstream stream;
-    stream << "<div class='asset_browser_tree_node depth_" << depth << "'>";
-    stream << "<div id='" << UI::SceneEditorDomIdCodec::makeAssetDirectoryElementId(node.id) << "' class='asset_browser_tree_row ";
-    stream << assetBrowserRootClass(node.rootKind);
-    if (selected)
-        stream << " selected";
-    if (expanded)
-        stream << " expanded";
-    stream << "'>";
-    stream << "<div id='" << UI::SceneEditorDomIdCodec::makeAssetDirectoryToggleElementId(node.id) << "' class='asset_browser_tree_toggle'>" << (node.children.empty() ? "-" : (expanded ? "v" : ">")) << "</div>";
-    stream << "<div class='asset_browser_tree_label'>" << escapeRmlText(node.label) << "</div>";
-    stream << "<div class='asset_browser_tree_meta'>" << escapeRmlText(assetBrowserRootLabel(node.rootKind)) << "</div>";
-    stream << "</div>";
-
-    if (expanded)
-    {
-        stream << "<div class='asset_browser_tree_children'>";
-        for (const AssetBrowserDirectoryNode& child : node.children)
-            stream << buildAssetBrowserDirectoryMarkup(child, depth + 1);
-        stream << "</div>";
-    }
-
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildAssetBrowserFileGridMarkup(const AssetBrowserDirectoryNode* directory) const
-{
-    if (directory == nullptr)
-    {
-        return R"RML(<div class='placeholder_block'><div class='placeholder_title'>Asset browser</div><div class='placeholder_text'>Select a directory from Assets or built-in.</div></div>)RML";
-    }
-
-    if (directory->files.empty())
-    {
-        return R"RML(<div class='placeholder_block'><div class='placeholder_title'>No files in this folder</div><div class='placeholder_text'>Directories are listed in the tree on the right. This grid is ready for typed drag and drop payloads.</div></div>)RML";
-    }
-
-    std::ostringstream stream;
-    stream << "<div class='asset_browser_file_grid'>";
-    for (const AssetBrowserFileEntry& file : directory->files)
-    {
-        stream << "<div id='" << UI::SceneEditorDomIdCodec::makeAssetFileElementId(file.id) << "' class='asset_browser_file_card ";
-        stream << assetBrowserRootClass(file.rootKind) << " " << assetBrowserFileKindClass(file.fileKind);
-        if (file.id == m_selectedAssetFileId)
-            stream << " selected";
-        if (file.id == m_draggedAssetFileId)
-            stream << " dragging";
-        stream << "'>";
-        stream << "<div class='asset_browser_file_badge'>" << escapeRmlText(assetBrowserFileKindLabel(file.fileKind)) << "</div>";
-        stream << "<div class='asset_browser_file_label'>" << escapeRmlText(file.label) << "</div>";
-        stream << "<div class='asset_browser_file_meta'>" << escapeRmlText(file.runtimePath) << "</div>";
-        stream << "</div>";
-    }
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildAssetBrowserContextMenuMarkup() const
-{
-    if (!m_assetBrowserContextMenuOpen)
-        return "";
-
-    std::ostringstream stream;
-    stream << "<div class='hierarchy_context_menu asset_browser_context_menu' style='left: " << m_assetBrowserContextMenuX << "px; top: " << m_assetBrowserContextMenuY << "px;'>";
-    stream << "<div id='scene_asset_browser_refresh' class='hierarchy_context_item'>Refresh</div>";
-    stream << "</div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::buildViewportMarkup() const
-{
-    const bool buildRunning = m_activeProcessKind == ActiveProcessKind::Build;
-    const bool previewPlayerRunning = m_activeProcessKind == ActiveProcessKind::Player;
-
-    UI::Container shell(0, 0, UI::VERTICAL);
-    shell.addClassName("scene_viewport_shell");
-
-    UI::Container toolbar(0, 0, UI::HORIZONTAL);
-    toolbar.addClassName("scene_viewport_toolbar");
-
-    UI::ToolbarGroup actions(0, 0);
-    UI::ToolbarButton stopButton(0, 0, "Stop");
-    stopButton.setDomIdOverride("scene_stop_button");
-    UI::ToolbarButton pauseButton(0, 0, "Pause");
-    pauseButton.setDomIdOverride("scene_pause_button");
-    UI::ToolbarButton resumeButton(0, 0, "Resume");
-    resumeButton.setDomIdOverride("scene_play_button");
-    UI::ToolbarButton playButton(0, 0, "Play");
-    playButton.setDomIdOverride("scene_play_button");
-
-    if (buildRunning)
-    {
-        actions.addChild(&stopButton);
-        toolbar.addChild(&actions);
-    }
-    else if (previewPlayerRunning && m_playbackState == PlaybackState::Playing)
-    {
-        actions.addChild(&pauseButton);
-        actions.addChild(&stopButton);
-        toolbar.addChild(&actions);
-    }
-    else if (previewPlayerRunning && m_playbackState == PlaybackState::Paused)
-    {
-        actions.addChild(&resumeButton);
-        actions.addChild(&stopButton);
-        toolbar.addChild(&actions);
-    }
-    else
-    {
-        actions.addChild(&playButton);
-        toolbar.addChild(&actions);
-    }
-
-    UI::ToolbarGroup statusGroup(0, 0);
-    UI::TextBlock documentStatus(0, 0, m_currentSceneFilePath.empty() ? std::string("Untitled scene") : m_currentSceneFilePath);
-    documentStatus.addClassName("scene_document_status");
-    UI::TextBlock playbackStatus(0, 0, buildPlaybackStatusText());
-    playbackStatus.setDomIdOverride("scene_playback_status");
-    playbackStatus.addClassName("scene_playback_status");
-    statusGroup.addChild(&documentStatus);
-    statusGroup.addChild(&playbackStatus);
-    toolbar.addChild(&statusGroup);
-
-    UI::Container viewportSurface(0, 0, UI::VERTICAL);
-    viewportSurface.setDomIdOverride("scene_viewport_surface");
-    viewportSurface.addClassName("scene_viewport_surface");
-
-    UI::MarkupBlock dirtyPrompt(0, 0, buildSceneDirtyPromptMarkup());
-
-    shell.addChild(&toolbar);
-    shell.addChild(&viewportSurface);
-    shell.addChild(&dirtyPrompt);
-    return shell.getRML();
-}
-
-std::string SceneEditorController::buildSceneDirtyPromptMarkup() const
-{
-    if (!m_sceneSavePromptOpen)
-        return "";
-
-    std::ostringstream stream;
-    stream << "<div class='scene_modal_overlay'><div class='scene_modal_card'>";
-    stream << "<div class='scene_modal_title'>Unsaved scene changes</div>";
-    stream << "<div class='scene_modal_text'>Save the current scene before replacing it?</div>";
-    stream << "<div class='scene_modal_actions'>";
-    stream << "<div id='scene_dirty_prompt_save' class='scene_modal_button primary'>Save</div>";
-    stream << "<div id='scene_dirty_prompt_discard' class='scene_modal_button danger'>Discard</div>";
-    stream << "<div id='scene_dirty_prompt_cancel' class='scene_modal_button'>Cancel</div>";
-    stream << "</div></div></div>";
-    return stream.str();
-}
-
-std::string SceneEditorController::makeTransformFieldElementId(int nodeId, const std::string& fieldKey)
-{
-    return makeSceneTransformFieldElementId(nodeId, fieldKey);
-}
-
-std::string SceneEditorController::makeSceneFieldElementId(const std::string& fieldKey)
-{
-    return makeSceneRootFieldElementId(fieldKey);
-}
-
-std::string SceneEditorController::makeInspectorFieldElementId(int nodeId, size_t componentIndex, const std::string& fieldKey)
-{
-    return makeSceneInspectorFieldElementId(nodeId, componentIndex, fieldKey);
-}
-
-std::string SceneEditorController::makeInspectorGroupElementId(int nodeId, size_t componentIndex)
-{
-    return makeSceneInspectorGroupElementId(nodeId, componentIndex);
-}
-
-
-std::optional<SceneEditorController::InspectorGroupBinding> SceneEditorController::parseInspectorGroupElementId(const Rml::String& elementId)
-{
-    const std::string value = elementId;
-    const std::string prefix = "scene_inspector_group_";
-    if (!startsWith(value, prefix))
-        return std::nullopt;
-
-    const size_t separator = value.find("__", prefix.size());
-    if (separator == std::string::npos)
-        return std::nullopt;
-
-    InspectorGroupBinding binding;
-    binding.nodeId = std::stoi(value.substr(prefix.size(), separator - prefix.size()));
-    binding.componentIndex = static_cast<size_t>(std::stoul(value.substr(separator + 2)));
-    return binding;
-}
-
-
-std::optional<SceneEditorController::InspectorFieldBinding> SceneEditorController::parseInspectorFieldElementId(const Rml::String& elementId)
-{
-    const std::string value = elementId;
-    const std::string scenePrefix = "scene_root_field__";
-    if (startsWith(value, scenePrefix))
-    {
-        InspectorFieldBinding binding;
-        binding.target = InspectorFieldBinding::Target::Scene;
-        binding.nodeId = 0;
-        binding.fieldKey = value.substr(scenePrefix.size());
-        return binding;
-    }
-
-    const std::string transformPrefix = "scene_transform_field_";
-    if (startsWith(value, transformPrefix))
-    {
-        const size_t separator = value.find("__", transformPrefix.size());
-        if (separator == std::string::npos)
-            return std::nullopt;
-
-        InspectorFieldBinding binding;
-        binding.target = InspectorFieldBinding::Target::Transform;
-        binding.nodeId = std::stoi(value.substr(transformPrefix.size(), separator - transformPrefix.size()));
-        binding.fieldKey = value.substr(separator + 2);
-        return binding;
-    }
-
-    const std::string prefix = "scene_inspector_field_";
-    if (!startsWith(value, prefix))
-        return std::nullopt;
-
-    const size_t firstSeparator = value.find("__", prefix.size());
-    if (firstSeparator == std::string::npos)
-        return std::nullopt;
-
-    const size_t secondSeparator = value.find("__", firstSeparator + 2);
-    if (secondSeparator == std::string::npos)
-        return std::nullopt;
-
-    InspectorFieldBinding binding;
-    binding.target = InspectorFieldBinding::Target::Component;
-    binding.nodeId = std::stoi(value.substr(prefix.size(), firstSeparator - prefix.size()));
-    binding.componentIndex = static_cast<size_t>(std::stoul(value.substr(firstSeparator + 2, secondSeparator - (firstSeparator + 2))));
-    binding.fieldKey = value.substr(secondSeparator + 2);
-    return binding;
-}
-
-SceneEditorController::UiGOHierarchyNode* SceneEditorController::findHierarchyNodeById(int nodeId)
-{
-    if (m_hierarchyRoot.id == nodeId)
-        return &m_hierarchyRoot;
-
-    std::function<UiGOHierarchyNode*(UiGOHierarchyNode&)> findInChildren = [&](UiGOHierarchyNode& node) -> UiGOHierarchyNode*
-    {
-        for (UiGOHierarchyNode& child : node.children)
-        {
-            if (child.id == nodeId)
-                return &child;
-            if (UiGOHierarchyNode* found = findInChildren(child))
-                return found;
-        }
-        return nullptr;
-    };
-
-    return findInChildren(m_hierarchyRoot);
-}
-
-const SceneEditorController::UiGOHierarchyNode* SceneEditorController::findHierarchyNodeById(int nodeId) const
-{
-    return const_cast<SceneEditorController*>(this)->findHierarchyNodeById(nodeId);
-}
-
-SceneEditorController::UiGOHierarchyNode* SceneEditorController::findHierarchyNodeByGameObject(const GameObject* gameObject)
-{
-    if (gameObject == nullptr)
-        return nullptr;
-
-    std::function<UiGOHierarchyNode*(UiGOHierarchyNode&)> findInChildren = [&](UiGOHierarchyNode& node) -> UiGOHierarchyNode*
-    {
-        for (UiGOHierarchyNode& child : node.children)
-        {
-            if (child.gameObject == gameObject)
-                return &child;
-            if (UiGOHierarchyNode* found = findInChildren(child))
-                return found;
-        }
-        return nullptr;
-    };
-
-    return findInChildren(m_hierarchyRoot);
-}
-
-const SceneEditorController::UiGOHierarchyNode* SceneEditorController::findHierarchyNodeByGameObject(const GameObject* gameObject) const
-{
-    return const_cast<SceneEditorController*>(this)->findHierarchyNodeByGameObject(gameObject);
-}
-
-const SceneEditorController::UiGOHierarchyNode* SceneEditorController::findSelectedHierarchyNode() const
-{
-    return findHierarchyNodeById(m_selectedHierarchyNodeId);
-}
-
-SceneEditorController::AssetBrowserDirectoryNode* SceneEditorController::findAssetDirectoryById(const std::string& directoryId)
-{
-    auto findNode = [&](auto&& self, AssetBrowserDirectoryNode& node) -> AssetBrowserDirectoryNode* {
-        if (node.id == directoryId)
-            return &node;
-
-        for (AssetBrowserDirectoryNode& child : node.children)
-        {
-            if (AssetBrowserDirectoryNode* found = self(self, child))
-                return found;
-        }
-
-        return nullptr;
-    };
-
-    for (AssetBrowserDirectoryNode& root : m_assetBrowserRoots)
-    {
-        if (AssetBrowserDirectoryNode* found = findNode(findNode, root))
-            return found;
-    }
-
-    return nullptr;
-}
-
-const SceneEditorController::AssetBrowserDirectoryNode* SceneEditorController::findAssetDirectoryById(const std::string& directoryId) const
-{
-    return const_cast<SceneEditorController*>(this)->findAssetDirectoryById(directoryId);
-}
-
-const SceneEditorController::AssetBrowserFileEntry* SceneEditorController::findAssetFileById(const std::string& fileId) const
-{
-    auto findInNode = [&](auto&& self, const AssetBrowserDirectoryNode& node) -> const AssetBrowserFileEntry* {
-        for (const AssetBrowserFileEntry& file : node.files)
-        {
-            if (file.id == fileId)
-                return &file;
-        }
-
-        for (const AssetBrowserDirectoryNode& child : node.children)
-        {
-            if (const AssetBrowserFileEntry* found = self(self, child))
-                return found;
-        }
-
-        return nullptr;
-    };
-
-    for (const AssetBrowserDirectoryNode& root : m_assetBrowserRoots)
-    {
-        if (const AssetBrowserFileEntry* found = findInNode(findInNode, root))
-            return found;
-    }
-
-    return nullptr;
-}
-
-const SceneEditorController::AssetBrowserDirectoryNode* SceneEditorController::findSelectedAssetDirectory() const
-{
-    return findAssetDirectoryById(m_selectedAssetDirectoryId);
-}
-
-void SceneEditorController::selectAssetDirectory(const std::string& directoryId)
-{
-    if (findAssetDirectoryById(directoryId) == nullptr)
-        return;
-
-    m_selectedAssetDirectoryId = directoryId;
-    m_selectedAssetFileId.clear();
-}
-
-void SceneEditorController::toggleAssetDirectoryExpansion(const std::string& directoryId)
-{
-    if (directoryId.empty())
-        return;
-
-    const auto it = m_expandedAssetDirectoryIds.find(directoryId);
-    if (it != m_expandedAssetDirectoryIds.end())
-        m_expandedAssetDirectoryIds.erase(it);
-    else
-        m_expandedAssetDirectoryIds.insert(directoryId);
-}
-
-bool SceneEditorController::isAssetDirectoryExpanded(const AssetBrowserDirectoryNode& node) const
-{
-    if (node.id == "Assets" || node.id == "built-in")
-        return true;
-
-    return m_expandedAssetDirectoryIds.count(node.id) > 0;
-}
-
 bool SceneEditorController::shouldRefreshInspectorPresentation() const
 {
     if (m_context == nullptr)
@@ -3431,7 +2272,7 @@ const component_meta::ComponentFieldDescriptor* SceneEditorController::findInspe
     if (binding.target != InspectorFieldBinding::Target::Component)
         return nullptr;
 
-    const UiGOHierarchyNode* node = findHierarchyNodeById(binding.nodeId);
+    const UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(binding.nodeId);
     if (node == nullptr || node->gameObject == nullptr)
         return nullptr;
 
@@ -3452,6 +2293,103 @@ bool SceneEditorController::applyInspectorFieldValue(const InspectorFieldBinding
     {
         if (m_scene == nullptr)
             return false;
+
+        if (binding.fieldKey == "directionalLightEnabled" ||
+            binding.fieldKey == "directionalLightDirection" ||
+            binding.fieldKey == "directionalLightColor" ||
+            binding.fieldKey == "directionalLightIntensity")
+        {
+            render::DirectionalLightSettings settings = m_scene->getDirectionalLightSettings();
+
+            if (binding.fieldKey == "directionalLightEnabled")
+            {
+                component_meta::SerializedValue parsedValue;
+                if (!parseSerializedValue(component_meta::FieldKind::Bool, value, parsedValue))
+                    return false;
+
+                const bool enabled = std::get<bool>(parsedValue);
+                if (settings.enabled == enabled)
+                    return false;
+                settings.enabled = enabled;
+                return m_scene->setDirectionalLightSettings(settings);
+            }
+
+            if (binding.fieldKey == "directionalLightIntensity")
+            {
+                component_meta::SerializedValue parsedValue;
+                if (!parseSerializedValue(component_meta::FieldKind::Float, value, parsedValue))
+                    return false;
+
+                const float intensity = std::get<float>(parsedValue);
+                if (settings.intensity == intensity)
+                    return false;
+                settings.intensity = intensity;
+                return m_scene->setDirectionalLightSettings(settings);
+            }
+
+            glm::vec3 parsedVec3(0.0f, 0.0f, 0.0f);
+            if (!parseVec3(value, parsedVec3))
+                return false;
+
+            if (binding.fieldKey == "directionalLightDirection")
+            {
+                if (formatSerializedValue(component_meta::SerializedValue(settings.direction)) == formatSerializedValue(component_meta::SerializedValue(parsedVec3)))
+                    return false;
+                settings.direction = parsedVec3;
+                return m_scene->setDirectionalLightSettings(settings);
+            }
+
+            if (binding.fieldKey == "directionalLightColor")
+            {
+                if (formatSerializedValue(component_meta::SerializedValue(settings.color)) == formatSerializedValue(component_meta::SerializedValue(parsedVec3)))
+                    return false;
+                settings.color = parsedVec3;
+                return m_scene->setDirectionalLightSettings(settings);
+            }
+
+            return false;
+        }
+
+        std::string renderTargetName;
+        std::string renderTargetProperty;
+        if (parseSceneRenderTargetFieldKey(binding.fieldKey, renderTargetName, renderTargetProperty))
+        {
+            render::SceneRenderTargetSettings settings = m_scene->resolveRenderTargetSettings(renderTargetName);
+
+            if (renderTargetProperty == "width" || renderTargetProperty == "height")
+            {
+                component_meta::SerializedValue parsedValue;
+                if (!parseSerializedValue(component_meta::FieldKind::Int, value, parsedValue))
+                    return false;
+
+                const int numericValue = std::max(0, std::get<int>(parsedValue));
+                if (renderTargetProperty == "width")
+                {
+                    if (settings.width == numericValue)
+                        return false;
+                    settings.width = numericValue;
+                }
+                else
+                {
+                    if (settings.height == numericValue)
+                        return false;
+                    settings.height = numericValue;
+                }
+
+                return m_scene->upsertRenderTargetSettings(settings);
+            }
+
+            if (renderTargetProperty == "format")
+            {
+                render::RenderTargetFormat format = settings.format;
+                if (!render::parseRenderTargetFormat(value, format) || settings.format == format)
+                    return false;
+                settings.format = format;
+                return m_scene->upsertRenderTargetSettings(settings);
+            }
+
+            return false;
+        }
 
         const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(value);
         if (binding.fieldKey == "sceneScriptAsset")
@@ -3477,7 +2415,7 @@ bool SceneEditorController::applyInspectorFieldValue(const InspectorFieldBinding
         return false;
     }
 
-    UiGOHierarchyNode* node = findHierarchyNodeById(binding.nodeId);
+    UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(binding.nodeId);
     if (node == nullptr || node->gameObject == nullptr)
         return false;
 
@@ -3629,139 +2567,6 @@ void SceneEditorController::clearSceneDirty()
     {
         m_sceneDirty = false;
         requestHierarchyRefresh();
-    }
-}
-
-void SceneEditorController::rescanAssetBrowser()
-{
-    const std::string previousDirectoryId = m_selectedAssetDirectoryId;
-    const std::string previousFileId = m_selectedAssetFileId;
-    const std::unordered_set<std::string> previousExpandedDirectories = m_expandedAssetDirectoryIds;
-
-    m_assetBrowserRoots.clear();
-
-    const std::filesystem::path runtimeRoot = std::filesystem::current_path();
-    struct RootDescriptor
-    {
-        AssetBrowserRootKind kind;
-        std::string label;
-        std::filesystem::path diskPath;
-        std::string runtimePath;
-    };
-
-    const std::vector<RootDescriptor> rootDescriptors = {
-        {AssetBrowserRootKind::Assets, "Assets", runtimeRoot / "Assets", "Assets"},
-        {AssetBrowserRootKind::BuiltIn, "built-in", runtimeRoot / "built-in", "built-in"},
-    };
-
-    auto makeDirectoryNode = [](AssetBrowserRootKind kind, const std::string& label, const std::filesystem::path& diskPath, const std::string& runtimePath) {
-        AssetBrowserDirectoryNode node;
-        node.id = runtimePath;
-        node.label = label;
-        node.runtimePath = runtimePath;
-        node.diskPath = diskPath.string();
-        node.rootKind = kind;
-        return node;
-    };
-
-    auto scanDirectory = [&](auto&& self, AssetBrowserDirectoryNode& node) -> void {
-        std::error_code errorCode;
-        const std::filesystem::path diskPath(node.diskPath);
-        if (!std::filesystem::exists(diskPath, errorCode) || !std::filesystem::is_directory(diskPath, errorCode))
-            return;
-
-        std::vector<std::filesystem::directory_entry> childDirectories;
-        std::vector<std::filesystem::directory_entry> childFiles;
-        for (std::filesystem::directory_iterator iterator(diskPath, errorCode); !errorCode && iterator != std::filesystem::directory_iterator(); iterator.increment(errorCode))
-        {
-            const std::filesystem::directory_entry& entry = *iterator;
-            if (entry.is_directory(errorCode))
-                childDirectories.push_back(entry);
-            else if (entry.is_regular_file(errorCode))
-                childFiles.push_back(entry);
-        }
-
-        auto sortEntries = [](auto& entries) {
-            std::sort(entries.begin(), entries.end(), [](const auto& lhs, const auto& rhs) {
-                return lhs.path().filename().string() < rhs.path().filename().string();
-            });
-        };
-
-        sortEntries(childDirectories);
-        sortEntries(childFiles);
-
-        for (const std::filesystem::directory_entry& entry : childDirectories)
-        {
-            const std::string childLabel = entry.path().filename().string();
-            const std::string childRuntimePath = node.runtimePath + "/" + childLabel;
-
-            if (isShaderAssetDirectory(entry.path()))
-            {
-                AssetBrowserFileEntry file;
-                file.label = childLabel;
-                file.runtimePath = childRuntimePath;
-                file.diskPath = entry.path().string();
-                file.id = file.runtimePath;
-                file.extension.clear();
-                file.rootKind = node.rootKind;
-                file.fileKind = AssetBrowserFileKind::Shader;
-                file.dragPayloadKind = dragPayloadKindForAssetFileKind(file.fileKind);
-                node.files.push_back(std::move(file));
-                continue;
-            }
-
-            node.children.push_back(makeDirectoryNode(node.rootKind, childLabel, entry.path(), childRuntimePath));
-            self(self, node.children.back());
-        }
-
-        for (const std::filesystem::directory_entry& entry : childFiles)
-        {
-            AssetBrowserFileEntry file;
-            file.label = entry.path().filename().string();
-            file.runtimePath = node.runtimePath + "/" + file.label;
-            file.diskPath = entry.path().string();
-            file.id = file.runtimePath;
-            file.extension = entry.path().extension().string();
-            file.rootKind = node.rootKind;
-            file.fileKind = classifyAssetBrowserFileKind(entry.path());
-            file.dragPayloadKind = dragPayloadKindForAssetFileKind(file.fileKind);
-            node.files.push_back(std::move(file));
-        }
-    };
-
-    for (const RootDescriptor& rootDescriptor : rootDescriptors)
-    {
-        m_assetBrowserRoots.push_back(makeDirectoryNode(rootDescriptor.kind, rootDescriptor.label, rootDescriptor.diskPath, rootDescriptor.runtimePath));
-        scanDirectory(scanDirectory, m_assetBrowserRoots.back());
-    }
-
-    m_expandedAssetDirectoryIds.clear();
-    for (const std::string& expandedDirectoryId : previousExpandedDirectories)
-    {
-        if (findAssetDirectoryById(expandedDirectoryId) != nullptr)
-            m_expandedAssetDirectoryIds.insert(expandedDirectoryId);
-    }
-    m_expandedAssetDirectoryIds.insert("Assets");
-    m_expandedAssetDirectoryIds.insert("built-in");
-
-    if (findAssetDirectoryById(previousDirectoryId) != nullptr)
-        m_selectedAssetDirectoryId = previousDirectoryId;
-    else if (!m_assetBrowserRoots.empty())
-        m_selectedAssetDirectoryId = m_assetBrowserRoots.front().id;
-    else
-        m_selectedAssetDirectoryId.clear();
-
-    if (const AssetBrowserFileEntry* file = findAssetFileById(previousFileId))
-    {
-        const AssetBrowserDirectoryNode* selectedDirectory = findSelectedAssetDirectory();
-        if (selectedDirectory != nullptr && startsWith(file->runtimePath, selectedDirectory->runtimePath + "/"))
-            m_selectedAssetFileId = previousFileId;
-        else
-            m_selectedAssetFileId.clear();
-    }
-    else
-    {
-        m_selectedAssetFileId.clear();
     }
 }
 
@@ -4756,67 +3561,6 @@ void SceneEditorController::closePendingSceneActionPrompt()
     m_sceneSavePromptOpen = false;
     m_pendingSceneAction = PendingSceneAction::None;
     m_pendingSceneTargetPath.clear();
-}
-
-bool SceneEditorController::hierarchyNodesEqual(const UiGOHierarchyNode& lhs, const UiGOHierarchyNode& rhs)
-{
-    if (lhs.id != rhs.id ||
-        lhs.label != rhs.label ||
-        lhs.tagName != rhs.tagName ||
-        lhs.gameObject != rhs.gameObject ||
-        lhs.children.size() != rhs.children.size())
-    {
-        return false;
-    }
-
-    for (size_t index = 0; index < lhs.children.size(); ++index)
-    {
-        if (!hierarchyNodesEqual(lhs.children[index], rhs.children[index]))
-            return false;
-    }
-
-    return true;
-}
-
-void SceneEditorController::rebuildHierarchyFromScene(const Scene& scene)
-{
-    m_hierarchyRoot.children.clear();
-
-    std::unordered_set<const GameObject*> childObjects;
-    for (size_t index = 0; index < scene.getGameObjectCount(); ++index)
-    {
-        GameObject* gameObject = scene.getGameObject(index);
-        if (gameObject == nullptr)
-            continue;
-
-        for (size_t childIndex = 0; childIndex < gameObject->transform.getChildCount(); ++childIndex)
-        {
-            if (GameObject* child = gameObject->transform.getChild(childIndex))
-                childObjects.insert(child);
-        }
-    }
-
-    for (size_t index = 0; index < scene.getGameObjectCount(); ++index)
-    {
-        GameObject* gameObject = scene.getGameObject(index);
-        if (gameObject == nullptr || childObjects.count(gameObject) > 0)
-            continue;
-
-        appendHierarchyNodeFromGameObject(m_hierarchyRoot, *gameObject);
-    }
-}
-
-void SceneEditorController::appendHierarchyNodeFromGameObject(UiGOHierarchyNode& parentNode, const GameObject& gameObject)
-{
-    parentNode.children.push_back({gameObject.getId(), gameObject.getName(), "gameobject", &gameObject, {}});
-    UiGOHierarchyNode& newNode = parentNode.children.back();
-
-    for (size_t childIndex = 0; childIndex < gameObject.transform.getChildCount(); ++childIndex)
-    {
-        const GameObject* child = gameObject.transform.getChild(childIndex);
-        if (child != nullptr)
-            appendHierarchyNodeFromGameObject(newNode, *child);
-    }
 }
 
 void SceneEditorController::requestHierarchyRefresh()

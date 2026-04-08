@@ -44,6 +44,7 @@ namespace dataStruct
     private:
         glm::mat4 * mvp;
         glm::mat4 * mvpOrtho;
+        glm::mat4 * m_model;
         std::string m_assetPath;
         std::vector<std::pair<std::string, int>> m_dynamicIntUniforms;
         std::vector<std::pair<std::string, float>> m_dynamicFloatUniforms;
@@ -140,9 +141,16 @@ namespace dataStruct
                 0.0, 0.0, 1.0, 0.0,
                 0.0, 0.0, 0.0, 1.0
             )};
+            m_model = new glm::mat4 {glm::mat4(
+                1.0, 0.0, 0.0, 0.0,
+                0.0, 1.0, 0.0, 0.0,
+                0.0, 0.0, 1.0, 0.0,
+                0.0, 0.0, 0.0, 1.0
+            )};
 
             push_back(m_uniMat4f, new UniformMat4x4f("MVP", mvp), m_uniMat4f_stride);
             push_back(m_uniMat4f, new UniformMat4x4f("MVP_ORTHO", mvpOrtho), m_uniMat4f_stride);
+            push_back(m_uniMat4f, new UniformMat4x4f("MODEL", m_model), m_uniMat4f_stride);
         }
         
         void addTexture(std::string uniformLocation, std::string texturePath)
@@ -168,6 +176,23 @@ namespace dataStruct
                 uniform.textureAssetPath = normalizedTexturePath;
                 markRuntimeDefinitionDirty();
             }
+        }
+
+        void addExternalTexture(const std::string& uniformLocation, GLuint textureId)
+        {
+            bool updated = false;
+            for (size_t index = 0; index < textures.size(); ++index)
+            {
+                if (textures[index].getLocation() != uniformLocation)
+                    continue;
+
+                textures[index] = UniformTex2D(uniformLocation, Texture2D(textureId, static_cast<GLuint>(index), false));
+                updated = true;
+                break;
+            }
+
+            if (!updated)
+                textures.push_back(UniformTex2D(uniformLocation, Texture2D(textureId, static_cast<GLuint>(textures.size()), false)));
         }
 
         void addBoolUniform(const std::string& uniformLocation, bool value)
@@ -254,8 +279,9 @@ namespace dataStruct
         void bind(Camera const & cam, Transform & transform) override
         {
             // TODO rebuild mvp here!
-            *mvp = cam.projectionMatrix() * cam.inverseTransform() * transform.getModelWorld();
-            *mvpOrtho = glm::transpose(glm::inverse(transform.getModelWorld()));
+            *m_model = transform.getModelWorld();
+            *mvp = cam.projectionMatrix() * cam.inverseTransform() * (*m_model);
+            *mvpOrtho = glm::transpose(glm::inverse(*m_model));
             sync();
         }
 
@@ -274,10 +300,11 @@ namespace dataStruct
             return m_assetPath;
         }
 
-        void setRuntimeDefinitionHeader(asset::MaterialAssetKind kind, const std::string& shaderPath)
+        void setRuntimeDefinitionHeader(asset::MaterialAssetKind kind, const std::string& shaderPath, const std::string& renderPassPath = "")
         {
             m_runtimeDefinition.kind = kind;
             m_runtimeDefinition.shaderPath = normalizeAssetPathValue(shaderPath);
+            m_runtimeDefinition.renderPassPath = normalizeAssetPathValue(renderPassPath);
             m_runtimeDefinition.uniforms.clear();
             m_runtimeDefinitionDirty = false;
         }
@@ -314,6 +341,7 @@ namespace dataStruct
             delete[] m_uniMat4f;
             delete mvp;
             delete mvpOrtho;
+            delete m_model;
         }
     };
 }

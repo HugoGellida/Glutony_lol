@@ -37,6 +37,7 @@ bool assignMaterialAsset(component::MeshRenderer& renderer, const std::string& a
         return false;
 
     renderer.setMaterial(material);
+    scene->refreshMaterialAsset(assetPath);
     return true;
 }
 }

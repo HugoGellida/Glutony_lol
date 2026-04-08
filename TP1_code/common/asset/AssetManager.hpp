@@ -3,6 +3,8 @@
 #include "DataAssetIO.hpp"
 #include "ComponentScriptAssetIO.hpp"
 #include "MaterialAssetIO.hpp"
+#include "RenderPassAssetIO.hpp"
+#include "RenderPhaseAssetIO.hpp"
 #include "SceneScriptAssetIO.hpp"
 #include "common/FileLoader.hpp"
 #include "common/gameobject/component/Mesh.hpp"
@@ -25,6 +27,8 @@ enum class AssetType
     Mesh,
     Shader,
     Material,
+    RenderPhase,
+    RenderPass,
     Data,
     SceneScript,
     ComponentScript,
@@ -75,6 +79,8 @@ private:
     std::unordered_map<std::string, component::Mesh*> m_meshAssets;
     std::unordered_map<std::string, std::unique_ptr<Shader>> m_shaderAssets;
     std::unordered_map<std::string, std::unique_ptr<dataStruct::Material>> m_materialAssets;
+    std::unordered_map<std::string, RenderPhaseAssetDefinition> m_renderPhaseAssets;
+    std::unordered_map<std::string, RenderPassAssetDefinition> m_renderPassAssets;
     std::unordered_map<std::string, DataAssetDefinition> m_dataAssets;
     std::unordered_map<std::string, SceneScriptAssetDefinition> m_sceneScriptAssets;
     std::unordered_map<std::string, ComponentScriptAssetDefinition> m_componentScriptAssets;
@@ -95,6 +101,9 @@ private:
 
         m_materialShaderPaths[normalizedPath] = normalizeRelativePath(definition.shaderPath);
 
+        if (!definition.renderPassPath.empty())
+            loadRenderPassDefinition(definition.renderPassPath);
+
         Shader* shader = loadShader(definition.shaderPath);
         if (shader == nullptr)
             return nullptr;
@@ -103,13 +112,13 @@ private:
         if (definition.kind == MaterialAssetKind::Unlit)
         {
             std::unique_ptr<dataStruct::UnlitMaterial> unlit = std::make_unique<dataStruct::UnlitMaterial>(shader);
-            unlit->setRuntimeDefinitionHeader(definition.kind, definition.shaderPath);
+            unlit->setRuntimeDefinitionHeader(definition.kind, definition.shaderPath, definition.renderPassPath);
             material = std::move(unlit);
         }
         else
         {
             std::unique_ptr<dataStruct::LitMaterial> lit = std::make_unique<dataStruct::LitMaterial>(shader);
-            lit->setRuntimeDefinitionHeader(definition.kind, definition.shaderPath);
+            lit->setRuntimeDefinitionHeader(definition.kind, definition.shaderPath, definition.renderPassPath);
             material = std::move(lit);
         }
 
@@ -264,6 +273,114 @@ public:
         dataStruct::Material* materialPtr = material.get();
         m_materialAssets[normalizedPath] = std::move(material);
         return materialPtr;
+    }
+
+    RenderPhaseAssetDefinition* loadRenderPhaseDefinition(const std::string& relativePath)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".render_phase"))
+        {
+            std::cerr << "RenderPhase asset must use .render_phase extension: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        registerGlobalAsset(AssetType::RenderPhase, normalizedPath);
+
+        const auto it = m_renderPhaseAssets.find(normalizedPath);
+        if (it != m_renderPhaseAssets.end())
+            return &it->second;
+
+        RenderPhaseAssetDefinition definition;
+        if (!RenderPhaseAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            std::cerr << "Failed to load render phase asset: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        auto inserted = m_renderPhaseAssets.emplace(normalizedPath, std::move(definition));
+        return &inserted.first->second;
+    }
+
+    bool reloadRenderPhaseDefinition(const std::string& relativePath, RenderPhaseAssetDefinition*& definitionOut)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".render_phase"))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        registerGlobalAsset(AssetType::RenderPhase, normalizedPath);
+
+        RenderPhaseAssetDefinition definition;
+        if (!RenderPhaseAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        auto it = m_renderPhaseAssets.find(normalizedPath);
+        if (it == m_renderPhaseAssets.end())
+            it = m_renderPhaseAssets.emplace(normalizedPath, std::move(definition)).first;
+        else
+            it->second = std::move(definition);
+
+        definitionOut = &it->second;
+        return true;
+    }
+
+    RenderPassAssetDefinition* loadRenderPassDefinition(const std::string& relativePath)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".render_pass"))
+        {
+            std::cerr << "RenderPass asset must use .render_pass extension: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        registerGlobalAsset(AssetType::RenderPass, normalizedPath);
+
+        const auto it = m_renderPassAssets.find(normalizedPath);
+        if (it != m_renderPassAssets.end())
+            return &it->second;
+
+        RenderPassAssetDefinition definition;
+        if (!RenderPassAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            std::cerr << "Failed to load render pass asset: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        auto inserted = m_renderPassAssets.emplace(normalizedPath, std::move(definition));
+        return &inserted.first->second;
+    }
+
+    bool reloadRenderPassDefinition(const std::string& relativePath, RenderPassAssetDefinition*& definitionOut)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".render_pass"))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        registerGlobalAsset(AssetType::RenderPass, normalizedPath);
+
+        RenderPassAssetDefinition definition;
+        if (!RenderPassAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        auto it = m_renderPassAssets.find(normalizedPath);
+        if (it == m_renderPassAssets.end())
+            it = m_renderPassAssets.emplace(normalizedPath, std::move(definition)).first;
+        else
+            it->second = std::move(definition);
+
+        definitionOut = &it->second;
+        return true;
     }
 
     DataAssetDefinition* loadDataAssetDefinition(const std::string& relativePath)

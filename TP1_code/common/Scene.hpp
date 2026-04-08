@@ -8,6 +8,7 @@
 #include <common/shader/Shader.hpp>
 #include "gameobject/component/Mesh.hpp"
 #include "gameobject/component/MeshRenderer.hpp"
+#include "gameobject/component/PointLight.hpp"
 #include "gameobject/component/ScriptComponent.hpp"
 #include "gameobject/component/MeshNoiseDeformPerlinHeight.hpp"
 #include "physics/RigidBody.hpp"
@@ -19,8 +20,13 @@
 #include "physics/PlaneCollider.hpp"
 #include "geometry/Plane.hpp"
 #include "asset/AssetManager.hpp"
+#include "render/SceneRenderTargetSettings.hpp"
+#include "render/RenderLightData.hpp"
+#include "render/RenderPipeline.hpp"
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
 
 class Scene
@@ -47,16 +53,43 @@ private:
     GameObject* m_selectedGameObject = nullptr;
     std::string m_sceneScriptAssetPath;
     std::string m_dataAssetPath;
+    std::vector<render::SceneRenderTargetSettings> m_savedRenderTargetSettings;
+    render::DirectionalLightSettings m_directionalLight;
     glm::vec3 m_orbitPos = glm::vec3(0.0f, 10.0f, -10.0f);
     float m_orbitYangle = 0.0f;
     float m_orbitSpeed = 20.0f;
 
     float m_anim_angle = 0.0f;
     asset::SceneAssetRegistry m_sceneAssetRegistry;
+    render::RenderPipeline m_renderPipeline;
 
     static std::string proceduralPlaneAssetPath()
     {
         return "procedural/plane";
+    }
+
+    render::SceneRenderTargetSettings* findSavedRenderTargetSettings(const std::string& rawName)
+    {
+        const std::string normalizedName = render::normalizeRenderTargetName(rawName);
+        for (render::SceneRenderTargetSettings& settings : m_savedRenderTargetSettings)
+        {
+            if (render::normalizeRenderTargetName(settings.name) == normalizedName)
+                return &settings;
+        }
+
+        return nullptr;
+    }
+
+    const render::SceneRenderTargetSettings* findSavedRenderTargetSettings(const std::string& rawName) const
+    {
+        const std::string normalizedName = render::normalizeRenderTargetName(rawName);
+        for (const render::SceneRenderTargetSettings& settings : m_savedRenderTargetSettings)
+        {
+            if (render::normalizeRenderTargetName(settings.name) == normalizedName)
+                return &settings;
+        }
+
+        return nullptr;
     }
 
     component::Mesh* useMeshAsset(const std::string& relativePath)
@@ -226,6 +259,7 @@ public:
         using namespace component;
 
         (void)component::MeshRenderer::componentDescriptor();
+        (void)component::PointLight::componentDescriptor();
         (void)component::ScriptComponent::componentDescriptor();
         (void)physics::RigidBody::componentDescriptor();
         (void)physics::SphereCollider::componentDescriptor();
@@ -396,15 +430,12 @@ public:
 
     void renderScene()
     {
-        for (size_t i = 0; i < m_gameObjectCount; i++)
-            renderGameObject(m_gameObjects[i]);
+        m_renderPipeline.execute(m_camera, m_gameObjects, m_gameObjectCount, m_savedRenderTargetSettings, collectLightInputs());
     }
 
     void renderSceneWithSelectionHighlight()
     {
-        for (size_t i = 0; i < m_gameObjectCount; i++)
-            renderGameObject(m_gameObjects[i]);
-
+        renderScene();
         renderSelectedHighlight();
     }
 
@@ -421,6 +452,7 @@ public:
         gameObject->setScene(this);
         gameObject->setId(m_nextGameObjectId++);
         m_gameObjects[m_gameObjectCount++] = gameObject;
+        m_renderPipeline.invalidate();
         return gameObject;
     }
 
@@ -434,6 +466,7 @@ public:
         if (id >= m_nextGameObjectId)
             m_nextGameObjectId = id + 1;
         m_gameObjects[m_gameObjectCount++] = gameObject;
+        m_renderPipeline.invalidate();
         return gameObject;
     }
 
@@ -456,6 +489,7 @@ public:
 
             m_gameObjects[m_gameObjectCount - 1] = nullptr;
             m_gameObjectCount--;
+            m_renderPipeline.invalidate();
             return true;
         }
 
@@ -523,6 +557,166 @@ public:
     const std::string& getDataAssetPath() const
     {
         return m_dataAssetPath;
+    }
+
+    const render::DirectionalLightSettings& getDirectionalLightSettings() const
+    {
+        return m_directionalLight;
+    }
+
+    bool setDirectionalLightSettings(const render::DirectionalLightSettings& settings)
+    {
+        if (m_directionalLight.enabled == settings.enabled &&
+            m_directionalLight.direction == settings.direction &&
+            m_directionalLight.color == settings.color &&
+            m_directionalLight.intensity == settings.intensity)
+            return false;
+
+        m_directionalLight = settings;
+        return true;
+    }
+
+    const std::vector<render::SceneRenderTargetSettings>& getSavedRenderTargetSettings() const
+    {
+        return m_savedRenderTargetSettings;
+    }
+
+    void setSavedRenderTargetSettings(const std::vector<render::SceneRenderTargetSettings>& settings)
+    {
+        m_savedRenderTargetSettings.clear();
+        for (const render::SceneRenderTargetSettings& entry : settings)
+            upsertRenderTargetSettings(entry);
+        m_renderPipeline.invalidate();
+    }
+
+    render::SceneRenderTargetSettings resolveRenderTargetSettings(const std::string& rawName) const
+    {
+        render::SceneRenderTargetSettings resolved;
+        resolved.name = render::normalizeRenderTargetName(rawName);
+        if (const render::SceneRenderTargetSettings* savedSettings = findSavedRenderTargetSettings(resolved.name))
+            return *savedSettings;
+        return resolved;
+    }
+
+    bool upsertRenderTargetSettings(const render::SceneRenderTargetSettings& rawSettings)
+    {
+        render::SceneRenderTargetSettings normalizedSettings = rawSettings;
+        normalizedSettings.name = render::normalizeRenderTargetName(rawSettings.name);
+        normalizedSettings.width = std::max(0, rawSettings.width);
+        normalizedSettings.height = std::max(0, rawSettings.height);
+        if (normalizedSettings.name.empty() || render::isFinalRenderTargetName(normalizedSettings.name))
+            return false;
+
+        render::SceneRenderTargetSettings* existing = findSavedRenderTargetSettings(normalizedSettings.name);
+        if (existing != nullptr)
+        {
+            if (existing->width == normalizedSettings.width &&
+                existing->height == normalizedSettings.height &&
+                existing->format == normalizedSettings.format)
+                return false;
+
+            *existing = normalizedSettings;
+        }
+        else
+        {
+            m_savedRenderTargetSettings.push_back(normalizedSettings);
+        }
+
+        std::sort(m_savedRenderTargetSettings.begin(), m_savedRenderTargetSettings.end(), [](const render::SceneRenderTargetSettings& lhs, const render::SceneRenderTargetSettings& rhs) {
+            return lhs.name < rhs.name;
+        });
+        m_renderPipeline.invalidate();
+        return true;
+    }
+
+    std::vector<render::SceneRenderTargetSettings> collectVisibleRenderTargetSettings() const
+    {
+        std::vector<render::SceneRenderTargetSettings> settings = m_savedRenderTargetSettings;
+        const auto appendTargetIfMissing = [&settings, this](const std::string& rawName) {
+            const std::string normalizedName = render::normalizeRenderTargetName(rawName);
+            if (normalizedName.empty() || render::isFinalRenderTargetName(normalizedName))
+                return;
+
+            for (const render::SceneRenderTargetSettings& entry : settings)
+            {
+                if (render::normalizeRenderTargetName(entry.name) == normalizedName)
+                    return;
+            }
+
+            settings.push_back(resolveRenderTargetSettings(normalizedName));
+        };
+
+        for (size_t index = 0; index < m_gameObjectCount; ++index)
+        {
+            GameObject* gameObject = m_gameObjects[index];
+            if (gameObject == nullptr)
+                continue;
+
+            MeshRenderer* meshRenderer = gameObject->getComponent<MeshRenderer>();
+            if (meshRenderer == nullptr)
+                continue;
+
+            dataStruct::Material* material = meshRenderer->getMaterial();
+            if (material == nullptr)
+                continue;
+
+            const std::string renderPassPath = asset::AssetManager::normalizeRelativePath(material->getRuntimeDefinition().renderPassPath);
+            if (renderPassPath.empty())
+                continue;
+
+            asset::RenderPassAssetDefinition* renderPass = nullptr;
+            if (!asset::AssetManager::instance().reloadRenderPassDefinition(renderPassPath, renderPass) || renderPass == nullptr)
+                continue;
+
+            for (const asset::RenderPassStepDefinition& pass : renderPass->passes)
+            {
+                appendTargetIfMissing(pass.target.name);
+                for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
+                {
+                    if (uniform.kind == asset::RenderPassUniformKind::RenderTarget)
+                        appendTargetIfMissing(uniform.renderTargetValue.name);
+                }
+            }
+        }
+
+        std::sort(settings.begin(), settings.end(), [](const render::SceneRenderTargetSettings& lhs, const render::SceneRenderTargetSettings& rhs) {
+            return lhs.name < rhs.name;
+        });
+        return settings;
+    }
+
+    std::vector<render::LightInput> collectLightInputs() const
+    {
+        std::vector<render::LightInput> lights;
+        if (m_directionalLight.enabled)
+        {
+            render::LightInput directionalLight;
+            directionalLight.type = render::LightType::Directional;
+            directionalLight.direction = m_directionalLight.direction;
+            directionalLight.color = m_directionalLight.color;
+            directionalLight.intensity = m_directionalLight.intensity;
+            lights.push_back(directionalLight);
+        }
+
+        for (size_t index = 0; index < m_gameObjectCount; ++index)
+        {
+            GameObject* gameObject = m_gameObjects[index];
+            if (gameObject == nullptr)
+                continue;
+
+            component::PointLight* pointLight = gameObject->getComponent<component::PointLight>();
+            if (pointLight == nullptr || !pointLight->isEnabled())
+                continue;
+
+            render::LightInput light;
+            light.type = render::LightType::Point;
+            light.position = gameObject->transform.getPosition();
+            light.color = pointLight->getColor();
+            light.intensity = pointLight->getIntensity();
+            lights.push_back(light);
+        }
+
+        return lights;
     }
 
     void updateCamera(glm::vec3 deltaPos, glm::vec3 deltaEuler)
@@ -602,12 +796,15 @@ public:
             meshRenderer->setMaterial(material);
         }
 
+        m_renderPipeline.invalidate();
+
         return true;
     }
 
     void clearGameObjects()
     {
         destroyAllGameObjects();
+        m_renderPipeline.invalidate();
     }
 
     void clearSceneAssetRegistry()

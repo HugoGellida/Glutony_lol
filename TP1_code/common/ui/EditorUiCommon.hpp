@@ -99,6 +99,8 @@ enum class DragPayloadKind
     MeshAsset,
     ShaderAsset,
     MaterialAsset,
+    RenderPhaseAsset,
+    RenderPassAsset,
     DataAsset,
     SceneScriptAsset,
     ComponentScriptAsset,

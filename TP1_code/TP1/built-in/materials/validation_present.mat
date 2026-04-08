@@ -1,0 +1,8 @@
+{
+  "type": "unlit",
+  "shader": "built-in/shaders/validation_present",
+  "renderPass": "built-in/render_pass/validation_present.render_pass",
+  "uniforms": [
+    { "name": "_tint", "type": "vec3", "value": [1.000, 1.000, 1.000] }
+  ]
+}

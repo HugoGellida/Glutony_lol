@@ -112,6 +112,35 @@ Rml::Context* g_rmlContext = nullptr;
 EditorUiController g_editorUi;
 SceneViewportOverlay g_sceneViewportOverlay;
 
+const char* glErrorName(GLenum error)
+{
+    switch (error)
+    {
+    case GL_INVALID_ENUM:
+        return "GL_INVALID_ENUM";
+    case GL_INVALID_VALUE:
+        return "GL_INVALID_VALUE";
+    case GL_INVALID_OPERATION:
+        return "GL_INVALID_OPERATION";
+    case GL_OUT_OF_MEMORY:
+        return "GL_OUT_OF_MEMORY";
+    case GL_INVALID_FRAMEBUFFER_OPERATION:
+        return "GL_INVALID_FRAMEBUFFER_OPERATION";
+    default:
+        return "UNKNOWN_GL_ERROR";
+    }
+}
+
+void clearPendingGlErrors(const char* stage)
+{
+    for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+    {
+        std::cerr << "[editor] Clearing pending OpenGL error before " << stage
+                  << ": 0x" << std::hex << error << std::dec
+                  << " (" << glErrorName(error) << ")" << std::endl;
+    }
+}
+
 struct ViewportFramebuffer
 {
     GLuint framebuffer = 0;
@@ -850,6 +879,7 @@ int main( void )
     // LOAD SCENE    
     scene = new Scene();
     setup_glfw_callbacks(window);
+    clearPendingGlErrors("RmlUi initialization");
 
     {
         Rml::String rendererMessage;
@@ -862,6 +892,7 @@ int main( void )
         }
 
         g_rmlSystemInterface = std::make_unique<SystemInterface_GLFW>(window);
+        clearPendingGlErrors("RmlUi render interface construction");
         g_rmlRenderInterface = std::make_unique<RenderInterface_GL3>();
 
         if (!g_rmlRenderInterface || !(*g_rmlRenderInterface))

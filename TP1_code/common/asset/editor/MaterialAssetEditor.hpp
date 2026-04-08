@@ -6,6 +6,7 @@
 #include <common/gameobject/component/ComponentSerialization.hpp>
 
 #include <cstdint>
+#include <unordered_set>
 #include <string>
 #include <vector>
 
@@ -131,29 +132,111 @@ inline MaterialUniformDefinition* findUniformDefinition(MaterialAssetDefinition&
     return nullptr;
 }
 
-inline MaterialAssetDefinition normalizeDefinitionForShader(const MaterialAssetDefinition& definition, Shader& shader, std::vector<std::string>* unsupportedUniforms = nullptr)
+inline void appendUniqueString(std::vector<std::string>& values, const std::string& value)
+{
+    for (const std::string& existing : values)
+    {
+        if (existing == value)
+            return;
+    }
+
+    values.push_back(value);
+}
+
+inline MaterialAssetDefinition normalizeDefinitionForShaders(const MaterialAssetDefinition& definition, const std::vector<Shader*>& shaders, std::vector<std::string>* unsupportedUniforms = nullptr)
 {
     MaterialAssetDefinition normalized;
     normalized.kind = definition.kind;
     normalized.shaderPath = definition.shaderPath;
+    normalized.renderPassPath = definition.renderPassPath;
 
-    for (const Shader::UniformDescriptor& descriptor : shader.getEditableUniforms())
+    for (Shader* shader : shaders)
     {
-        if (!descriptor.supported())
-        {
-            if (unsupportedUniforms != nullptr)
-                unsupportedUniforms->push_back(descriptor.name);
+        if (shader == nullptr)
             continue;
-        }
 
-        const MaterialUniformKind kind = uniformKindFromShaderKind(descriptor.kind);
-        if (const MaterialUniformDefinition* existing = findUniformDefinition(definition, descriptor.name, kind))
-            normalized.uniforms.push_back(*existing);
-        else
-            normalized.uniforms.push_back(makeDefaultUniformDefinition(descriptor));
+        for (const Shader::UniformDescriptor& descriptor : shader->getEditableUniforms())
+        {
+            if (!descriptor.supported())
+            {
+                if (unsupportedUniforms != nullptr)
+                    appendUniqueString(*unsupportedUniforms, descriptor.name);
+                continue;
+            }
+
+            const MaterialUniformKind kind = uniformKindFromShaderKind(descriptor.kind);
+            if (findUniformDefinition(normalized, descriptor.name, kind) != nullptr)
+                continue;
+
+            if (const MaterialUniformDefinition* existing = findUniformDefinition(definition, descriptor.name, kind))
+                normalized.uniforms.push_back(*existing);
+            else
+                normalized.uniforms.push_back(makeDefaultUniformDefinition(descriptor));
+        }
     }
 
     return normalized;
+}
+
+inline MaterialAssetDefinition normalizeDefinitionForShader(const MaterialAssetDefinition& definition, Shader& shader, std::vector<std::string>* unsupportedUniforms = nullptr)
+{
+    return normalizeDefinitionForShaders(definition, {&shader}, unsupportedUniforms);
+}
+
+inline bool resolveMaterialAssetShaders(const MaterialAssetDefinition& definition, std::vector<Shader*>& shadersOut, uint64_t& revisionOut, std::string* errorMessage = nullptr)
+{
+    shadersOut.clear();
+    revisionOut = 0;
+
+    std::unordered_set<std::string> seenShaderPaths;
+    auto appendShader = [&](const std::string& shaderPath) -> bool {
+        const std::string normalizedShaderPath = AssetManager::normalizeRelativePath(shaderPath);
+        if (normalizedShaderPath.empty() || seenShaderPaths.count(normalizedShaderPath) > 0)
+            return true;
+
+        Shader* shader = AssetManager::instance().loadShader(normalizedShaderPath);
+        if (shader == nullptr)
+        {
+            if (errorMessage != nullptr)
+                *errorMessage = "Failed to load shader asset.";
+            return false;
+        }
+
+        seenShaderPaths.insert(normalizedShaderPath);
+        shadersOut.push_back(shader);
+        revisionOut = revisionOut * 1315423911ULL + shader->getReloadGeneration();
+        return true;
+    };
+
+    if (!definition.renderPassPath.empty())
+    {
+        RenderPassAssetDefinition* renderPass = AssetManager::instance().loadRenderPassDefinition(definition.renderPassPath);
+        if (renderPass == nullptr)
+        {
+            if (errorMessage != nullptr)
+                *errorMessage = "Failed to load render pass asset.";
+            return false;
+        }
+
+        for (const RenderPassStepDefinition& pass : renderPass->passes)
+        {
+            if (!appendShader(pass.shaderPath))
+                return false;
+        }
+
+        if (!shadersOut.empty())
+            return true;
+    }
+
+    if (!appendShader(definition.shaderPath))
+        return false;
+
+    if (!shadersOut.empty())
+        return true;
+
+    if (errorMessage != nullptr)
+        *errorMessage = "No shader could be resolved for this material asset.";
+    return false;
 }
 
 inline MaterialAssetEditorModel loadMaterialAssetEditorModel(const std::string& assetPath)
@@ -176,16 +259,13 @@ inline MaterialAssetEditorModel loadMaterialAssetEditorModel(const std::string& 
         return model;
     }
 
-    Shader* shader = AssetManager::instance().loadShader(model.definition.shaderPath);
-    if (shader == nullptr)
+    std::vector<Shader*> shaders;
+    if (!resolveMaterialAssetShaders(model.definition, shaders, model.shaderRevision, &model.errorMessage))
     {
-        model.errorMessage = "Failed to load shader asset.";
         return model;
     }
 
-    model.shaderRevision = shader->getReloadGeneration();
-
-    model.definition = normalizeDefinitionForShader(model.definition, *shader, &model.unsupportedUniforms);
+    model.definition = normalizeDefinitionForShaders(model.definition, shaders, &model.unsupportedUniforms);
 
     for (const MaterialUniformDefinition& uniform : model.definition.uniforms)
     {

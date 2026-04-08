@@ -28,16 +28,18 @@ struct GameObjectSnapshot
 
 struct SceneSnapshot
 {
-    int version = 2;
+    int version = 3;
     int nextGameObjectId = 1;
     bool physicsSimulationEnabled = false;
     int selectedGameObjectId = -1;
     std::string sceneScriptAssetPath;
     std::string dataAssetPath;
+    render::DirectionalLightSettings directionalLight;
     Camera camera;
     std::vector<std::string> meshAssets;
     std::vector<std::string> shaderAssets;
     std::vector<std::string> materialAssets;
+    std::vector<render::SceneRenderTargetSettings> renderTargets;
     std::vector<GameObjectSnapshot> gameObjects;
 };
 
@@ -166,6 +168,14 @@ inline bool saveSnapshotToStream(std::ostream& output, const SceneSnapshot& snap
     output << "SELECTED_ID " << snapshot.selectedGameObjectId << '\n';
     output << "SCENE_SCRIPT_ASSET " << std::quoted(snapshot.sceneScriptAssetPath) << '\n';
     output << "DATA_ASSET " << std::quoted(snapshot.dataAssetPath) << '\n';
+    output << "DIRECTIONAL_LIGHT_ENABLED " << (snapshot.directionalLight.enabled ? 1 : 0) << '\n';
+    output << "DIRECTIONAL_LIGHT_DIRECTION ";
+    writeVec3(output, snapshot.directionalLight.direction);
+    output << '\n';
+    output << "DIRECTIONAL_LIGHT_COLOR ";
+    writeVec3(output, snapshot.directionalLight.color);
+    output << '\n';
+    output << "DIRECTIONAL_LIGHT_INTENSITY " << snapshot.directionalLight.intensity << '\n';
     output << "CAMERA_POSITION ";
     writeVec3(output, snapshot.camera.m_position);
     output << '\n';
@@ -186,6 +196,15 @@ inline bool saveSnapshotToStream(std::ostream& output, const SceneSnapshot& snap
     writeAssetSection("MESH_ASSETS", snapshot.meshAssets);
     writeAssetSection("SHADER_ASSETS", snapshot.shaderAssets);
     writeAssetSection("MATERIAL_ASSETS", snapshot.materialAssets);
+    output << "RENDER_TARGETS " << snapshot.renderTargets.size() << '\n';
+    for (const render::SceneRenderTargetSettings& renderTarget : snapshot.renderTargets)
+    {
+        output << "RENDER_TARGET "
+               << std::quoted(renderTarget.name) << ' '
+               << renderTarget.width << ' '
+               << renderTarget.height << ' '
+               << render::renderTargetFormatName(renderTarget.format) << '\n';
+    }
 
     output << "GAME_OBJECTS " << snapshot.gameObjects.size() << '\n';
     for (const GameObjectSnapshot& gameObject : snapshot.gameObjects)
@@ -306,6 +325,7 @@ inline bool loadSnapshotFromStream(std::istream& input, SceneSnapshot& snapshot)
 
     snapshot.sceneScriptAssetPath.clear();
     snapshot.dataAssetPath.clear();
+    snapshot.directionalLight = render::DirectionalLightSettings();
 
     if (!(input >> token))
         return false;
@@ -321,6 +341,23 @@ inline bool loadSnapshotFromStream(std::istream& input, SceneSnapshot& snapshot)
     if (token == "DATA_ASSET")
     {
         if (!(input >> std::quoted(snapshot.dataAssetPath)))
+            return false;
+        if (!(input >> token))
+            return false;
+    }
+
+    if (token == "DIRECTIONAL_LIGHT_ENABLED")
+    {
+        int enabled = 0;
+        if (!(input >> enabled))
+            return false;
+        snapshot.directionalLight.enabled = (enabled != 0);
+
+        if (!(input >> token) || token != "DIRECTIONAL_LIGHT_DIRECTION" || !readVec3(input, snapshot.directionalLight.direction))
+            return false;
+        if (!(input >> token) || token != "DIRECTIONAL_LIGHT_COLOR" || !readVec3(input, snapshot.directionalLight.color))
+            return false;
+        if (!(input >> token) || token != "DIRECTIONAL_LIGHT_INTENSITY" || !(input >> snapshot.directionalLight.intensity))
             return false;
         if (!(input >> token))
             return false;
@@ -346,8 +383,35 @@ inline bool loadSnapshotFromStream(std::istream& input, SceneSnapshot& snapshot)
     if (!readAssetSection("MATERIAL_ASSETS", snapshot.materialAssets))
         return false;
 
+    snapshot.renderTargets.clear();
+    if (!(input >> token))
+        return false;
+
+    if (token == "RENDER_TARGETS")
+    {
+        size_t renderTargetCount = 0;
+        if (!(input >> renderTargetCount))
+            return false;
+
+        snapshot.renderTargets.reserve(renderTargetCount);
+        for (size_t renderTargetIndex = 0; renderTargetIndex < renderTargetCount; ++renderTargetIndex)
+        {
+            std::string entryToken;
+            std::string formatToken;
+            render::SceneRenderTargetSettings renderTarget;
+            if (!(input >> entryToken >> std::quoted(renderTarget.name) >> renderTarget.width >> renderTarget.height >> formatToken) || entryToken != "RENDER_TARGET")
+                return false;
+            if (!render::parseRenderTargetFormat(formatToken, renderTarget.format))
+                return false;
+            snapshot.renderTargets.push_back(renderTarget);
+        }
+
+        if (!(input >> token))
+            return false;
+    }
+
     size_t gameObjectCount = 0;
-    if (!(input >> token >> gameObjectCount) || token != "GAME_OBJECTS")
+    if (token != "GAME_OBJECTS" || !(input >> gameObjectCount))
         return false;
 
     snapshot.gameObjects.clear();
@@ -642,6 +706,8 @@ inline bool mergeSceneSnapshot(Scene& scene, const SceneSnapshot& snapshot)
 {
     scene.setSceneScriptAssetPath(snapshot.sceneScriptAssetPath);
     scene.setDataAssetPath(snapshot.dataAssetPath);
+    scene.setDirectionalLightSettings(snapshot.directionalLight);
+    scene.setSavedRenderTargetSettings(snapshot.renderTargets);
 
     for (const std::string& path : snapshot.shaderAssets)
         scene.resolveShaderAsset(path);
@@ -730,7 +796,9 @@ inline SceneSnapshot captureScene(const Scene& scene)
     snapshot.selectedGameObjectId = scene.getSelectedGameObject() != nullptr ? scene.getSelectedGameObject()->getId() : -1;
     snapshot.sceneScriptAssetPath = scene.getSceneScriptAssetPath();
     snapshot.dataAssetPath = scene.getDataAssetPath();
+    snapshot.directionalLight = scene.getDirectionalLightSettings();
     snapshot.camera = scene.getCamera();
+    snapshot.renderTargets = scene.getSavedRenderTargetSettings();
 
     const asset::SceneAssetRegistry& registry = scene.getSceneAssetRegistry();
     snapshot.meshAssets = registry.getAssets(asset::AssetType::Mesh);
@@ -761,6 +829,8 @@ inline bool applySceneSnapshot(Scene& scene, const SceneSnapshot& snapshot)
     scene.setSelectedGameObject(nullptr);
     scene.setSceneScriptAssetPath(snapshot.sceneScriptAssetPath);
     scene.setDataAssetPath(snapshot.dataAssetPath);
+    scene.setDirectionalLightSettings(snapshot.directionalLight);
+    scene.setSavedRenderTargetSettings(snapshot.renderTargets);
     scene.clearGameObjects();
     scene.clearSceneAssetRegistry();
 

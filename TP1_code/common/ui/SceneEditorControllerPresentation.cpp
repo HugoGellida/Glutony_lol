@@ -171,6 +171,31 @@ std::string makeSceneRootFieldElementId(const std::string& fieldKey)
     return "scene_root_field__" + fieldKey;
 }
 
+std::string encodeSceneFieldToken(const std::string& value)
+{
+    std::ostringstream stream;
+    stream << std::hex << std::setfill('0');
+    for (unsigned char character : value)
+        stream << std::setw(2) << static_cast<int>(character);
+    return stream.str();
+}
+
+std::string makeSceneRenderTargetFieldKey(const std::string& renderTargetName, const std::string& propertyKey)
+{
+    return "render_target__" + encodeSceneFieldToken(renderTargetName) + "__" + propertyKey;
+}
+
+const std::vector<component_meta::EnumOption>& renderTargetFormatOptions()
+{
+    static const std::vector<component_meta::EnumOption> options = {
+        {"float", "float"},
+        {"rg", "rg"},
+        {"rgb", "rgb"},
+        {"rgba", "rgba"},
+    };
+    return options;
+}
+
 std::string makeSceneInspectorGroupElementId(int nodeId, size_t componentIndex)
 {
     return "scene_inspector_group_" + std::to_string(nodeId) + "__" + std::to_string(componentIndex);
@@ -285,6 +310,10 @@ const char* assetBrowserFileKindLabel(SceneEditorController::AssetBrowserFileKin
     {
     case SceneEditorController::AssetBrowserFileKind::Material:
         return "Material";
+    case SceneEditorController::AssetBrowserFileKind::RenderPhase:
+        return "RenderPhase";
+    case SceneEditorController::AssetBrowserFileKind::RenderPass:
+        return "RenderPass";
     case SceneEditorController::AssetBrowserFileKind::Data:
         return "Data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:
@@ -310,6 +339,10 @@ const char* assetBrowserFileKindClass(SceneEditorController::AssetBrowserFileKin
     {
     case SceneEditorController::AssetBrowserFileKind::Material:
         return "material";
+    case SceneEditorController::AssetBrowserFileKind::RenderPhase:
+        return "render_phase";
+    case SceneEditorController::AssetBrowserFileKind::RenderPass:
+        return "render_pass";
     case SceneEditorController::AssetBrowserFileKind::Data:
         return "data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:
@@ -572,7 +605,7 @@ void SceneEditorController::refreshAssetBrowserFileSelectionPresentation(const s
         if (fileId.empty())
             return;
 
-        const AssetBrowserFileEntry* file = findAssetFileById(fileId);
+        const AssetBrowserFileEntry* file = m_assetBrowserModel.findFileById(fileId);
         if (file == nullptr)
             return;
 
@@ -584,7 +617,7 @@ void SceneEditorController::refreshAssetBrowserFileSelectionPresentation(const s
         classNames += assetBrowserRootClass(file->rootKind);
         classNames += " ";
         classNames += assetBrowserFileKindClass(file->fileKind);
-        if (fileId == m_selectedAssetFileId)
+        if (fileId == m_assetBrowserModel.selectedFileId())
             classNames += " selected";
         if (fileId == m_draggedAssetFileId)
             classNames += " dragging";
@@ -592,9 +625,9 @@ void SceneEditorController::refreshAssetBrowserFileSelectionPresentation(const s
         element->SetClassNames(classNames);
     };
 
-    if (previousFileId != m_selectedAssetFileId)
+    if (previousFileId != m_assetBrowserModel.selectedFileId())
         updateFileElementClass(previousFileId);
-    updateFileElementClass(m_selectedAssetFileId);
+    updateFileElementClass(m_assetBrowserModel.selectedFileId());
 }
 
 void SceneEditorController::refreshAssetBrowserDirectorySelectionPresentation(const std::string& previousDirectoryId)
@@ -606,7 +639,7 @@ void SceneEditorController::refreshAssetBrowserDirectorySelectionPresentation(co
         if (directoryId.empty())
             return;
 
-        const AssetBrowserDirectoryNode* directory = findAssetDirectoryById(directoryId);
+        const AssetBrowserDirectoryNode* directory = m_assetBrowserModel.findDirectoryById(directoryId);
         if (directory == nullptr)
             return;
 
@@ -616,21 +649,21 @@ void SceneEditorController::refreshAssetBrowserDirectorySelectionPresentation(co
 
         std::string classNames = "asset_browser_tree_row ";
         classNames += assetBrowserRootClass(directory->rootKind);
-        if (directoryId == m_selectedAssetDirectoryId)
+        if (directoryId == m_assetBrowserModel.selectedDirectoryId())
             classNames += " selected";
-        if (isAssetDirectoryExpanded(*directory))
+        if (m_assetBrowserModel.isDirectoryExpanded(*directory))
             classNames += " expanded";
         element->SetClassNames(classNames);
     };
 
-    if (previousDirectoryId != m_selectedAssetDirectoryId)
+    if (previousDirectoryId != m_assetBrowserModel.selectedDirectoryId())
         updateDirectoryElementClass(previousDirectoryId);
-    updateDirectoryElementClass(m_selectedAssetDirectoryId);
+    updateDirectoryElementClass(m_assetBrowserModel.selectedDirectoryId());
 }
 
 void SceneEditorController::refreshInspectorValuesPresentation()
 {
-    const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
+    const UiGOHierarchyNode* selectedNode = m_hierarchyModel.findSelectedNode();
     if (m_document == nullptr || selectedNode == nullptr)
         return;
 
@@ -679,6 +712,21 @@ void SceneEditorController::refreshInspectorValuesPresentation()
         {
             refreshStringFieldValue(makeSceneFieldElementId("sceneScriptAsset"), m_scene->getSceneScriptAssetPath());
             refreshStringFieldValue(makeSceneFieldElementId("dataAsset"), m_scene->getDataAssetPath());
+            const render::DirectionalLightSettings& directionalLight = m_scene->getDirectionalLightSettings();
+            refreshStringFieldValue(makeSceneFieldElementId("directionalLightEnabled"), directionalLight.enabled ? "true" : "false");
+            refreshStringFieldValue(makeSceneFieldElementId("directionalLightDirection"), formatSerializedValue(component_meta::SerializedValue(directionalLight.direction)));
+            refreshStringFieldValue(makeSceneFieldElementId("directionalLightColor"), formatSerializedValue(component_meta::SerializedValue(directionalLight.color)));
+            refreshStringFieldValue(makeSceneFieldElementId("directionalLightIntensity"), formatSerializedValue(component_meta::SerializedValue(directionalLight.intensity)));
+            const std::vector<render::SceneRenderTargetSettings> renderTargets = m_scene != nullptr ? m_scene->collectVisibleRenderTargetSettings() : std::vector<render::SceneRenderTargetSettings>();
+            if (!renderTargets.empty())
+            {
+                for (const render::SceneRenderTargetSettings& renderTarget : renderTargets)
+                {
+                    refreshStringFieldValue(makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "width")), std::to_string(renderTarget.width));
+                    refreshStringFieldValue(makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "height")), std::to_string(renderTarget.height));
+                    refreshStringFieldValue(makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "format")), render::renderTargetFormatName(renderTarget.format));
+                }
+            }
 
             InspectorFieldBinding dataAssetBinding;
             dataAssetBinding.target = InspectorFieldBinding::Target::Scene;
@@ -767,7 +815,7 @@ std::string SceneEditorController::buildHierarchyMarkup() const
     addAction.setDomIdOverride("scene_hierarchy_add");
     header.addChild(&addAction);
 
-    UI::MarkupBlock body(0, 0, buildHierarchyNodeMarkup(m_hierarchyRoot, 0) + buildHierarchyContextMenuMarkup());
+    UI::MarkupBlock body(0, 0, buildHierarchyNodeMarkup(m_hierarchyModel.root(), 0) + buildHierarchyContextMenuMarkup());
 
     panel.addChild(&header);
     panel.addChild(&body);
@@ -776,7 +824,7 @@ std::string SceneEditorController::buildHierarchyMarkup() const
 
 std::string SceneEditorController::buildHierarchyContextMenuMarkup() const
 {
-    if (!m_hierarchyContextMenuOpen || m_hierarchyContextMenuNodeId == m_hierarchyRoot.id)
+    if (!m_hierarchyContextMenuOpen || m_hierarchyContextMenuNodeId == m_hierarchyModel.root().id)
         return "";
 
     std::ostringstream stream;
@@ -788,7 +836,7 @@ std::string SceneEditorController::buildHierarchyContextMenuMarkup() const
 
 std::string SceneEditorController::buildHierarchyNodeMarkup(const UiGOHierarchyNode& node, int depth) const
 {
-    const bool isSelected = node.id == m_selectedHierarchyNodeId;
+    const bool isSelected = node.id == m_hierarchyModel.selectedNodeId();
 
     std::ostringstream stream;
     stream << "<div class='hierarchy_node depth_" << depth << "'>";
@@ -814,7 +862,7 @@ std::string SceneEditorController::buildHierarchyNodeMarkup(const UiGOHierarchyN
 
 std::string SceneEditorController::buildInspectorMarkup() const
 {
-    const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
+    const UiGOHierarchyNode* selectedNode = m_hierarchyModel.findSelectedNode();
     if (selectedNode == nullptr)
     {
         return buildInspectorShellMarkup(
@@ -855,6 +903,82 @@ std::string SceneEditorController::buildInspectorMarkup() const
             component_meta::AssetReferenceKind::Data,
             dataAssetFieldId == m_hoveredInspectorFieldId);
         stream << buildDataAssetEditorMarkup(dataAssetBinding, m_scene != nullptr ? m_scene->getDataAssetPath() : std::string());
+
+        const render::DirectionalLightSettings directionalLight = m_scene != nullptr ? m_scene->getDirectionalLightSettings() : render::DirectionalLightSettings();
+        const std::string directionalLightEnabledFieldId = makeSceneFieldElementId("directionalLightEnabled");
+        const std::string directionalLightDirectionFieldId = makeSceneFieldElementId("directionalLightDirection");
+        const std::string directionalLightColorFieldId = makeSceneFieldElementId("directionalLightColor");
+        const std::string directionalLightIntensityFieldId = makeSceneFieldElementId("directionalLightIntensity");
+        stream << buildInspectorFieldMarkup(
+            directionalLightEnabledFieldId,
+            "Directional Light",
+            component_meta::FieldKind::Bool,
+            component_meta::SerializedValue(directionalLight.enabled),
+            {},
+            component_meta::AssetReferenceKind::None,
+            directionalLightEnabledFieldId == m_hoveredInspectorFieldId);
+        stream << buildInspectorFieldMarkup(
+            directionalLightDirectionFieldId,
+            "Light Direction",
+            component_meta::FieldKind::Vec3,
+            component_meta::SerializedValue(directionalLight.direction),
+            {},
+            component_meta::AssetReferenceKind::None,
+            directionalLightDirectionFieldId == m_hoveredInspectorFieldId);
+        stream << buildInspectorFieldMarkup(
+            directionalLightColorFieldId,
+            "Light Color",
+            component_meta::FieldKind::Vec3,
+            component_meta::SerializedValue(directionalLight.color),
+            {},
+            component_meta::AssetReferenceKind::None,
+            directionalLightColorFieldId == m_hoveredInspectorFieldId);
+        stream << buildInspectorFieldMarkup(
+            directionalLightIntensityFieldId,
+            "Light Intensity",
+            component_meta::FieldKind::Float,
+            component_meta::SerializedValue(directionalLight.intensity),
+            {},
+            component_meta::AssetReferenceKind::None,
+            directionalLightIntensityFieldId == m_hoveredInspectorFieldId);
+        const std::vector<render::SceneRenderTargetSettings> renderTargets = m_scene != nullptr ? m_scene->collectVisibleRenderTargetSettings() : std::vector<render::SceneRenderTargetSettings>();
+        if (!renderTargets.empty())
+        {
+            stream << "<div class='inspector_field_row'><div class='inspector_field_name'>RenderTargets</div><div class='inspector_field_input'>" << renderTargets.size() << "</div></div>";
+            for (const render::SceneRenderTargetSettings& renderTarget : renderTargets)
+            {
+                stream << "<div class='inspector_field_row'><div class='inspector_field_name'>Target</div><div class='inspector_field_input'>" << escapeRmlText(renderTarget.name) << "</div></div>";
+
+                const std::string widthFieldId = makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "width"));
+                const std::string heightFieldId = makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "height"));
+                const std::string formatFieldId = makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "format"));
+
+                stream << buildInspectorFieldMarkup(
+                    widthFieldId,
+                    "Width",
+                    component_meta::FieldKind::Int,
+                    component_meta::SerializedValue(renderTarget.width),
+                    {},
+                    component_meta::AssetReferenceKind::None,
+                    widthFieldId == m_hoveredInspectorFieldId);
+                stream << buildInspectorFieldMarkup(
+                    heightFieldId,
+                    "Height",
+                    component_meta::FieldKind::Int,
+                    component_meta::SerializedValue(renderTarget.height),
+                    {},
+                    component_meta::AssetReferenceKind::None,
+                    heightFieldId == m_hoveredInspectorFieldId);
+                stream << buildInspectorFieldMarkup(
+                    formatFieldId,
+                    "Format",
+                    component_meta::FieldKind::Enum,
+                    component_meta::SerializedValue(std::string(render::renderTargetFormatName(renderTarget.format))),
+                    renderTargetFormatOptions(),
+                    component_meta::AssetReferenceKind::None,
+                    formatFieldId == m_hoveredInspectorFieldId);
+            }
+        }
         stream << "</div>";
         return buildInspectorShellMarkup(stream.str(), buildInspectorOverlayMarkup());
     }
@@ -1083,7 +1207,7 @@ std::string SceneEditorController::buildAssetBrowserTreePaneMarkup() const
 {
     std::ostringstream stream;
     stream << "<div class='asset_browser_section_header'>Folders</div><div class='asset_browser_section_body asset_browser_tree_body'>";
-    for (const AssetBrowserDirectoryNode& root : m_assetBrowserRoots)
+    for (const AssetBrowserDirectoryNode& root : m_assetBrowserModel.roots())
         stream << buildAssetBrowserDirectoryMarkup(root, 0);
     stream << "</div>";
     return stream.str();
@@ -1091,7 +1215,7 @@ std::string SceneEditorController::buildAssetBrowserTreePaneMarkup() const
 
 std::string SceneEditorController::buildAssetBrowserFilesPaneMarkup() const
 {
-    const AssetBrowserDirectoryNode* selectedDirectory = findSelectedAssetDirectory();
+    const AssetBrowserDirectoryNode* selectedDirectory = m_assetBrowserModel.selectedDirectory();
 
     std::ostringstream stream;
     stream << "<div class='asset_browser_section_header'>Files";
@@ -1141,8 +1265,8 @@ std::string SceneEditorController::buildConsoleMarkup() const
 
 std::string SceneEditorController::buildAssetBrowserDirectoryMarkup(const AssetBrowserDirectoryNode& node, int depth) const
 {
-    const bool expanded = isAssetDirectoryExpanded(node);
-    const bool selected = node.id == m_selectedAssetDirectoryId;
+    const bool expanded = m_assetBrowserModel.isDirectoryExpanded(node);
+    const bool selected = node.id == m_assetBrowserModel.selectedDirectoryId();
 
     std::ostringstream stream;
     stream << "<div class='asset_browser_tree_node depth_" << depth << "'>";
@@ -1188,7 +1312,7 @@ std::string SceneEditorController::buildAssetBrowserFileGridMarkup(const AssetBr
     {
         stream << "<div id='" << UI::SceneEditorDomIdCodec::makeAssetFileElementId(file.id) << "' class='asset_browser_file_card ";
         stream << assetBrowserRootClass(file.rootKind) << " " << assetBrowserFileKindClass(file.fileKind);
-        if (file.id == m_selectedAssetFileId)
+        if (file.id == m_assetBrowserModel.selectedFileId())
             stream << " selected";
         if (file.id == m_draggedAssetFileId)
             stream << " dragging";
@@ -1295,4 +1419,88 @@ std::string SceneEditorController::buildSceneDirtyPromptMarkup() const
     stream << "<div id='scene_dirty_prompt_cancel' class='scene_modal_button'>Cancel</div>";
     stream << "</div></div></div>";
     return stream.str();
+}
+
+std::string SceneEditorController::makeTransformFieldElementId(int nodeId, const std::string& fieldKey)
+{
+    return makeSceneTransformFieldElementId(nodeId, fieldKey);
+}
+
+std::string SceneEditorController::makeSceneFieldElementId(const std::string& fieldKey)
+{
+    return makeSceneRootFieldElementId(fieldKey);
+}
+
+std::string SceneEditorController::makeInspectorFieldElementId(int nodeId, size_t componentIndex, const std::string& fieldKey)
+{
+    return makeSceneInspectorFieldElementId(nodeId, componentIndex, fieldKey);
+}
+
+std::string SceneEditorController::makeInspectorGroupElementId(int nodeId, size_t componentIndex)
+{
+    return makeSceneInspectorGroupElementId(nodeId, componentIndex);
+}
+
+std::optional<SceneEditorController::InspectorGroupBinding> SceneEditorController::parseInspectorGroupElementId(const Rml::String& elementId)
+{
+    const std::string value = elementId;
+    const std::string prefix = "scene_inspector_group_";
+    if (!startsWith(value, prefix))
+        return std::nullopt;
+
+    const size_t separator = value.find("__", prefix.size());
+    if (separator == std::string::npos)
+        return std::nullopt;
+
+    InspectorGroupBinding binding;
+    binding.nodeId = std::stoi(value.substr(prefix.size(), separator - prefix.size()));
+    binding.componentIndex = static_cast<size_t>(std::stoul(value.substr(separator + 2)));
+    return binding;
+}
+
+std::optional<SceneEditorController::InspectorFieldBinding> SceneEditorController::parseInspectorFieldElementId(const Rml::String& elementId)
+{
+    const std::string value = elementId;
+    const std::string scenePrefix = "scene_root_field__";
+    if (startsWith(value, scenePrefix))
+    {
+        InspectorFieldBinding binding;
+        binding.target = InspectorFieldBinding::Target::Scene;
+        binding.nodeId = 0;
+        binding.fieldKey = value.substr(scenePrefix.size());
+        return binding;
+    }
+
+    const std::string transformPrefix = "scene_transform_field_";
+    if (startsWith(value, transformPrefix))
+    {
+        const size_t separator = value.find("__", transformPrefix.size());
+        if (separator == std::string::npos)
+            return std::nullopt;
+
+        InspectorFieldBinding binding;
+        binding.target = InspectorFieldBinding::Target::Transform;
+        binding.nodeId = std::stoi(value.substr(transformPrefix.size(), separator - transformPrefix.size()));
+        binding.fieldKey = value.substr(separator + 2);
+        return binding;
+    }
+
+    const std::string prefix = "scene_inspector_field_";
+    if (!startsWith(value, prefix))
+        return std::nullopt;
+
+    const size_t firstSeparator = value.find("__", prefix.size());
+    if (firstSeparator == std::string::npos)
+        return std::nullopt;
+
+    const size_t secondSeparator = value.find("__", firstSeparator + 2);
+    if (secondSeparator == std::string::npos)
+        return std::nullopt;
+
+    InspectorFieldBinding binding;
+    binding.target = InspectorFieldBinding::Target::Component;
+    binding.nodeId = std::stoi(value.substr(prefix.size(), firstSeparator - prefix.size()));
+    binding.componentIndex = static_cast<size_t>(std::stoul(value.substr(firstSeparator + 2, secondSeparator - (firstSeparator + 2))));
+    binding.fieldKey = value.substr(secondSeparator + 2);
+    return binding;
 }

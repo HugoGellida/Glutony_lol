@@ -1,0 +1,8 @@
+{
+  "type": "lit",
+  "shader": "built-in/shaders/lit",
+  "renderPass": "built-in/render_pass/validation_lit_offscreen.render_pass",
+  "uniforms": [
+    { "name": "_mainCol", "type": "vec3", "value": [0.950, 0.430, 0.260] }
+  ]
+}

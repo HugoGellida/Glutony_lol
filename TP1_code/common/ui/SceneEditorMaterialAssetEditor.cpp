@@ -169,6 +169,10 @@ const char* assetReferenceKindLabelLocal(component_meta::AssetReferenceKind kind
     {
     case component_meta::AssetReferenceKind::Mesh:
         return "Drop mesh asset";
+    case component_meta::AssetReferenceKind::RenderPhase:
+        return "Drop render phase asset";
+    case component_meta::AssetReferenceKind::RenderPass:
+        return "Drop render pass asset";
     case component_meta::AssetReferenceKind::Shader:
         return "Drop shader asset";
     case component_meta::AssetReferenceKind::Material:
@@ -244,6 +248,7 @@ std::string buildMaterialEditorStructureSignature(const asset::editor::MaterialA
     std::ostringstream stream;
     stream << editorModel.normalizedAssetPath << '|'
            << asset::editor::materialAssetKindValue(editorModel.definition.kind) << '|'
+            << editorModel.definition.renderPassPath << '|'
            << editorModel.definition.shaderPath << '|'
            << editorModel.shaderRevision << '|'
            << editorModel.fields.size();
@@ -338,6 +343,10 @@ bool canDropDraggedAssetForAssetReferenceKind(component_meta::AssetReferenceKind
     {
     case component_meta::AssetReferenceKind::Mesh:
         return payloadKind == DragPayloadKind::MeshAsset;
+    case component_meta::AssetReferenceKind::RenderPhase:
+        return payloadKind == DragPayloadKind::RenderPhaseAsset;
+    case component_meta::AssetReferenceKind::RenderPass:
+        return payloadKind == DragPayloadKind::RenderPassAsset;
     case component_meta::AssetReferenceKind::Shader:
         return payloadKind == DragPayloadKind::ShaderAsset;
     case component_meta::AssetReferenceKind::Material:
@@ -437,7 +446,7 @@ bool SceneEditorController::applyMaterialAssetEditorFieldValue(const MaterialAss
     if (m_scene == nullptr)
         return false;
 
-    UiGOHierarchyNode* node = findHierarchyNodeById(binding.parentField.nodeId);
+    UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(binding.parentField.nodeId);
     if (node == nullptr || node->gameObject == nullptr)
         return false;
 
@@ -483,6 +492,27 @@ bool SceneEditorController::applyMaterialAssetEditorFieldValue(const MaterialAss
 
         editorModel.definition.shaderPath = normalizedShaderPath;
         editorModel.definition = asset::editor::normalizeDefinitionForShader(editorModel.definition, *shader);
+    }
+    else if (binding.propertyKey == "render_pass")
+    {
+        const std::string normalizedRenderPassPath = asset::AssetManager::normalizeRelativePath(trimCopyLocal(value));
+        if (editorModel.definition.renderPassPath == normalizedRenderPassPath)
+            return false;
+        if (!normalizedRenderPassPath.empty())
+        {
+            if (!asset::AssetManager::hasExtension(normalizedRenderPassPath, ".render_pass"))
+                return false;
+            if (asset::AssetManager::instance().loadRenderPassDefinition(normalizedRenderPassPath) == nullptr)
+                return false;
+        }
+        editorModel.definition.renderPassPath = normalizedRenderPassPath;
+
+        std::vector<Shader*> shaders;
+        uint64_t shaderRevision = 0;
+        std::string errorMessage;
+        if (!asset::editor::resolveMaterialAssetShaders(editorModel.definition, shaders, shaderRevision, &errorMessage))
+            return false;
+        editorModel.definition = asset::editor::normalizeDefinitionForShaders(editorModel.definition, shaders);
     }
     else
     {
@@ -586,6 +616,9 @@ bool SceneEditorController::canDropDraggedAssetOnMaterialAssetEditorField(const 
     if (m_dragPayloadKind == DragPayloadKind::None || m_draggedAssetRuntimePath.empty())
         return false;
 
+    if (binding.propertyKey == "render_pass")
+        return canDropDraggedAssetForAssetReferenceKind(component_meta::AssetReferenceKind::RenderPass, m_dragPayloadKind);
+
     if (binding.propertyKey == "shader")
         return canDropDraggedAssetForAssetReferenceKind(component_meta::AssetReferenceKind::Shader, m_dragPayloadKind);
 
@@ -593,7 +626,7 @@ bool SceneEditorController::canDropDraggedAssetOnMaterialAssetEditorField(const 
     if (!uniformIndex.has_value())
         return false;
 
-    const UiGOHierarchyNode* node = findHierarchyNodeById(binding.parentField.nodeId);
+    const UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(binding.parentField.nodeId);
     if (node == nullptr || node->gameObject == nullptr)
         return false;
 
@@ -684,6 +717,14 @@ std::string SceneEditorController::buildMaterialAssetEditorBodyMarkup(const Insp
         component_meta::AssetReferenceKind::None,
         makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "type") == m_hoveredInspectorFieldId);
     stream << buildMaterialEditorFieldMarkup(
+        makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "render_pass"),
+        "RenderPass",
+        component_meta::FieldKind::Asset,
+        editorModel.definition.renderPassPath,
+        {},
+        component_meta::AssetReferenceKind::RenderPass,
+        makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "render_pass") == m_hoveredInspectorFieldId);
+    stream << buildMaterialEditorFieldMarkup(
         makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "shader"),
         "Shader",
         component_meta::FieldKind::Asset,
@@ -730,7 +771,7 @@ void SceneEditorController::refreshMaterialAssetEditorPresentation(const Inspect
     if (m_document == nullptr || !isMaterialAssetInspectorField(binding))
         return;
 
-    UiGOHierarchyNode* node = findHierarchyNodeById(binding.nodeId);
+    UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(binding.nodeId);
     if (node == nullptr || node->gameObject == nullptr)
         return;
 
@@ -780,6 +821,11 @@ void SceneEditorController::refreshMaterialAssetEditorPresentation(const Inspect
             m_context,
             makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "type"),
             asset::editor::materialAssetKindValue(editorModel.definition.kind));
+        patchMaterialEditorFieldValue(
+            m_document,
+            m_context,
+            makeMaterialAssetEditorFieldElementId(binding.nodeId, binding.componentIndex, binding.fieldKey, "render_pass"),
+            editorModel.definition.renderPassPath);
         patchMaterialEditorFieldValue(
             m_document,
             m_context,
@@ -840,7 +886,7 @@ void SceneEditorController::pollRuntimePreviewMaterialState()
         return;
     }
 
-    const UiGOHierarchyNode* selectedNode = findSelectedHierarchyNode();
+    const UiGOHierarchyNode* selectedNode = m_hierarchyModel.findSelectedNode();
     if (selectedNode != nullptr && selectedNode->gameObject != nullptr)
     {
         for (size_t componentIndex = 0; componentIndex < selectedNode->gameObject->getComponentCount(); ++componentIndex)
