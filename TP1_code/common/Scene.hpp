@@ -414,7 +414,10 @@ public:
         if (m_inputProcessor.queryKey(window, GLFW_KEY_Z))
         {
             for (size_t i = 0; i < m_gameObjectCount; i++)
-                m_gameObjects[i]->getComponent<MeshRenderer>()->toggleWireframe();
+            {
+                if (MeshRenderer* meshRenderer = m_gameObjects[i]->getComponent<MeshRenderer>())
+                    meshRenderer->toggleWireframe();
+            }
         }
 
         if (m_orbitMode)
