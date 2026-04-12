@@ -3,6 +3,7 @@
     {
       "phase": "built-in/render_phase/geometry.render_phase",
       "shader": "built-in/shaders/unlit",
+      "iterator": "none",
       "uniforms": [],
       "target": { "name": "final", "shared": true },
       "clear": false,

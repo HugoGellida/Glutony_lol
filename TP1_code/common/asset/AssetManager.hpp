@@ -5,6 +5,7 @@
 #include "MaterialAssetIO.hpp"
 #include "RenderPassAssetIO.hpp"
 #include "RenderPhaseAssetIO.hpp"
+#include "UniformFactoryAssetIO.hpp"
 #include "SceneScriptAssetIO.hpp"
 #include "common/FileLoader.hpp"
 #include "common/gameobject/component/Mesh.hpp"
@@ -29,6 +30,7 @@ enum class AssetType
     Material,
     RenderPhase,
     RenderPass,
+    UniformFactory,
     Data,
     SceneScript,
     ComponentScript,
@@ -81,6 +83,7 @@ private:
     std::unordered_map<std::string, std::unique_ptr<dataStruct::Material>> m_materialAssets;
     std::unordered_map<std::string, RenderPhaseAssetDefinition> m_renderPhaseAssets;
     std::unordered_map<std::string, RenderPassAssetDefinition> m_renderPassAssets;
+    std::unordered_map<std::string, UniformFactoryAssetDefinition> m_uniformFactoryAssets;
     std::unordered_map<std::string, DataAssetDefinition> m_dataAssets;
     std::unordered_map<std::string, SceneScriptAssetDefinition> m_sceneScriptAssets;
     std::unordered_map<std::string, ComponentScriptAssetDefinition> m_componentScriptAssets;
@@ -407,6 +410,62 @@ public:
 
         auto inserted = m_dataAssets.emplace(normalizedPath, std::move(definition));
         return &inserted.first->second;
+    }
+
+    UniformFactoryAssetDefinition* loadUniformFactoryDefinition(const std::string& relativePath)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".uniform_factory"))
+        {
+            std::cerr << "UniformFactory asset must use .uniform_factory extension: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        registerGlobalAsset(AssetType::UniformFactory, normalizedPath);
+
+        const auto it = m_uniformFactoryAssets.find(normalizedPath);
+        if (it != m_uniformFactoryAssets.end())
+            return &it->second;
+
+        UniformFactoryAssetDefinition definition;
+        if (!UniformFactoryAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            std::cerr << "Failed to load uniform factory asset: " << normalizedPath << std::endl;
+            return nullptr;
+        }
+
+        definition.sourcePath = normalizeRelativePath(definition.sourcePath);
+        auto inserted = m_uniformFactoryAssets.emplace(normalizedPath, std::move(definition));
+        return &inserted.first->second;
+    }
+
+    bool reloadUniformFactoryDefinition(const std::string& relativePath, UniformFactoryAssetDefinition*& definitionOut)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (!hasExtension(normalizedPath, ".uniform_factory"))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        registerGlobalAsset(AssetType::UniformFactory, normalizedPath);
+
+        UniformFactoryAssetDefinition definition;
+        if (!UniformFactoryAssetIO::loadDefinition(runtimePath(normalizedPath), definition))
+        {
+            definitionOut = nullptr;
+            return false;
+        }
+
+        definition.sourcePath = normalizeRelativePath(definition.sourcePath);
+        auto it = m_uniformFactoryAssets.find(normalizedPath);
+        if (it == m_uniformFactoryAssets.end())
+            it = m_uniformFactoryAssets.emplace(normalizedPath, std::move(definition)).first;
+        else
+            it->second = std::move(definition);
+
+        definitionOut = &it->second;
+        return true;
     }
 
     bool reloadDataAssetDefinition(const std::string& relativePath, DataAssetDefinition*& definitionOut)

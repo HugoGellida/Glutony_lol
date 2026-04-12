@@ -24,6 +24,7 @@ public:
         Material,
         RenderPhase,
         RenderPass,
+        UniformFactory,
         Data,
         Mesh,
         SceneScript,

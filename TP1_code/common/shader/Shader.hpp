@@ -317,6 +317,41 @@ public:
         return m_uniformDescriptors;
     }
 
+    bool tryGetUniformDescriptor(const std::string& uniformName, UniformDescriptor& descriptor, bool includeEngineUniforms = true)
+    {
+        if (!ensureCompiled() || programID == 0)
+            return false;
+
+        GLint uniformCount = 0;
+        glGetProgramiv(programID, GL_ACTIVE_UNIFORMS, &uniformCount);
+        for (GLint uniformIndex = 0; uniformIndex < uniformCount; ++uniformIndex)
+        {
+            GLchar nameBuffer[256] = {};
+            GLsizei nameLength = 0;
+            GLint size = 0;
+            GLenum type = 0;
+            glGetActiveUniform(programID, static_cast<GLuint>(uniformIndex), sizeof(nameBuffer), &nameLength, &size, &type, nameBuffer);
+            if (nameLength <= 0)
+                continue;
+
+            std::string activeUniformName(nameBuffer, static_cast<size_t>(nameLength));
+            if (activeUniformName.size() > 3 && activeUniformName.compare(activeUniformName.size() - 3, 3, "[0]") == 0)
+                activeUniformName.erase(activeUniformName.size() - 3);
+            if (!includeEngineUniforms && isEngineUniform(activeUniformName))
+                continue;
+            if (activeUniformName != uniformName)
+                continue;
+
+            descriptor.name = activeUniformName;
+            descriptor.kind = classifyUniformKind(type);
+            descriptor.glType = type;
+            descriptor.size = size;
+            return true;
+        }
+
+        return false;
+    }
+
     uint64_t getReloadGeneration()
     {
         ensureCompiled();

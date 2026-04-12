@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 
@@ -722,6 +723,42 @@ public:
         return lights;
     }
 
+    std::vector<std::string> collectReferencedRenderPassAssets() const
+    {
+        std::vector<std::string> renderPassPaths;
+        std::unordered_set<std::string> seenRenderPassPaths;
+
+        for (size_t index = 0; index < m_gameObjectCount; ++index)
+        {
+            GameObject* gameObject = m_gameObjects[index];
+            if (gameObject == nullptr)
+                continue;
+
+            MeshRenderer* meshRenderer = gameObject->getComponent<MeshRenderer>();
+            if (meshRenderer == nullptr)
+                continue;
+
+            dataStruct::Material* material = nullptr;
+            const std::string materialAssetPath = asset::AssetManager::normalizeRelativePath(meshRenderer->getMaterialAssetPath());
+            if (!materialAssetPath.empty())
+                material = asset::AssetManager::instance().loadMaterial(materialAssetPath);
+            else
+                material = meshRenderer->getMaterial();
+
+            if (material == nullptr)
+                continue;
+
+            const std::string renderPassPath = asset::AssetManager::normalizeRelativePath(material->getRuntimeDefinition().renderPassPath);
+            if (renderPassPath.empty() || !seenRenderPassPaths.insert(renderPassPath).second)
+                continue;
+
+            renderPassPaths.push_back(renderPassPath);
+        }
+
+        std::sort(renderPassPaths.begin(), renderPassPaths.end());
+        return renderPassPaths;
+    }
+
     void updateCamera(glm::vec3 deltaPos, glm::vec3 deltaEuler)
     {
         glm::vec4 posRel = (Transform::rotationMatrix(glm::vec3(0.0f, m_camera.m_orientation.y, 0.0f)) * glm::vec4(deltaPos.x, deltaPos.y, deltaPos.z, 1.0f));
@@ -766,6 +803,42 @@ public:
     dataStruct::Material* resolveMaterialAsset(const std::string& relativePath)
     {
         return useMaterialAsset(relativePath);
+    }
+
+    bool validateRenderPipelines(std::vector<std::string>* issues = nullptr) const
+    {
+        bool valid = true;
+        for (const std::string& renderPassPath : collectReferencedRenderPassAssets())
+        {
+            std::vector<std::string> renderPassIssues;
+            if (!render::RenderPipeline::validateCompiledRenderPass(renderPassPath, nullptr, &renderPassIssues))
+            {
+                valid = false;
+                if (issues != nullptr)
+                    issues->insert(issues->end(), renderPassIssues.begin(), renderPassIssues.end());
+            }
+        }
+
+        return valid;
+    }
+
+    bool buildRenderPipelines(std::vector<std::string>* issues = nullptr)
+    {
+        bool valid = true;
+        for (const std::string& renderPassPath : collectReferencedRenderPassAssets())
+        {
+            std::vector<std::string> renderPassIssues;
+            if (!render::RenderPipeline::buildCompiledRenderPass(renderPassPath, &renderPassIssues))
+            {
+                valid = false;
+                if (issues != nullptr)
+                    issues->insert(issues->end(), renderPassIssues.begin(), renderPassIssues.end());
+            }
+        }
+
+        if (valid)
+            m_renderPipeline.invalidate();
+        return valid;
     }
 
     bool refreshMaterialAsset(const std::string& relativePath)

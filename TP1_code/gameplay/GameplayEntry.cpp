@@ -17,6 +17,12 @@ struct ComponentScriptCallbacks
     ComponentScriptUpdateEntry update = nullptr;
 };
 
+struct RenderUniformFactoryCallbacks
+{
+	render::UniformFactoryEntry build = nullptr;
+	render::UniformFactoryIterationCountEntry iterationCount = nullptr;
+};
+
 std::unordered_map<std::string, SceneScriptEntry>& sceneScriptRegistry()
 {
 	static std::unordered_map<std::string, SceneScriptEntry> registry;
@@ -26,6 +32,12 @@ std::unordered_map<std::string, SceneScriptEntry>& sceneScriptRegistry()
 std::unordered_map<std::string, ComponentScriptCallbacks>& componentScriptRegistry()
 {
 	static std::unordered_map<std::string, ComponentScriptCallbacks> registry;
+	return registry;
+}
+
+std::unordered_map<std::string, RenderUniformFactoryCallbacks>& renderUniformFactoryRegistry()
+{
+	static std::unordered_map<std::string, RenderUniformFactoryCallbacks> registry;
 	return registry;
 }
 
@@ -47,6 +59,7 @@ void bootstrap()
 		return;
 
 	registerGeneratedSceneScripts();
+	registerGeneratedRenderUniformFactories();
 	bootstrapped = true;
 }
 
@@ -66,6 +79,15 @@ void registerComponentScript(const std::string& assetPath, ComponentScriptStartE
 		return;
 
 	componentScriptRegistry()[normalizedPath] = {startEntry, updateEntry};
+}
+
+void registerRenderUniformFactory(const std::string& assetPath, render::UniformFactoryEntry entry, render::UniformFactoryIterationCountEntry iterationCountEntry)
+{
+	const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(assetPath);
+	if (normalizedPath.empty() || entry == nullptr)
+		return;
+
+	renderUniformFactoryRegistry()[normalizedPath] = {entry, iterationCountEntry};
 }
 
 void runSceneScript(Scene& scene)
@@ -130,5 +152,44 @@ void runComponentScriptUpdates(Scene& scene, float deltaTime)
 			callbacks->update(scene, *gameObject, *scriptComponent, dataAssetDefinition, deltaTime);
 		}
 	}
+}
+
+bool queryRenderUniformFactoryIterationCount(const std::string& assetPath, const render::UniformFactoryExecutionContext& context, int& iterationCountOut)
+{
+	const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(assetPath);
+	if (normalizedPath.empty())
+	{
+		iterationCountOut = 0;
+		return false;
+	}
+
+	const auto it = renderUniformFactoryRegistry().find(normalizedPath);
+	if (it == renderUniformFactoryRegistry().end())
+	{
+		iterationCountOut = 0;
+		return false;
+	}
+
+	if (it->second.iterationCount == nullptr)
+	{
+		iterationCountOut = 1;
+		return true;
+	}
+
+	iterationCountOut = it->second.iterationCount(context);
+	return true;
+}
+
+bool runRenderUniformFactory(const std::string& assetPath, const render::UniformFactoryExecutionContext& context, const render::UniformFactoryWriter& writer)
+{
+	const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(assetPath);
+	if (normalizedPath.empty())
+		return false;
+
+	const auto it = renderUniformFactoryRegistry().find(normalizedPath);
+	if (it == renderUniformFactoryRegistry().end() || it->second.build == nullptr)
+		return false;
+
+	return it->second.build(context, writer);
 }
 }

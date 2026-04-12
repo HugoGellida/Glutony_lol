@@ -125,8 +125,11 @@ std::string buildSceneEditorMenuMarkup(bool isFileMenuOpen, bool isEditMenuOpen,
     buildItem.setDomIdOverride("scene_menu_build");
     UI::MenuItem buildRunItem(0, 0, "Build & Run");
     buildRunItem.setDomIdOverride("scene_menu_build_run");
+    UI::MenuItem rebuildRenderPipelineItem(0, 0, "Rebuild Render Pipeline");
+    rebuildRenderPipelineItem.setDomIdOverride("scene_menu_rebuild_render_pipeline");
     editMenu.addChild(&buildItem);
     editMenu.addChild(&buildRunItem);
+    editMenu.addChild(&rebuildRenderPipelineItem);
 
     UI::MenuEntry windowMenu(0, 0, "Window");
     windowMenu.setDomIdOverride("builder_menu_window");
@@ -981,6 +984,8 @@ SceneEditorController::AssetBrowserFileKind classifyAssetBrowserFileKind(const s
         return SceneEditorController::AssetBrowserFileKind::RenderPhase;
     if (extension == ".render_pass")
         return SceneEditorController::AssetBrowserFileKind::RenderPass;
+    if (extension == ".uniform_factory")
+        return SceneEditorController::AssetBrowserFileKind::UniformFactory;
     if (extension == ".data")
         return SceneEditorController::AssetBrowserFileKind::Data;
     if (extension == ".obj" || extension == ".off")
@@ -1008,6 +1013,8 @@ DragPayloadKind dragPayloadKindForAssetFileKind(SceneEditorController::AssetBrow
         return DragPayloadKind::RenderPhaseAsset;
     case SceneEditorController::AssetBrowserFileKind::RenderPass:
         return DragPayloadKind::RenderPassAsset;
+    case SceneEditorController::AssetBrowserFileKind::UniformFactory:
+        return DragPayloadKind::UniformFactoryAsset;
     case SceneEditorController::AssetBrowserFileKind::Data:
         return DragPayloadKind::DataAsset;
     case SceneEditorController::AssetBrowserFileKind::Mesh:
@@ -1035,6 +1042,8 @@ const char* assetBrowserFileKindLabel(SceneEditorController::AssetBrowserFileKin
         return "RenderPhase";
     case SceneEditorController::AssetBrowserFileKind::RenderPass:
         return "RenderPass";
+    case SceneEditorController::AssetBrowserFileKind::UniformFactory:
+        return "UniformFactory";
     case SceneEditorController::AssetBrowserFileKind::Data:
         return "Data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:
@@ -1064,6 +1073,8 @@ const char* assetBrowserFileKindClass(SceneEditorController::AssetBrowserFileKin
         return "render_phase";
     case SceneEditorController::AssetBrowserFileKind::RenderPass:
         return "render_pass";
+    case SceneEditorController::AssetBrowserFileKind::UniformFactory:
+        return "uniform_factory";
     case SceneEditorController::AssetBrowserFileKind::Data:
         return "data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:
@@ -1378,6 +1389,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String buildRunMenuItemElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_menu_build_run"; });
+    const Rml::String rebuildRenderPipelineMenuItemElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_menu_rebuild_render_pipeline"; });
     const Rml::String windowMenuButtonElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "builder_menu_window_button"; });
@@ -1686,6 +1700,15 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         {
             closeHeaderMenus();
             startBuild(PendingLaunchAction::RunDetached);
+            refreshPresentation();
+            event.StopPropagation();
+            return;
+        }
+
+        if (!rebuildRenderPipelineMenuItemElementId.empty())
+        {
+            closeHeaderMenus();
+            rebuildSceneRenderPipelines();
             refreshPresentation();
             event.StopPropagation();
             return;
@@ -2628,9 +2651,49 @@ bool SceneEditorController::prepareRuntimeSceneFile(std::string& outputPath)
     return true;
 }
 
+bool SceneEditorController::rebuildSceneRenderPipelines()
+{
+    if (m_scene == nullptr)
+        return false;
+
+    if (!prepareGeneratedGameplaySource())
+    {
+        requestHierarchyRefresh();
+        return false;
+    }
+
+    std::vector<std::string> issues;
+    if (!m_scene->buildRenderPipelines(&issues))
+    {
+        if (issues.empty())
+            issues.push_back("Render pipeline rebuild failed.");
+        for (const std::string& issue : issues)
+            appendConsoleSystemMessage("[render] " + issue, "console_line_error");
+        requestHierarchyRefresh();
+        return false;
+    }
+
+    appendConsoleSystemMessage("[render] Render pipeline assets rebuilt.", "console_line_success");
+    requestHierarchyRefresh();
+    return true;
+}
+
 bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
 {
     m_bottomPanelTab = BottomPanelTab::Console;
+
+    if (launchAction != PendingLaunchAction::None && m_scene != nullptr)
+    {
+        std::vector<std::string> issues;
+        if (!m_scene->validateRenderPipelines(&issues))
+        {
+            appendConsoleSystemMessage("[render] Preview launch blocked: rebuild render pipelines first.", "console_line_error");
+            for (const std::string& issue : issues)
+                appendConsoleSystemMessage("[render] " + issue, "console_line_error");
+            requestHierarchyRefresh();
+            return false;
+        }
+    }
 
     if (launchAction == PendingLaunchAction::PlayPreview && m_scene != nullptr && !m_runtimeSceneSnapshot.has_value())
         m_runtimeSceneSnapshot = scene_serialization::captureScene(*m_scene);
@@ -2643,7 +2706,7 @@ bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
         return false;
     }
 
-    if (!prepareSceneScriptBuildSource())
+    if (!prepareGeneratedGameplaySource())
     {
         requestHierarchyRefresh();
         return false;
@@ -2692,6 +2755,18 @@ bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
 
 bool SceneEditorController::startPreviewPlayer(const std::string& scenePath)
 {
+    if (m_scene != nullptr)
+    {
+        std::vector<std::string> issues;
+        if (!m_scene->validateRenderPipelines(&issues))
+        {
+            appendConsoleSystemMessage("[render] Preview launch blocked: render pipelines are stale or invalid.", "console_line_error");
+            for (const std::string& issue : issues)
+                appendConsoleSystemMessage("[render] " + issue, "console_line_error");
+            return false;
+        }
+    }
+
 #ifdef _WIN32
     (void)scenePath;
     appendConsoleSystemMessage("[editor] External preview player is not implemented on Windows yet.", "console_line_warning");
@@ -3308,7 +3383,7 @@ bool SceneEditorController::saveSceneAs()
     return true;
 }
 
-bool SceneEditorController::prepareSceneScriptBuildSource()
+bool SceneEditorController::prepareGeneratedGameplaySource()
 {
     const std::filesystem::path buildRoot = std::filesystem::current_path();
     const std::filesystem::path generatedSourcePath = buildRoot / "GeneratedSceneScripts.cpp";
@@ -3331,7 +3406,8 @@ bool SceneEditorController::prepareSceneScriptBuildSource()
     output << "#include \"GameplayEntry.hpp\"\n\n";
 
     std::vector<std::string> includePaths;
-    std::vector<std::string> registrationLines;
+    std::vector<std::string> sceneScriptRegistrationLines;
+    std::vector<std::string> renderFactoryRegistrationLines;
     std::unordered_set<std::string> includedPaths;
 
     const auto resolveGeneratedIncludePath = [&](const std::string& assetPath, const std::string& sourcePath, const std::string& assetLabel) -> std::optional<std::string> {
@@ -3398,7 +3474,7 @@ bool SceneEditorController::prepareSceneScriptBuildSource()
             return false;
 
         registerIncludePath(*includePath);
-        registrationLines.push_back(
+        sceneScriptRegistrationLines.push_back(
             "    registerSceneScript(\"" + escapeCppStringLiteral(sceneScriptAssetPath) + "\", &" + definition->entryName + ");");
     }
 
@@ -3441,8 +3517,53 @@ bool SceneEditorController::prepareSceneScriptBuildSource()
                 return false;
 
             registerIncludePath(*includePath);
-            registrationLines.push_back(
+            sceneScriptRegistrationLines.push_back(
                 "    registerComponentScript(\"" + escapeCppStringLiteral(componentScriptAssetPath) + "\", &" + definition->startEntryName + ", &" + definition->updateEntryName + ");");
+        }
+    }
+
+    if (m_scene != nullptr)
+    {
+        const std::vector<std::string> renderPassAssetPaths = m_scene->collectReferencedRenderPassAssets();
+        std::vector<std::string> uniformFactoryAssetPaths;
+        std::unordered_set<std::string> seenUniformFactoryAssets;
+
+        for (const std::string& renderPassAssetPath : renderPassAssetPaths)
+        {
+            asset::RenderPassAssetDefinition* renderPassDefinition = nullptr;
+            if (!asset::AssetManager::instance().reloadRenderPassDefinition(renderPassAssetPath, renderPassDefinition) || renderPassDefinition == nullptr)
+            {
+                appendConsoleSystemMessage("[build] Failed to load render pass asset: " + renderPassAssetPath, "console_line_error");
+                return false;
+            }
+
+            for (const asset::RenderPassStepDefinition& pass : renderPassDefinition->passes)
+            {
+                const std::string uniformFactoryAssetPath = asset::AssetManager::normalizeRelativePath(pass.uniformFactoryPath);
+                if (uniformFactoryAssetPath.empty() || !seenUniformFactoryAssets.insert(uniformFactoryAssetPath).second)
+                    continue;
+
+                uniformFactoryAssetPaths.push_back(uniformFactoryAssetPath);
+            }
+        }
+
+        std::sort(uniformFactoryAssetPaths.begin(), uniformFactoryAssetPaths.end());
+        for (const std::string& uniformFactoryAssetPath : uniformFactoryAssetPaths)
+        {
+            asset::UniformFactoryAssetDefinition* definition = asset::AssetManager::instance().loadUniformFactoryDefinition(uniformFactoryAssetPath);
+            if (definition == nullptr)
+            {
+                appendConsoleSystemMessage("[build] Failed to load uniform factory asset: " + uniformFactoryAssetPath, "console_line_error");
+                return false;
+            }
+
+            const std::optional<std::string> includePath = resolveGeneratedIncludePath(uniformFactoryAssetPath, definition->sourcePath, "Uniform factory");
+            if (!includePath.has_value())
+                return false;
+
+            registerIncludePath(*includePath);
+            renderFactoryRegistrationLines.push_back(
+                "    registerRenderUniformFactory(\"" + escapeCppStringLiteral(uniformFactoryAssetPath) + "\", &" + definition->entryName + ", &" + definition->iterationEntryName + ");");
         }
     }
 
@@ -3459,7 +3580,17 @@ bool SceneEditorController::prepareSceneScriptBuildSource()
     output << "        return;\n";
     output << "\n";
     output << "    registered = true;\n";
-    for (const std::string& registrationLine : registrationLines)
+    for (const std::string& registrationLine : sceneScriptRegistrationLines)
+        output << registrationLine << '\n';
+    output << "}\n";
+    output << "\n";
+    output << "void registerGeneratedRenderUniformFactories()\n{\n";
+    output << "    static bool registered = false;\n";
+    output << "    if (registered)\n";
+    output << "        return;\n";
+    output << "\n";
+    output << "    registered = true;\n";
+    for (const std::string& registrationLine : renderFactoryRegistrationLines)
         output << registrationLine << '\n';
     output << "}\n";
     output << "}\n";

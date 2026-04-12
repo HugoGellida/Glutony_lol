@@ -49,6 +49,7 @@ namespace dataStruct
         std::vector<std::pair<std::string, int>> m_dynamicIntUniforms;
         std::vector<std::pair<std::string, float>> m_dynamicFloatUniforms;
         std::vector<std::pair<std::string, glm::vec3>> m_dynamicVec3Uniforms;
+        std::vector<std::pair<std::string, glm::mat4>> m_dynamicMat4Uniforms;
         asset::MaterialAssetDefinition m_runtimeDefinition;
         bool m_runtimeDefinitionDirty = false;
         bool m_runtimePreviewSyncEnabled = true;
@@ -244,6 +245,11 @@ namespace dataStruct
             }
         }
 
+        void addMat4Uniform(const std::string& uniformLocation, const glm::mat4& value)
+        {
+            upsertNamedValue(m_dynamicMat4Uniforms, uniformLocation, value);
+        }
+
         void sync() override
         {
             m_shader -> setActive();
@@ -273,6 +279,12 @@ namespace dataStruct
                 const GLint location = glGetUniformLocation(programId, uniform.first.c_str());
                 if (location != -1)
                     glUniform3f(location, uniform.second.x, uniform.second.y, uniform.second.z);
+            }
+            for (const auto& uniform : m_dynamicMat4Uniforms)
+            {
+                const GLint location = glGetUniformLocation(programId, uniform.first.c_str());
+                if (location != -1)
+                    glUniformMatrix4fv(location, 1, GL_FALSE, &(uniform.second[0][0]));
             }
         }
         

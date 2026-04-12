@@ -1,11 +1,17 @@
-SCENE_SNAPSHOT 1
+SCENE_SNAPSHOT 3
 NEXT_GAMEOBJECT_ID 9
 PHYSICS 0
 SELECTED_ID -1
-CAMERA_POSITION 4.28723 6.38458 3.2939
-CAMERA_ORIENTATION -34.1 48.9 360
+SCENE_SCRIPT_ASSET ""
+DATA_ASSET ""
+DIRECTIONAL_LIGHT_ENABLED 1
+DIRECTIONAL_LIGHT_DIRECTION 0.3 -0.2 0.1
+DIRECTIONAL_LIGHT_COLOR 1 1 1
+DIRECTIONAL_LIGHT_INTENSITY 1
+CAMERA_POSITION -2.60568 6.38458 2.14986
+CAMERA_ORIENTATION -43.6 325 360
 CAMERA_FOV 60
-CAMERA_ASPECT 1.96099
+CAMERA_ASPECT 1.10559
 CAMERA_NEAR 0.3
 CAMERA_FAR 1000
 MESH_ASSETS 3
@@ -18,6 +24,7 @@ ASSET "built-in/shaders/unlit"
 MATERIAL_ASSETS 2
 ASSET "built-in/materials/lit_default.mat"
 ASSET "built-in/materials/selection_highlight.mat"
+RENDER_TARGETS 0
 GAME_OBJECTS 8
 BEGIN_GAME_OBJECT
 ID 1
@@ -28,7 +35,7 @@ ROTATION 0 0 0
 SCALE 1 1 1
 MESH_ASSET "built-in/mesh/cube_n.obj"
 MATERIAL_ASSET "built-in/materials/lit_default.mat"
-COMPONENTS 2
+COMPONENTS 3
 BEGIN_COMPONENT
 TYPE "physics.rigidbody"
 VERSION 1
@@ -55,6 +62,13 @@ FIELD "local_center" VEC3 0 0 0
 FIELD "half_extents" VEC3 0.5 0.5 0.5
 FIELD "local_scale" VEC3 1 1 1
 END_COMPONENT
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "built-in/mesh/cube_n.obj"
+FIELD "material_asset" STRING "built-in/materials/lit_default.mat"
+END_COMPONENT
 END_GAME_OBJECT
 BEGIN_GAME_OBJECT
 ID 2
@@ -65,7 +79,7 @@ ROTATION 0 0 0
 SCALE 0.1 0.1 0.1
 MESH_ASSET "built-in/mesh/unit_sphere_n.off"
 MATERIAL_ASSET "built-in/materials/lit_default.mat"
-COMPONENTS 2
+COMPONENTS 3
 BEGIN_COMPONENT
 TYPE "physics.rigidbody"
 VERSION 1
@@ -90,6 +104,13 @@ VERSION 1
 FIELDS 2
 FIELD "local_center" VEC3 0 0 0
 FIELD "radius" FLOAT 1
+END_COMPONENT
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "built-in/mesh/unit_sphere_n.off"
+FIELD "material_asset" STRING "built-in/materials/lit_default.mat"
 END_COMPONENT
 END_GAME_OBJECT
 BEGIN_GAME_OBJECT
@@ -101,7 +122,7 @@ ROTATION 0 0 0
 SCALE 0.1 0.1 0.1
 MESH_ASSET "built-in/mesh/unit_sphere_n.off"
 MATERIAL_ASSET "built-in/materials/lit_default.mat"
-COMPONENTS 2
+COMPONENTS 3
 BEGIN_COMPONENT
 TYPE "physics.rigidbody"
 VERSION 1
@@ -127,6 +148,13 @@ FIELDS 2
 FIELD "local_center" VEC3 0 0 0
 FIELD "radius" FLOAT 1
 END_COMPONENT
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "built-in/mesh/unit_sphere_n.off"
+FIELD "material_asset" STRING "built-in/materials/lit_default.mat"
+END_COMPONENT
 END_GAME_OBJECT
 BEGIN_GAME_OBJECT
 ID 4
@@ -137,7 +165,7 @@ ROTATION 0 0 0
 SCALE 1 1 1
 MESH_ASSET "procedural/plane"
 MATERIAL_ASSET "built-in/materials/lit_default.mat"
-COMPONENTS 2
+COMPONENTS 3
 BEGIN_COMPONENT
 TYPE "physics.rigidbody"
 VERSION 1
@@ -163,6 +191,13 @@ FIELDS 2
 FIELD "planeOrigin" VEC3 0 0 0
 FIELD "planeNormal" VEC3 0 1 0
 END_COMPONENT
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "procedural/plane"
+FIELD "material_asset" STRING "built-in/materials/lit_default.mat"
+END_COMPONENT
 END_GAME_OBJECT
 BEGIN_GAME_OBJECT
 ID 5
@@ -173,7 +208,7 @@ ROTATION -90 0 0
 SCALE 1 1 1
 MESH_ASSET "procedural/plane"
 MATERIAL_ASSET "built-in/materials/lit_default.mat"
-COMPONENTS 2
+COMPONENTS 3
 BEGIN_COMPONENT
 TYPE "physics.rigidbody"
 VERSION 1
@@ -199,6 +234,13 @@ FIELDS 2
 FIELD "planeOrigin" VEC3 0 0 0
 FIELD "planeNormal" VEC3 0 1 0
 END_COMPONENT
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "procedural/plane"
+FIELD "material_asset" STRING "built-in/materials/lit_default.mat"
+END_COMPONENT
 END_GAME_OBJECT
 BEGIN_GAME_OBJECT
 ID 6
@@ -209,7 +251,7 @@ ROTATION 90 0 0
 SCALE 1 1 1
 MESH_ASSET "procedural/plane"
 MATERIAL_ASSET "built-in/materials/lit_default.mat"
-COMPONENTS 2
+COMPONENTS 3
 BEGIN_COMPONENT
 TYPE "physics.rigidbody"
 VERSION 1
@@ -235,6 +277,13 @@ FIELDS 2
 FIELD "planeOrigin" VEC3 0 0 0
 FIELD "planeNormal" VEC3 0 1 0
 END_COMPONENT
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "procedural/plane"
+FIELD "material_asset" STRING "built-in/materials/lit_default.mat"
+END_COMPONENT
 END_GAME_OBJECT
 BEGIN_GAME_OBJECT
 ID 7
@@ -245,7 +294,7 @@ ROTATION 0 0 90
 SCALE 1 1 1
 MESH_ASSET "procedural/plane"
 MATERIAL_ASSET "built-in/materials/lit_default.mat"
-COMPONENTS 2
+COMPONENTS 3
 BEGIN_COMPONENT
 TYPE "physics.rigidbody"
 VERSION 1
@@ -271,6 +320,13 @@ FIELDS 2
 FIELD "planeOrigin" VEC3 0 0 0
 FIELD "planeNormal" VEC3 0 1 0
 END_COMPONENT
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "procedural/plane"
+FIELD "material_asset" STRING "built-in/materials/lit_default.mat"
+END_COMPONENT
 END_GAME_OBJECT
 BEGIN_GAME_OBJECT
 ID 8
@@ -281,7 +337,7 @@ ROTATION 0 0 -90
 SCALE 1 1 1
 MESH_ASSET "procedural/plane"
 MATERIAL_ASSET "built-in/materials/lit_default.mat"
-COMPONENTS 2
+COMPONENTS 3
 BEGIN_COMPONENT
 TYPE "physics.rigidbody"
 VERSION 1
@@ -306,6 +362,13 @@ VERSION 1
 FIELDS 2
 FIELD "planeOrigin" VEC3 0 0 0
 FIELD "planeNormal" VEC3 0 1 0
+END_COMPONENT
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "procedural/plane"
+FIELD "material_asset" STRING "built-in/materials/lit_default.mat"
 END_COMPONENT
 END_GAME_OBJECT
 END_SCENE

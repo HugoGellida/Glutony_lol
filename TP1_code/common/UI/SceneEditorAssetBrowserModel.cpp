@@ -56,6 +56,8 @@ FileKind classifyAssetBrowserFileKind(const std::filesystem::path& path)
         return FileKind::RenderPhase;
     if (extension == ".render_pass")
         return FileKind::RenderPass;
+    if (extension == ".uniform_factory")
+        return FileKind::UniformFactory;
     if (extension == ".data")
         return FileKind::Data;
     if (extension == ".obj" || extension == ".off")
@@ -83,6 +85,8 @@ DragPayloadKind dragPayloadKindForAssetFileKind(FileKind fileKind)
         return DragPayloadKind::RenderPhaseAsset;
     case FileKind::RenderPass:
         return DragPayloadKind::RenderPassAsset;
+    case FileKind::UniformFactory:
+        return DragPayloadKind::UniformFactoryAsset;
     case FileKind::Data:
         return DragPayloadKind::DataAsset;
     case FileKind::Mesh:

@@ -3,5 +3,5 @@
   "includes": [],
   "before": [],
   "after": ["built-in/render_phase/geometry.render_phase"],
-  "additionalIterator": "light"
+  "additionalIterator": "none"
 }

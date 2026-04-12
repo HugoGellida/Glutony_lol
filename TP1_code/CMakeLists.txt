@@ -145,7 +145,7 @@ set(GLUTONY_GAMEPLAY_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/gameplay/sources.cmak
 set(GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/GeneratedSceneScripts.cpp")
 
 if(NOT EXISTS "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}")
-    file(WRITE "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}" "#include \"GameplayEntry.hpp\"\n\nnamespace gameplay\n{\nvoid registerGeneratedSceneScripts()\n{\n}\n}\n")
+    file(WRITE "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}" "#include \"GameplayEntry.hpp\"\n\nnamespace gameplay\n{\nvoid registerGeneratedSceneScripts()\n{\n}\n\nvoid registerGeneratedRenderUniformFactories()\n{\n}\n}\n")
 endif()
 
 set(GLUTONY_APP_COMMON_SOURCES
@@ -308,6 +308,9 @@ if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/TP1/fragment_shader.glsl"
                 "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/TP1/.pipeline_cache"
+            "${CMAKE_CURRENT_BINARY_DIR}/.pipeline_cache"
         COMMAND ${CMAKE_COMMAND} -E make_directory
                 "${CMAKE_CURRENT_BINARY_DIR}/Assets"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
@@ -342,7 +345,7 @@ if(ENABLE_LSAN)
     endif()
 endif()
 
-target_link_libraries(TP1 PRIVATE app_common editor_support)
+target_link_libraries(TP1 PRIVATE app_common editor_support gameplay_sources)
 target_link_libraries(runtime_game PRIVATE app_common engine_core gameplay_sources)
 
 if(WIN32)
@@ -357,6 +360,7 @@ endif()
 
 if(TARGET glutony_sync_editor_runtime_assets)
     add_dependencies(TP1 glutony_sync_editor_runtime_assets)
+    add_dependencies(runtime_game glutony_sync_editor_runtime_assets)
 endif()
 
 glutony_configure_runtime_assets(TP1 "${CMAKE_CURRENT_SOURCE_DIR}/TP1/")

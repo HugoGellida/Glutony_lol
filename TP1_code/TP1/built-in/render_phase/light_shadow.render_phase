@@ -1,0 +1,7 @@
+{
+  "name": "light_shadow",
+  "includes": [],
+  "before": ["built-in/render_phase/lighting.render_phase"],
+  "after": ["built-in/render_phase/geometry.render_phase"],
+  "additionalIterator": "none"
+}

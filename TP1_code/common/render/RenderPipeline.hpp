@@ -10,8 +10,11 @@
 #include "RenderTargetResource.hpp"
 #include "SceneRenderTargetSettings.hpp"
 
+#include <gameplay/GameplayEntry.hpp>
+
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <limits>
@@ -40,7 +43,7 @@ private:
         std::string phaseAssetPath;
         std::string signature;
         asset::RenderPassStepDefinition pass;
-        asset::RenderPhaseIterator iterator = asset::RenderPhaseIterator::None;
+        asset::RenderPassIterator iterator = asset::RenderPassIterator::None;
         std::string targetLogicalKey;
         std::string targetInstanceKey;
         std::vector<DrawItem> items;
@@ -52,6 +55,32 @@ private:
     std::unordered_map<std::string, std::filesystem::file_time_type> m_trackedAssetWriteTimes;
     std::size_t m_structureHash = 0;
     bool m_compiled = false;
+    bool m_failed = false;
+
+    static void appendIssue(std::vector<std::string>* issues, const std::string& issue)
+    {
+        if (issues != nullptr)
+            issues->push_back(issue);
+    }
+
+    static void appendUniquePath(std::vector<std::string>& values, const std::string& rawPath)
+    {
+        const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(rawPath);
+        if (normalizedPath.empty())
+            return;
+
+        if (std::find(values.begin(), values.end(), normalizedPath) == values.end())
+            values.push_back(normalizedPath);
+    }
+
+    static std::string compiledRenderPassMarkerPath(const std::string& rawRenderPassPath)
+    {
+        const std::string normalizedRenderPassPath = asset::AssetManager::normalizeRelativePath(rawRenderPassPath);
+        if (normalizedRenderPassPath.empty())
+            return "";
+
+        return ".pipeline_cache/" + normalizedRenderPassPath + ".compiled";
+    }
 
     static std::filesystem::file_time_type safeLastWriteTime(const std::string& assetPath)
     {
@@ -132,6 +161,297 @@ private:
         return asset::AssetManager::normalizeRelativePath(rawPath);
     }
 
+    static void appendShaderDependencyPaths(std::vector<std::string>& dependencyPaths, const std::string& rawShaderPath)
+    {
+        const std::string shaderPath = asset::AssetManager::normalizeRelativePath(rawShaderPath);
+        if (shaderPath.empty())
+            return;
+
+        appendUniquePath(dependencyPaths, shaderPath + "/vertex.glsl");
+        appendUniquePath(dependencyPaths, shaderPath + "/fragment.glsl");
+    }
+
+    static std::string resolveUniformFactorySourceDependencyPath(const std::string& rawUniformFactoryPath, const std::string& rawSourcePath)
+    {
+        const std::string uniformFactoryPath = asset::AssetManager::normalizeRelativePath(rawUniformFactoryPath);
+        const std::string sourcePath = asset::AssetManager::normalizeRelativePath(rawSourcePath);
+        if (uniformFactoryPath.empty() || sourcePath.empty())
+            return "";
+
+        const std::filesystem::path assetDirectory = std::filesystem::path(uniformFactoryPath).parent_path();
+        const std::string assetRelativeSourcePath = asset::AssetManager::normalizeRelativePath((assetDirectory / sourcePath).generic_string());
+        const std::string rootRelativeSourcePath = sourcePath;
+
+        std::error_code errorCode;
+        if (!rootRelativeSourcePath.empty() && std::filesystem::exists(asset::AssetManager::runtimePath(rootRelativeSourcePath), errorCode) && !errorCode)
+            return rootRelativeSourcePath;
+
+        errorCode.clear();
+        if (!assetRelativeSourcePath.empty() && std::filesystem::exists(asset::AssetManager::runtimePath(assetRelativeSourcePath), errorCode) && !errorCode)
+            return assetRelativeSourcePath;
+
+        return !assetRelativeSourcePath.empty() ? assetRelativeSourcePath : rootRelativeSourcePath;
+    }
+
+    static bool collectRenderPassDependencyPaths(
+        const std::string& rawRenderPassPath,
+        asset::RenderPassAssetDefinition*& renderPassOut,
+        std::vector<std::string>& dependencyPaths,
+        std::vector<std::string>* issues)
+    {
+        dependencyPaths.clear();
+        renderPassOut = nullptr;
+
+        const std::string renderPassPath = asset::AssetManager::normalizeRelativePath(rawRenderPassPath);
+        if (renderPassPath.empty())
+        {
+            appendIssue(issues, "Render pass path is empty.");
+            return false;
+        }
+
+        appendUniquePath(dependencyPaths, renderPassPath);
+
+        if (!asset::AssetManager::instance().reloadRenderPassDefinition(renderPassPath, renderPassOut) || renderPassOut == nullptr)
+        {
+            appendIssue(issues, "Failed to load render pass asset: " + renderPassPath);
+            return false;
+        }
+
+        std::unordered_set<std::string> visitedPhasePaths;
+        std::function<bool(const std::string&, size_t)> registerPhaseDependency = [&](const std::string& rawPhasePath, size_t passIndex) -> bool {
+            const std::string phasePath = renderPhaseKey(rawPhasePath);
+            if (phasePath.empty())
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " has an empty phase.");
+                return false;
+            }
+
+            if (!visitedPhasePaths.insert(phasePath).second)
+                return true;
+
+            asset::RenderPhaseAssetDefinition* phase = nullptr;
+            if (!asset::AssetManager::instance().reloadRenderPhaseDefinition(phasePath, phase) || phase == nullptr)
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " references an invalid render phase: " + phasePath);
+                return false;
+            }
+
+            appendUniquePath(dependencyPaths, phasePath);
+            bool valid = true;
+            for (const std::string& includePath : phase->includes)
+                valid = registerPhaseDependency(includePath, passIndex) && valid;
+            for (const std::string& beforePath : phase->before)
+                valid = registerPhaseDependency(beforePath, passIndex) && valid;
+            for (const std::string& afterPath : phase->after)
+                valid = registerPhaseDependency(afterPath, passIndex) && valid;
+            return valid;
+        };
+
+        bool valid = true;
+        for (size_t passIndex = 0; passIndex < renderPassOut->passes.size(); ++passIndex)
+        {
+            const asset::RenderPassStepDefinition& pass = renderPassOut->passes[passIndex];
+            valid = registerPhaseDependency(pass.phaseName, passIndex) && valid;
+
+            const std::string shaderPath = asset::AssetManager::normalizeRelativePath(pass.shaderPath);
+            if (shaderPath.empty())
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " has an empty shader path.");
+                valid = false;
+            }
+            else
+            {
+                appendShaderDependencyPaths(dependencyPaths, shaderPath);
+            }
+
+            if (!pass.uniformFactoryPath.empty())
+            {
+                const std::string uniformFactoryPath = asset::AssetManager::normalizeRelativePath(pass.uniformFactoryPath);
+                if (uniformFactoryPath.empty())
+                {
+                    appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " has an invalid uniform factory path.");
+                    valid = false;
+                }
+                else
+                {
+                    asset::UniformFactoryAssetDefinition* factory = nullptr;
+                    if (!asset::AssetManager::instance().reloadUniformFactoryDefinition(uniformFactoryPath, factory) || factory == nullptr)
+                    {
+                        appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " references an invalid uniform factory: " + uniformFactoryPath);
+                        valid = false;
+                    }
+                    appendUniquePath(dependencyPaths, uniformFactoryPath);
+
+                    if (factory == nullptr || factory->sourcePath.empty())
+                    {
+                        appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " references a uniform factory without a source file: " + uniformFactoryPath);
+                        valid = false;
+                    }
+                    else
+                    {
+                        appendUniquePath(dependencyPaths, resolveUniformFactorySourceDependencyPath(uniformFactoryPath, factory->sourcePath));
+                    }
+                }
+            }
+        }
+
+        return valid;
+    }
+
+    static bool compiledRenderPassMarkerIsCurrent(const std::string& renderPassPath, const std::vector<std::string>& dependencyPaths)
+    {
+        const std::string markerPath = compiledRenderPassMarkerPath(renderPassPath);
+        if (markerPath.empty())
+            return false;
+
+        const std::filesystem::file_time_type markerWriteTime = safeLastWriteTime(markerPath);
+        if (markerWriteTime == std::filesystem::file_time_type::min())
+            return false;
+
+        for (const std::string& dependencyPath : dependencyPaths)
+        {
+            const std::filesystem::file_time_type dependencyWriteTime = safeLastWriteTime(dependencyPath);
+            if (dependencyWriteTime == std::filesystem::file_time_type::min() || dependencyWriteTime > markerWriteTime)
+                return false;
+        }
+
+        return true;
+    }
+
+    static bool shaderUniformMatchesPassKind(const Shader::UniformDescriptor& descriptor, asset::RenderPassUniformKind kind)
+    {
+        if (descriptor.size != 1)
+            return false;
+
+        switch (kind)
+        {
+        case asset::RenderPassUniformKind::Bool:
+            return descriptor.glType == GL_BOOL;
+        case asset::RenderPassUniformKind::Int:
+            return descriptor.glType == GL_INT;
+        case asset::RenderPassUniformKind::Float:
+            return descriptor.glType == GL_FLOAT;
+        case asset::RenderPassUniformKind::Vec3:
+            return descriptor.glType == GL_FLOAT_VEC3;
+        case asset::RenderPassUniformKind::Mat4:
+            return descriptor.glType == GL_FLOAT_MAT4;
+        case asset::RenderPassUniformKind::Texture:
+        case asset::RenderPassUniformKind::RenderTarget:
+            return descriptor.glType == GL_SAMPLER_2D;
+        }
+
+        return false;
+    }
+
+    static bool shaderUniformMatchesFactoryKind(const Shader::UniformDescriptor& descriptor, asset::UniformFactoryOutputKind kind)
+    {
+        if (descriptor.size != 1)
+            return false;
+
+        switch (kind)
+        {
+        case asset::UniformFactoryOutputKind::Bool:
+            return descriptor.glType == GL_BOOL;
+        case asset::UniformFactoryOutputKind::Int:
+            return descriptor.glType == GL_INT;
+        case asset::UniformFactoryOutputKind::Float:
+            return descriptor.glType == GL_FLOAT;
+        case asset::UniformFactoryOutputKind::Vec3:
+            return descriptor.glType == GL_FLOAT_VEC3;
+        case asset::UniformFactoryOutputKind::Mat4:
+            return descriptor.glType == GL_FLOAT_MAT4;
+        }
+
+        return false;
+    }
+
+    static bool validatePassUniform(
+        Shader& shader,
+        const asset::RenderPassUniformDefinition& uniform,
+        const std::string& renderPassPath,
+        size_t passIndex,
+        std::vector<std::string>* issues)
+    {
+        Shader::UniformDescriptor descriptor;
+        if (!shader.tryGetUniformDescriptor(uniform.name, descriptor, true))
+        {
+            appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " references a missing shader uniform: " + uniform.name);
+            return false;
+        }
+
+        if (!shaderUniformMatchesPassKind(descriptor, uniform.kind))
+        {
+            appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " has a type mismatch for uniform: " + uniform.name);
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool validateUniformFactory(
+        Shader& shader,
+        const asset::UniformFactoryAssetDefinition& factory,
+        asset::RenderPassIterator iterator,
+        const std::string& renderPassPath,
+        size_t passIndex,
+        std::vector<std::string>* issues)
+    {
+        bool valid = true;
+        if (factory.requiresLight && iterator != asset::RenderPassIterator::Light)
+        {
+            appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " uses a light-dependent factory without a light iterator.");
+            valid = false;
+        }
+
+        for (const asset::UniformFactoryOutputDefinition& output : factory.outputs)
+        {
+            if (output.name.empty())
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " contains a factory output with an empty name.");
+                valid = false;
+                continue;
+            }
+
+            Shader::UniformDescriptor descriptor;
+            if (!shader.tryGetUniformDescriptor(output.name, descriptor, true))
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " factory output does not match any active shader uniform: " + output.name);
+                valid = false;
+                continue;
+            }
+
+            if (!shaderUniformMatchesFactoryKind(descriptor, output.kind))
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " factory output has a type mismatch for shader uniform: " + output.name);
+                valid = false;
+            }
+        }
+
+        return valid;
+    }
+
+    static bool writeCompiledRenderPassMarker(const std::string& rawRenderPassPath, const std::vector<std::string>& dependencyPaths)
+    {
+        const std::string markerPath = compiledRenderPassMarkerPath(rawRenderPassPath);
+        if (markerPath.empty())
+            return false;
+
+        const std::filesystem::path diskPath(asset::AssetManager::runtimePath(markerPath));
+        std::error_code errorCode;
+        std::filesystem::create_directories(diskPath.parent_path(), errorCode);
+        if (errorCode)
+            return false;
+
+        std::ofstream output(diskPath, std::ios::trunc);
+        if (!output.is_open())
+            return false;
+
+        output << asset::AssetManager::normalizeRelativePath(rawRenderPassPath) << '\n';
+        for (const std::string& dependencyPath : dependencyPaths)
+            output << dependencyPath << '\n';
+        return static_cast<bool>(output);
+    }
+
     static std::string renderTargetLogicalKey(const asset::RenderTargetAssetReference& target)
     {
         return normalizeRenderTargetName(target.name) + '|' + (target.shared ? '1' : '0');
@@ -149,7 +469,7 @@ private:
         return nullptr;
     }
 
-    static std::string renderPassBatchSignature(const asset::RenderPassStepDefinition& pass, asset::RenderPhaseIterator iterator)
+    static std::string renderPassBatchSignature(const asset::RenderPassStepDefinition& pass)
     {
         std::ostringstream stream;
         stream << pass.phaseName << '|'
@@ -160,7 +480,8 @@ private:
                << static_cast<int>(pass.depthAction) << '|'
                << (pass.blend.enabled ? '1' : '0') << '|'
                << (pass.blend.separateAlpha ? '1' : '0') << '|'
-               << static_cast<int>(iterator);
+               << static_cast<int>(pass.iterator) << '|'
+               << asset::AssetManager::normalizeRelativePath(pass.uniformFactoryPath);
 
         if (pass.blend.enabled)
         {
@@ -193,6 +514,17 @@ private:
             case asset::RenderPassUniformKind::Vec3:
                 stream << uniform.vec3Value.x << ',' << uniform.vec3Value.y << ',' << uniform.vec3Value.z;
                 break;
+            case asset::RenderPassUniformKind::Mat4:
+                for (int column = 0; column < 4; ++column)
+                {
+                    for (int row = 0; row < 4; ++row)
+                    {
+                        if (column != 0 || row != 0)
+                            stream << ',';
+                        stream << uniform.mat4Value[column][row];
+                    }
+                }
+                break;
             case asset::RenderPassUniformKind::Texture:
                 stream << uniform.assetPath;
                 break;
@@ -203,6 +535,24 @@ private:
         }
 
         return stream.str();
+    }
+
+    static std::string batchIterationGroupKey(const Batch& batch)
+    {
+        if (batch.iterator == asset::RenderPassIterator::None)
+            return "";
+
+        const std::string uniformFactoryPath = asset::AssetManager::normalizeRelativePath(batch.pass.uniformFactoryPath);
+        if (uniformFactoryPath.empty())
+            return "";
+
+        asset::UniformFactoryAssetDefinition* factory = nullptr;
+        if (!asset::AssetManager::instance().reloadUniformFactoryDefinition(uniformFactoryPath, factory) || factory == nullptr)
+            return std::to_string(static_cast<int>(batch.iterator)) + '|' + uniformFactoryPath;
+
+        return std::to_string(static_cast<int>(batch.iterator)) + '|'
+            + asset::AssetManager::normalizeRelativePath(factory->sourcePath) + '|'
+            + factory->iterationEntryName;
     }
 
     static GLenum toBlendFactor(asset::RenderBlendFactor factor)
@@ -297,6 +647,9 @@ private:
         case asset::RenderPassUniformKind::Vec3:
             material.addVec3Uniform(uniform.name, uniform.vec3Value);
             break;
+        case asset::RenderPassUniformKind::Mat4:
+            material.addMat4Uniform(uniform.name, uniform.mat4Value);
+            break;
         case asset::RenderPassUniformKind::Texture:
             if (!uniform.assetPath.empty())
                 material.addTexture(uniform.name, asset::AssetManager::runtimePath(uniform.assetPath));
@@ -320,9 +673,144 @@ private:
         material.addFloatUniform("_lightIntensity", light.intensity);
     }
 
+    static render::UniformFactoryExecutionContext buildUniformFactoryExecutionContext(
+        const Camera& camera,
+        const GameObject& gameObject,
+        const component::MeshRenderer& meshRenderer,
+        const Transform& transform,
+        const dataStruct::Material& sourceMaterial,
+        const LightInput* light,
+        int currentIteration,
+        int iterationCount)
+    {
+        render::UniformFactoryExecutionContext context;
+        context.scene = gameObject.getScene();
+        context.camera = &camera;
+        context.gameObject = &gameObject;
+        context.meshRenderer = &meshRenderer;
+        context.transform = &transform;
+        context.sourceMaterial = &sourceMaterial;
+        context.light = light;
+        context.currentIteration = currentIteration;
+        context.iterationCount = iterationCount;
+        return context;
+    }
+
+    static bool queryUniformFactoryIterationCount(
+        const std::string& rawUniformFactoryPath,
+        const Camera& camera,
+        const GameObject& gameObject,
+        const component::MeshRenderer& meshRenderer,
+        const Transform& transform,
+        const dataStruct::Material& sourceMaterial,
+        const LightInput* light,
+        int& iterationCountOut)
+    {
+        const std::string uniformFactoryPath = asset::AssetManager::normalizeRelativePath(rawUniformFactoryPath);
+        if (uniformFactoryPath.empty())
+        {
+            iterationCountOut = 1;
+            return true;
+        }
+
+        gameplay::bootstrap();
+
+        asset::UniformFactoryAssetDefinition* factory = nullptr;
+        if (!asset::AssetManager::instance().reloadUniformFactoryDefinition(uniformFactoryPath, factory) || factory == nullptr)
+            return false;
+
+        const render::UniformFactoryExecutionContext context = buildUniformFactoryExecutionContext(
+            camera,
+            gameObject,
+            meshRenderer,
+            transform,
+            sourceMaterial,
+            light,
+            0,
+            0);
+        if (!gameplay::queryRenderUniformFactoryIterationCount(uniformFactoryPath, context, iterationCountOut))
+            return false;
+
+        iterationCountOut = std::max(iterationCountOut, 0);
+        return true;
+    }
+
+    static bool applyUniformFactory(
+        dataStruct::Material& material,
+        const std::string& rawUniformFactoryPath,
+        const Camera& camera,
+        const GameObject& gameObject,
+        const component::MeshRenderer& meshRenderer,
+        const Transform& transform,
+        const dataStruct::Material& sourceMaterial,
+        const LightInput* light,
+        int currentIteration,
+        int iterationCount)
+    {
+        const std::string uniformFactoryPath = asset::AssetManager::normalizeRelativePath(rawUniformFactoryPath);
+        if (uniformFactoryPath.empty())
+            return true;
+
+        gameplay::bootstrap();
+
+        asset::UniformFactoryAssetDefinition* factory = nullptr;
+        if (!asset::AssetManager::instance().reloadUniformFactoryDefinition(uniformFactoryPath, factory) || factory == nullptr)
+            return false;
+
+        const render::UniformFactoryExecutionContext context = buildUniformFactoryExecutionContext(
+            camera,
+            gameObject,
+            meshRenderer,
+            transform,
+            sourceMaterial,
+            light,
+            currentIteration,
+            iterationCount);
+
+        const render::UniformFactoryWriter writer(material);
+        return gameplay::runRenderUniformFactory(uniformFactoryPath, context, writer);
+    }
+
+    static bool queryBatchIterationCount(
+        const Camera& camera,
+        const Batch& batch,
+        int& iterationCountOut)
+    {
+        if (batch.iterator == asset::RenderPassIterator::None || batch.pass.uniformFactoryPath.empty())
+        {
+            iterationCountOut = 1;
+            return true;
+        }
+
+        if (batch.items.empty())
+        {
+            iterationCountOut = 0;
+            return true;
+        }
+
+        const DrawItem& item = batch.items.front();
+        dataStruct::Material* sourceMaterial = resolveMaterial(item);
+        if (item.renderer == nullptr || item.transform == nullptr || sourceMaterial == nullptr)
+            return false;
+
+        GameObject* owner = item.renderer->getOwner();
+        if (owner == nullptr)
+            return false;
+
+        return queryUniformFactoryIterationCount(
+            batch.pass.uniformFactoryPath,
+            camera,
+            *owner,
+            *item.renderer,
+            *item.transform,
+            *sourceMaterial,
+            nullptr,
+            iterationCountOut);
+    }
+
     static bool needsTemporaryMaterial(const Batch& batch, const dataStruct::Material& material)
     {
-        if (batch.iterator != asset::RenderPhaseIterator::None || !batch.pass.uniforms.empty())
+        if (batch.iterator != asset::RenderPassIterator::None || !batch.pass.uniforms.empty() || !batch.pass.uniformFactoryPath.empty())
             return true;
 
         Shader* shader = material.getShader();
@@ -335,7 +823,9 @@ private:
         const Batch& batch,
         const DrawItem& item,
         const std::function<GLuint(const asset::RenderTargetAssetReference&)>& resolveRenderTargetTexture,
-        const LightInput* light)
+        const LightInput* light,
+        int currentIteration,
+        int iterationCount)
     {
         dataStruct::Material* sourceMaterial = resolveMaterial(item);
         if (item.renderer == nullptr || item.transform == nullptr || sourceMaterial == nullptr)
@@ -351,6 +841,9 @@ private:
         Shader* shader = asset::AssetManager::instance().loadShader(batch.pass.shaderPath);
         if (shader == nullptr)
             return false;
+        GameObject* owner = item.renderer->getOwner();
+        if (owner == nullptr)
+            return false;
 
         dataStruct::Material material(shader);
         material.setRuntimePreviewSyncEnabled(false);
@@ -361,7 +854,22 @@ private:
             applyUniformDefinition(material, uniform);
         for (const asset::RenderPassUniformDefinition& uniform : batch.pass.uniforms)
             applyPassUniformDefinition(material, uniform, resolveRenderTargetTexture);
-        if (light != nullptr)
+
+        if (!applyUniformFactory(
+                material,
+                batch.pass.uniformFactoryPath,
+                camera,
+                *owner,
+                *item.renderer,
+                *item.transform,
+                *sourceMaterial,
+                light,
+                currentIteration,
+                iterationCount))
+        {
+            return false;
+        }
+        if (light != nullptr && batch.pass.uniformFactoryPath.empty())
             applyLightInput(material, *light);
 
         item.renderer->renderWithMaterial(camera, *item.transform, material);
@@ -394,6 +902,9 @@ private:
         std::unordered_map<std::string, asset::RenderPhaseAssetDefinition> phases;
         std::vector<std::string> phaseInsertionOrder;
         std::unordered_map<std::string, size_t> batchIndexBySignature;
+        std::unordered_map<std::string, asset::RenderPassAssetDefinition*> validatedRenderPasses;
+        std::unordered_set<std::string> failedRenderPasses;
+        bool validationFailed = false;
 
         std::function<bool(const std::string&)> registerPhase = [&](const std::string& rawPhasePath) -> bool {
             const std::string phaseAssetPath = renderPhaseKey(rawPhasePath);
@@ -443,24 +954,56 @@ private:
                 continue;
 
             asset::RenderPassAssetDefinition* renderPass = nullptr;
-            if (!asset::AssetManager::instance().reloadRenderPassDefinition(renderPassPath, renderPass) || renderPass == nullptr)
+            auto renderPassIt = validatedRenderPasses.find(renderPassPath);
+            if (renderPassIt == validatedRenderPasses.end())
             {
-                std::cerr << "[render] Failed to resolve render pass: " << renderPassPath << std::endl;
-                continue;
+                std::vector<std::string> dependencyPaths;
+                std::vector<std::string> issues;
+                if (!validateCompiledRenderPass(renderPassPath, &dependencyPaths, &issues) ||
+                    !asset::AssetManager::instance().reloadRenderPassDefinition(renderPassPath, renderPass) || renderPass == nullptr)
+                {
+                    if (failedRenderPasses.insert(renderPassPath).second)
+                    {
+                        if (issues.empty())
+                            issues.push_back("Failed to resolve a valid built render pass: " + renderPassPath);
+                        for (const std::string& issue : issues)
+                            std::cerr << "[render] " << issue << std::endl;
+                    }
+
+                    for (const std::string& dependencyPath : dependencyPaths)
+                        m_trackedAssetWriteTimes[dependencyPath] = safeLastWriteTime(dependencyPath);
+                    const std::string markerPath = compiledRenderPassMarkerPath(renderPassPath);
+                    if (!markerPath.empty())
+                        m_trackedAssetWriteTimes[markerPath] = safeLastWriteTime(markerPath);
+                    validationFailed = true;
+                    continue;
+                }
+
+                validatedRenderPasses[renderPassPath] = renderPass;
+                for (const std::string& dependencyPath : dependencyPaths)
+                    m_trackedAssetWriteTimes[dependencyPath] = safeLastWriteTime(dependencyPath);
+                const std::string markerPath = compiledRenderPassMarkerPath(renderPassPath);
+                if (!markerPath.empty())
+                    m_trackedAssetWriteTimes[markerPath] = safeLastWriteTime(markerPath);
+                renderPassIt = validatedRenderPasses.find(renderPassPath);
             }
 
-            m_trackedAssetWriteTimes[renderPassPath] = safeLastWriteTime(renderPassPath);
+            renderPass = renderPassIt != validatedRenderPasses.end() ? renderPassIt->second : nullptr;
+            if (renderPass == nullptr)
+            {
+                validationFailed = true;
+                continue;
+            }
 
             for (const asset::RenderPassStepDefinition& pass : renderPass->passes)
             {
                 if (!registerPhase(pass.phaseName))
                     continue;
 
-                const auto phaseIt = phases.find(renderPhaseKey(pass.phaseName));
-                if (phaseIt == phases.end())
+                if (phases.find(renderPhaseKey(pass.phaseName)) == phases.end())
                     continue;
 
-                const std::string signature = renderPassBatchSignature(pass, phaseIt->second.additionalIterator);
+                const std::string signature = renderPassBatchSignature(pass);
                 auto batchIt = batchIndexBySignature.find(signature);
                 if (batchIt == batchIndexBySignature.end())
                 {
@@ -468,7 +1011,7 @@ private:
                     batch.phaseAssetPath = renderPhaseKey(pass.phaseName);
                     batch.signature = signature;
                     batch.pass = pass;
-                    batch.iterator = phaseIt->second.additionalIterator;
+                    batch.iterator = pass.iterator;
                     m_batches.push_back(std::move(batch));
                     batchIt = batchIndexBySignature.emplace(signature, m_batches.size() - 1).first;
                 }
@@ -476,6 +1019,9 @@ private:
                 m_batches[batchIt->second].items.push_back({meshRenderer, &gameObject->transform, materialAssetPath, material});
             }
         }
+
+        if (validationFailed)
+            return false;
 
         std::unordered_map<std::string, size_t> indegree;
         std::unordered_map<std::string, std::vector<std::string>> adjacency;
@@ -588,6 +1134,7 @@ private:
 
         m_structureHash = computeStructureHash(gameObjects, gameObjectCount);
         m_compiled = true;
+        m_failed = false;
         return true;
     }
 
@@ -621,7 +1168,108 @@ public:
     void invalidate()
     {
         m_compiled = false;
+        m_failed = false;
         m_structureHash = 0;
+    }
+
+    static bool validateCompiledRenderPass(
+        const std::string& rawRenderPassPath,
+        std::vector<std::string>* dependencyPathsOut = nullptr,
+        std::vector<std::string>* issues = nullptr)
+    {
+        asset::RenderPassAssetDefinition* renderPass = nullptr;
+        std::vector<std::string> dependencyPaths;
+        const bool collected = collectRenderPassDependencyPaths(rawRenderPassPath, renderPass, dependencyPaths, issues);
+        if (dependencyPathsOut != nullptr)
+            *dependencyPathsOut = dependencyPaths;
+        if (!collected)
+            return false;
+
+        const std::string renderPassPath = asset::AssetManager::normalizeRelativePath(rawRenderPassPath);
+        if (!compiledRenderPassMarkerIsCurrent(renderPassPath, dependencyPaths))
+        {
+            appendIssue(issues, "Render pass requires a rebuild before it can be used: " + renderPassPath);
+            return false;
+        }
+
+        return true;
+    }
+
+    static bool buildCompiledRenderPass(const std::string& rawRenderPassPath, std::vector<std::string>* issues = nullptr)
+    {
+        asset::RenderPassAssetDefinition* renderPass = nullptr;
+        std::vector<std::string> dependencyPaths;
+        if (!collectRenderPassDependencyPaths(rawRenderPassPath, renderPass, dependencyPaths, issues) || renderPass == nullptr)
+            return false;
+
+        const std::string renderPassPath = asset::AssetManager::normalizeRelativePath(rawRenderPassPath);
+        bool valid = true;
+        for (size_t passIndex = 0; passIndex < renderPass->passes.size(); ++passIndex)
+        {
+            const asset::RenderPassStepDefinition& pass = renderPass->passes[passIndex];
+            const std::string shaderPath = asset::AssetManager::normalizeRelativePath(pass.shaderPath);
+            if (shaderPath.empty())
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " has an empty shader path.");
+                valid = false;
+                continue;
+            }
+
+            Shader shader(asset::AssetManager::runtimePath(shaderPath + "/vertex.glsl"), asset::AssetManager::runtimePath(shaderPath + "/fragment.glsl"));
+            shader.setAssetPath(shaderPath);
+            if (shader.getProgramId() == 0)
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " failed to compile shader: " + shaderPath);
+                valid = false;
+                continue;
+            }
+
+            for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
+            {
+                if (!validatePassUniform(shader, uniform, renderPassPath, passIndex, issues))
+                    valid = false;
+            }
+
+            if (pass.iterator != asset::RenderPassIterator::None && pass.uniformFactoryPath.empty())
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " declares an iterator but no uniform factory.");
+                valid = false;
+            }
+
+            if (!pass.uniformFactoryPath.empty())
+            {
+                asset::UniformFactoryAssetDefinition* factory = nullptr;
+                if (!asset::AssetManager::instance().reloadUniformFactoryDefinition(pass.uniformFactoryPath, factory) || factory == nullptr)
+                {
+                    appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " failed to load uniform factory: " + pass.uniformFactoryPath);
+                    valid = false;
+                }
+                else if (factory->sourcePath.empty())
+                {
+                    appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " references a uniform factory without a source file: " + pass.uniformFactoryPath);
+                    valid = false;
+                }
+                else if (factory->entryName.empty())
+                {
+                    appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " references a uniform factory without an entry point: " + pass.uniformFactoryPath);
+                    valid = false;
+                }
+                else if (factory->iterationEntryName.empty())
+                {
+                    appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " references a uniform factory without an iteration entry point: " + pass.uniformFactoryPath);
+                    valid = false;
+                }
+                else if (!validateUniformFactory(shader, *factory, pass.iterator, renderPassPath, passIndex, issues))
+                {
+                    valid = false;
+                }
+            }
+        }
+
+        if (!valid)
+            return false;
+
+        return writeCompiledRenderPassMarker(renderPassPath, dependencyPaths);
     }
 
     bool execute(
@@ -631,11 +1279,21 @@ public:
         const std::vector<SceneRenderTargetSettings>& renderTargets,
         const std::vector<LightInput>& lights)
     {
+        (void)lights;
         const std::size_t nextStructureHash = computeStructureHash(gameObjects, gameObjectCount);
-        if (!m_compiled || nextStructureHash != m_structureHash || dependenciesChanged())
+        const bool structureChanged = nextStructureHash != m_structureHash;
+        const bool dependencyStateChanged = dependenciesChanged();
+        if (!m_compiled || structureChanged || dependencyStateChanged)
         {
-            if (!rebuild(gameObjects, gameObjectCount))
+            if (m_failed && !structureChanged && !dependencyStateChanged)
                 return false;
+
+            if (!rebuild(gameObjects, gameObjectCount))
+            {
+                m_structureHash = nextStructureHash;
+                m_failed = true;
+                return false;
+            }
         }
 
         GLint initialViewport[4] = {0, 0, 1, 1};
@@ -646,72 +1304,90 @@ public:
         std::unordered_map<std::string, std::string> producedRenderTargetInstances;
         std::unordered_set<std::string> initializedRenderTargets;
         bool renderedAnything = false;
-        for (const Batch& batch : m_batches)
+        const auto renderBatch = [&](const Batch& batch, int currentIteration, int iterationCount) {
         {
             if (!bindBatchTarget(batch, renderTargets, initialViewport, initialFramebuffer))
-                continue;
+                    return;
 
-            const std::string normalizedTargetName = normalizeRenderTargetName(batch.pass.target.name);
-            const std::string targetUseKey =
-                normalizedTargetName.empty() || isFinalRenderTargetName(normalizedTargetName)
-                    ? std::string("__final__")
-                    : (!batch.targetInstanceKey.empty() ? batch.targetInstanceKey : renderTargetLogicalKey(batch.pass.target));
+                const std::string normalizedTargetName = normalizeRenderTargetName(batch.pass.target.name);
+                const std::string targetUseKey =
+                    normalizedTargetName.empty() || isFinalRenderTargetName(normalizedTargetName)
+                        ? std::string("__final__")
+                        : (!batch.targetInstanceKey.empty() ? batch.targetInstanceKey : renderTargetLogicalKey(batch.pass.target));
 
-            GLbitfield clearMask = 0;
-            if (initializedRenderTargets.insert(targetUseKey).second)
-                clearMask |= GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT;
-            if (batch.pass.clearColor)
-                clearMask |= GL_COLOR_BUFFER_BIT;
-            if (batch.pass.depthAction == asset::RenderDepthAction::Clear)
-                clearMask |= GL_DEPTH_BUFFER_BIT;
-            if (clearMask != 0)
-            {
-                glDepthMask(GL_TRUE);
-                glClear(clearMask);
-            }
-
-            configureBlendState(batch.pass.blend);
-            const auto resolveRenderTargetTexture = [&](const asset::RenderTargetAssetReference& reference) -> GLuint {
-                const std::string normalizedTargetName = normalizeRenderTargetName(reference.name);
-                if (normalizedTargetName.empty() || isFinalRenderTargetName(normalizedTargetName))
-                    return 0;
-
-                const std::string logicalKey = renderTargetLogicalKey(reference);
-                const auto producedIt = producedRenderTargetInstances.find(logicalKey);
-                if (producedIt == producedRenderTargetInstances.end())
-                    return 0;
-
-                const auto resourceIt = m_renderTargets.find(producedIt->second);
-                if (resourceIt == m_renderTargets.end())
-                    return 0;
-
-                return resourceIt->second.colorTextureId();
-            };
-
-            if (batch.iterator == asset::RenderPhaseIterator::Light)
-            {
-                for (const LightInput& light : lights)
+                GLbitfield clearMask = 0;
+                if (initializedRenderTargets.insert(targetUseKey).second)
+                    clearMask |= GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT;
+                if (batch.pass.clearColor)
+                    clearMask |= GL_COLOR_BUFFER_BIT;
+                if (batch.pass.depthAction == asset::RenderDepthAction::Clear)
+                    clearMask |= GL_DEPTH_BUFFER_BIT;
+                if (clearMask != 0)
                 {
-                    for (const DrawItem& item : batch.items)
-                    {
-                        if (executeDrawItem(camera, batch, item, resolveRenderTargetTexture, &light))
-                            renderedAnything = true;
-                    }
+                    glDepthMask(GL_TRUE);
+                    glClear(clearMask);
                 }
-            }
-            else
-            {
+
+                configureBlendState(batch.pass.blend);
+                const auto resolveRenderTargetTexture = [&](const asset::RenderTargetAssetReference& reference) -> GLuint {
+                    const std::string normalizedTargetName = normalizeRenderTargetName(reference.name);
+                    if (normalizedTargetName.empty() || isFinalRenderTargetName(normalizedTargetName))
+                        return 0;
+
+                    const std::string logicalKey = renderTargetLogicalKey(reference);
+                    const auto producedIt = producedRenderTargetInstances.find(logicalKey);
+                    if (producedIt == producedRenderTargetInstances.end())
+                        return 0;
+
+                    const auto resourceIt = m_renderTargets.find(producedIt->second);
+                    if (resourceIt == m_renderTargets.end())
+                        return 0;
+
+                    return resourceIt->second.colorTextureId();
+                };
+
                 for (const DrawItem& item : batch.items)
                 {
-                    if (executeDrawItem(camera, batch, item, resolveRenderTargetTexture, nullptr))
+                    if (executeDrawItem(camera, batch, item, resolveRenderTargetTexture, nullptr, currentIteration, iterationCount))
                         renderedAnything = true;
                 }
+
+                if (!batch.targetInstanceKey.empty())
+                    producedRenderTargetInstances[batch.targetLogicalKey] = batch.targetInstanceKey;
+
+                glDisable(GL_BLEND);
+            }
+        };
+
+        for (size_t batchIndex = 0; batchIndex < m_batches.size();)
+        {
+            const Batch& batch = m_batches[batchIndex];
+            const std::string iterationGroupKey = batchIterationGroupKey(batch);
+            if (iterationGroupKey.empty())
+            {
+                renderBatch(batch, 0, 1);
+                ++batchIndex;
+                continue;
             }
 
-            if (!batch.targetInstanceKey.empty())
-                producedRenderTargetInstances[batch.targetLogicalKey] = batch.targetInstanceKey;
+            size_t batchGroupEnd = batchIndex + 1;
+            while (batchGroupEnd < m_batches.size() && batchIterationGroupKey(m_batches[batchGroupEnd]) == iterationGroupKey)
+                ++batchGroupEnd;
 
-            glDisable(GL_BLEND);
+            int iterationCount = 0;
+            if (!queryBatchIterationCount(camera, batch, iterationCount))
+            {
+                m_failed = true;
+                return false;
+            }
+
+            for (int currentIteration = 0; currentIteration < iterationCount; ++currentIteration)
+            {
+                for (size_t groupedBatchIndex = batchIndex; groupedBatchIndex < batchGroupEnd; ++groupedBatchIndex)
+                    renderBatch(m_batches[groupedBatchIndex], currentIteration, iterationCount);
+            }
+
+            batchIndex = batchGroupEnd;
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(initialFramebuffer));

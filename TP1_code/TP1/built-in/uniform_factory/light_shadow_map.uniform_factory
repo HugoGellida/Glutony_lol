@@ -1,0 +1,9 @@
+{
+  "source": "light_pass.cpp",
+  "entry": "buildShadowMapUniforms",
+  "iterationEntry": "iterationCount",
+  "requiresLight": true,
+  "outputs": [
+    { "name": "LIGHT_MVP", "type": "mat4" }
+  ]
+}

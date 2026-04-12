@@ -226,7 +226,8 @@ private:
     void closePendingSceneActionPrompt();
     void closeHeaderMenus();
     bool prepareRuntimeSceneFile(std::string& outputPath);
-    bool prepareSceneScriptBuildSource();
+    bool prepareGeneratedGameplaySource();
+    bool rebuildSceneRenderPipelines();
     bool startBuild(PendingLaunchAction launchAction);
     bool startPreviewPlayer(const std::string& scenePath);
     bool startDetachedPlayer(const std::string& scenePath);

@@ -5,4 +5,8 @@ namespace gameplay
 void registerGeneratedSceneScripts()
 {
 }
+
+void registerGeneratedRenderUniformFactories()
+{
+}
 }

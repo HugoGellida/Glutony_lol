@@ -55,8 +55,11 @@ std::string buildSceneEditorMenuMarkup(bool isFileMenuOpen, bool isEditMenuOpen,
     buildItem.setDomIdOverride("scene_menu_build");
     UI::MenuItem buildRunItem(0, 0, "Build & Run");
     buildRunItem.setDomIdOverride("scene_menu_build_run");
+    UI::MenuItem rebuildRenderPipelineItem(0, 0, "Rebuild Render Pipeline");
+    rebuildRenderPipelineItem.setDomIdOverride("scene_menu_rebuild_render_pipeline");
     editMenu.addChild(&buildItem);
     editMenu.addChild(&buildRunItem);
+    editMenu.addChild(&rebuildRenderPipelineItem);
 
     UI::MenuEntry windowMenu(0, 0, "Window");
     windowMenu.setDomIdOverride("builder_menu_window");
@@ -314,6 +317,8 @@ const char* assetBrowserFileKindLabel(SceneEditorController::AssetBrowserFileKin
         return "RenderPhase";
     case SceneEditorController::AssetBrowserFileKind::RenderPass:
         return "RenderPass";
+    case SceneEditorController::AssetBrowserFileKind::UniformFactory:
+        return "UniformFactory";
     case SceneEditorController::AssetBrowserFileKind::Data:
         return "Data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:
@@ -343,6 +348,8 @@ const char* assetBrowserFileKindClass(SceneEditorController::AssetBrowserFileKin
         return "render_phase";
     case SceneEditorController::AssetBrowserFileKind::RenderPass:
         return "render_pass";
+    case SceneEditorController::AssetBrowserFileKind::UniformFactory:
+        return "uniform_factory";
     case SceneEditorController::AssetBrowserFileKind::Data:
         return "data";
     case SceneEditorController::AssetBrowserFileKind::Mesh:

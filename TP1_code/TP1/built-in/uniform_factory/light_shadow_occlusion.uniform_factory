@@ -1,0 +1,16 @@
+{
+  "source": "light_pass.cpp",
+  "entry": "buildShadowOcclusionUniforms",
+  "iterationEntry": "iterationCount",
+  "requiresLight": true,
+  "outputs": [
+    { "name": "MVP", "type": "mat4" },
+    { "name": "MVP_ORTHO", "type": "mat4" },
+    { "name": "MODEL", "type": "mat4" },
+    { "name": "LIGHT_MVP", "type": "mat4" },
+    { "name": "_lightType", "type": "int" },
+    { "name": "_lightPos", "type": "vec3" },
+    { "name": "_lightDir", "type": "vec3" },
+    { "name": "_shadowFaceIndex", "type": "int" }
+  ]
+}

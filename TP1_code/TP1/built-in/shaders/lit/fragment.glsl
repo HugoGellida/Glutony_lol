@@ -10,6 +10,7 @@ uniform vec3 _lightPos = vec3(0.0f, 0.0f, 0.0f);
 uniform vec3 _lightDir = vec3(1.0f, 0.75f, -0.5f);
 uniform vec3 _lightColor = vec3(1.0f, 1.0f, 1.0f);
 uniform float _lightIntensity = 1.0f;
+uniform sampler2D _lightOcclusionTex;
 // Ouput data
 out vec3 color;
 
@@ -25,5 +26,7 @@ void main(){
         }
 
         float ndl = max(dot(normal, lightVector), 0.0f);
-        color = _mainCol * _lightColor * (_lightIntensity * ndl * attenuation);
+        vec2 occlusionUv = gl_FragCoord.xy / vec2(textureSize(_lightOcclusionTex, 0));
+        float occlusion = clamp(texture(_lightOcclusionTex, occlusionUv).r, 0.0f, 1.0f);
+        color = _mainCol * _lightColor * (_lightIntensity * ndl * attenuation * occlusion);
 }

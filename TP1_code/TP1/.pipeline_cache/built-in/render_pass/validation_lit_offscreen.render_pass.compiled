@@ -1,0 +1,10 @@
+built-in/render_pass/validation_lit_offscreen.render_pass
+built-in/render_pass/validation_lit_offscreen.render_pass
+built-in/render_phase/geometry.render_phase
+built-in/shaders/lit_base/vertex.glsl
+built-in/shaders/lit_base/fragment.glsl
+built-in/render_phase/lighting.render_phase
+built-in/shaders/lit/vertex.glsl
+built-in/shaders/lit/fragment.glsl
+built-in/uniform_factory/light_pass.uniform_factory
+built-in/uniform_factory/light_pass.cpp

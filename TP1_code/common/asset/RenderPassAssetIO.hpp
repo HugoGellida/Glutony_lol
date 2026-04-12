@@ -62,12 +62,19 @@ struct RenderTargetAssetReference
     bool shared = false;
 };
 
+enum class RenderPassIterator
+{
+    None,
+    Light,
+};
+
 enum class RenderPassUniformKind
 {
     Bool,
     Int,
     Float,
     Vec3,
+    Mat4,
     Texture,
     RenderTarget,
 };
@@ -80,6 +87,7 @@ struct RenderPassUniformDefinition
     int intValue = 0;
     float floatValue = 0.0f;
     glm::vec3 vec3Value{0.0f, 0.0f, 0.0f};
+    glm::mat4 mat4Value{1.0f};
     std::string assetPath;
     RenderTargetAssetReference renderTargetValue;
 };
@@ -88,6 +96,8 @@ struct RenderPassStepDefinition
 {
     std::string phaseName;
     std::string shaderPath;
+    RenderPassIterator iterator = RenderPassIterator::None;
+    std::string uniformFactoryPath;
     std::vector<RenderPassUniformDefinition> uniforms;
     RenderTargetAssetReference target;
     bool clearColor = false;
@@ -262,6 +272,27 @@ private:
             return consume(']');
         }
 
+        bool parseMat4(glm::mat4& value)
+        {
+            if (!consume('['))
+                return false;
+
+            for (int column = 0; column < 4; ++column)
+            {
+                for (int row = 0; row < 4; ++row)
+                {
+                    if (!parseFloat(value[column][row]))
+                        return false;
+                    if (column == 3 && row == 3)
+                        break;
+                    if (!consume(','))
+                        return false;
+                }
+            }
+
+            return consume(']');
+        }
+
         static bool parseBlendOpValue(const std::string& rawValue, RenderBlendOp& value)
         {
             if (rawValue == "add")
@@ -323,10 +354,21 @@ private:
                 return value = RenderPassUniformKind::Float, true;
             if (rawValue == "vec3")
                 return value = RenderPassUniformKind::Vec3, true;
+            if (rawValue == "mat4")
+                return value = RenderPassUniformKind::Mat4, true;
             if (rawValue == "texture")
                 return value = RenderPassUniformKind::Texture, true;
             if (rawValue == "renderTarget" || rawValue == "render_target")
                 return value = RenderPassUniformKind::RenderTarget, true;
+            return false;
+        }
+
+        static bool parseIteratorValue(const std::string& rawValue, RenderPassIterator& value)
+        {
+            if (rawValue == "none")
+                return value = RenderPassIterator::None, true;
+            if (rawValue == "light")
+                return value = RenderPassIterator::Light, true;
             return false;
         }
 
@@ -548,6 +590,10 @@ private:
                         if (!parseVec3(value.vec3Value))
                             return false;
                         break;
+                    case RenderPassUniformKind::Mat4:
+                        if (!parseMat4(value.mat4Value))
+                            return false;
+                        break;
                     case RenderPassUniformKind::Texture:
                         if (!parseString(value.assetPath))
                             return false;
@@ -626,6 +672,17 @@ private:
                     if (!parseString(value.shaderPath))
                         return false;
                     hasShader = true;
+                }
+                else if (key == "iterator")
+                {
+                    std::string rawValue;
+                    if (!parseString(rawValue) || !parseIteratorValue(rawValue, value.iterator))
+                        return false;
+                }
+                else if (key == "uniformFactory" || key == "uniform_factory")
+                {
+                    if (!parseString(value.uniformFactoryPath))
+                        return false;
                 }
                 else if (key == "uniforms")
                 {
@@ -805,6 +862,8 @@ private:
             return "float";
         case RenderPassUniformKind::Vec3:
             return "vec3";
+        case RenderPassUniformKind::Mat4:
+            return "mat4";
         case RenderPassUniformKind::Texture:
             return "texture";
         case RenderPassUniformKind::RenderTarget:
@@ -812,6 +871,11 @@ private:
         }
 
         return "float";
+    }
+
+    static const char* iteratorValue(RenderPassIterator value)
+    {
+        return value == RenderPassIterator::Light ? "light" : "none";
     }
 
     static bool writeRenderTargetReference(std::ostream& output, const RenderTargetAssetReference& value)
@@ -855,6 +919,9 @@ public:
             output << "    {\n";
             output << "      \"phase\": \"" << pass.phaseName << "\",\n";
             output << "      \"shader\": \"" << pass.shaderPath << "\",\n";
+            output << "      \"iterator\": \"" << iteratorValue(pass.iterator) << "\",\n";
+            if (!pass.uniformFactoryPath.empty())
+                output << "      \"uniformFactory\": \"" << pass.uniformFactoryPath << "\",\n";
             output << "      \"uniforms\": [\n";
             for (size_t uniformIndex = 0; uniformIndex < pass.uniforms.size(); ++uniformIndex)
             {
@@ -873,6 +940,19 @@ public:
                     break;
                 case RenderPassUniformKind::Vec3:
                     output << '[' << uniform.vec3Value.x << ", " << uniform.vec3Value.y << ", " << uniform.vec3Value.z << ']';
+                    break;
+                case RenderPassUniformKind::Mat4:
+                    output << '[';
+                    for (int column = 0; column < 4; ++column)
+                    {
+                        for (int row = 0; row < 4; ++row)
+                        {
+                            if (column != 0 || row != 0)
+                                output << ", ";
+                            output << uniform.mat4Value[column][row];
+                        }
+                    }
+                    output << ']';
                     break;
                 case RenderPassUniformKind::Texture:
                     output << "\"" << uniform.assetPath << "\"";

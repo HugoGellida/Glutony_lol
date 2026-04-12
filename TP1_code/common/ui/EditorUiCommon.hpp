@@ -101,6 +101,7 @@ enum class DragPayloadKind
     MaterialAsset,
     RenderPhaseAsset,
     RenderPassAsset,
+    UniformFactoryAsset,
     DataAsset,
     SceneScriptAsset,
     ComponentScriptAsset,

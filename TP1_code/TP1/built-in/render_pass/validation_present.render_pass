@@ -3,6 +3,7 @@
     {
       "phase": "built-in/render_phase/validation_composite.render_phase",
       "shader": "built-in/shaders/validation_present",
+      "iterator": "none",
       "uniforms": [
         {
           "name": "_sourceTex",
