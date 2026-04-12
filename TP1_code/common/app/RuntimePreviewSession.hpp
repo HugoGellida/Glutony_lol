@@ -4,9 +4,36 @@
 
 namespace runtime_preview
 {
+inline bool isBuildRoot(const std::filesystem::path& path)
+{
+    std::error_code errorCode;
+    return std::filesystem::exists(path / "CMakeCache.txt", errorCode) && !errorCode;
+}
+
+inline std::filesystem::path runtimeRoot()
+{
+    std::error_code errorCode;
+    const std::filesystem::path cwd = std::filesystem::current_path(errorCode);
+    if (errorCode)
+        return ".";
+
+    if (isBuildRoot(cwd))
+        return cwd;
+
+    const std::filesystem::path parentBuild = cwd.parent_path() / "build";
+    if (isBuildRoot(parentBuild))
+        return parentBuild;
+
+    const std::filesystem::path childBuild = cwd / "build";
+    if (isBuildRoot(childBuild))
+        return childBuild;
+
+    return cwd;
+}
+
 inline std::filesystem::path sessionDirectory()
 {
-    return std::filesystem::current_path() / ".glutony" / "runtime";
+    return runtimeRoot() / ".glutony" / "runtime";
 }
 
 inline std::filesystem::path previewScenePath()

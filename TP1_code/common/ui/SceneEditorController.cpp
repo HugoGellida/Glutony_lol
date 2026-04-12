@@ -2797,7 +2797,7 @@ bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
 
     stopExternalProcess(false);
 
-    const std::filesystem::path buildDirectory = std::filesystem::current_path().parent_path() / "build";
+    const std::filesystem::path buildDirectory = runtime_preview::runtimeRoot();
     if (!std::filesystem::exists(buildDirectory))
     {
         appendConsoleSystemMessage("[editor] Build directory not found: " + buildDirectory.string(), "console_line_error");
@@ -2855,7 +2855,7 @@ bool SceneEditorController::startPreviewPlayer(const std::string& scenePath)
     appendConsoleSystemMessage("[editor] External preview player is not implemented on Windows yet.", "console_line_warning");
     return false;
 #else
-    const std::filesystem::path runtimeRoot = std::filesystem::current_path();
+    const std::filesystem::path runtimeRoot = runtime_preview::runtimeRoot();
     const std::filesystem::path playerPath = runtimeRoot / "runtime_game";
     if (!std::filesystem::exists(playerPath))
     {
@@ -2906,7 +2906,7 @@ bool SceneEditorController::startDetachedPlayer(const std::string& scenePath)
     appendConsoleSystemMessage("[editor] Detached runtime launch is not implemented on Windows yet.", "console_line_warning");
     return false;
 #else
-    const std::filesystem::path runtimeRoot = std::filesystem::current_path();
+    const std::filesystem::path runtimeRoot = runtime_preview::runtimeRoot();
     const std::filesystem::path playerPath = runtimeRoot / "runtime_game";
     if (!std::filesystem::exists(playerPath))
     {
@@ -3506,7 +3506,7 @@ bool SceneEditorController::saveSceneAs()
 
 bool SceneEditorController::prepareGeneratedGameplaySource()
 {
-    const std::filesystem::path buildRoot = std::filesystem::current_path();
+    const std::filesystem::path buildRoot = runtime_preview::runtimeRoot();
     const std::filesystem::path generatedSourcePath = buildRoot / "GeneratedSceneScripts.cpp";
 
     std::error_code errorCode;
