@@ -37,7 +37,8 @@ namespace component
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
             glBindVertexArray(m_VAO);
-            glDisable(GL_CULL_FACE);
+            glEnable(GL_CULL_FACE);
+            glCullFace(invertCull ? GL_FRONT : GL_BACK);
             glEnable(GL_DEPTH_TEST);
             glDepthFunc(GL_LEQUAL);
         }

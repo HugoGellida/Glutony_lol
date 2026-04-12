@@ -602,6 +602,20 @@ public:
         return resolved;
     }
 
+    static render::SceneRenderTargetSettings applyDeclaredRenderTargetSettings(
+        const render::SceneRenderTargetSettings& baseSettings,
+        const asset::RenderTargetAssetReference& declaration)
+    {
+        render::SceneRenderTargetSettings resolved = baseSettings;
+        if (declaration.width > 0)
+            resolved.width = declaration.width;
+        if (declaration.height > 0)
+            resolved.height = declaration.height;
+        if (declaration.hasFormat)
+            resolved.format = declaration.format;
+        return resolved;
+    }
+
     bool upsertRenderTargetSettings(const render::SceneRenderTargetSettings& rawSettings)
     {
         render::SceneRenderTargetSettings normalizedSettings = rawSettings;
@@ -636,7 +650,8 @@ public:
     std::vector<render::SceneRenderTargetSettings> collectVisibleRenderTargetSettings() const
     {
         std::vector<render::SceneRenderTargetSettings> settings = m_savedRenderTargetSettings;
-        const auto appendTargetIfMissing = [&settings, this](const std::string& rawName) {
+        const auto appendTargetIfMissing = [&settings, this](const asset::RenderTargetAssetReference& target) {
+            const std::string& rawName = target.name;
             const std::string normalizedName = render::normalizeRenderTargetName(rawName);
             if (normalizedName.empty() || render::isFinalRenderTargetName(normalizedName))
                 return;
@@ -647,7 +662,7 @@ public:
                     return;
             }
 
-            settings.push_back(resolveRenderTargetSettings(normalizedName));
+            settings.push_back(applyDeclaredRenderTargetSettings(resolveRenderTargetSettings(normalizedName), target));
         };
 
         for (size_t index = 0; index < m_gameObjectCount; ++index)
@@ -660,7 +675,12 @@ public:
             if (meshRenderer == nullptr)
                 continue;
 
-            dataStruct::Material* material = meshRenderer->getMaterial();
+            dataStruct::Material* material = nullptr;
+            const std::string materialAssetPath = asset::AssetManager::normalizeRelativePath(meshRenderer->getMaterialAssetPath());
+            if (!materialAssetPath.empty())
+                material = asset::AssetManager::instance().loadMaterial(materialAssetPath);
+            else
+                material = meshRenderer->getMaterial();
             if (material == nullptr)
                 continue;
 
@@ -674,11 +694,11 @@ public:
 
             for (const asset::RenderPassStepDefinition& pass : renderPass->passes)
             {
-                appendTargetIfMissing(pass.target.name);
+                appendTargetIfMissing(pass.target);
                 for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
                 {
                     if (uniform.kind == asset::RenderPassUniformKind::RenderTarget)
-                        appendTargetIfMissing(uniform.renderTargetValue.name);
+                        appendTargetIfMissing(uniform.renderTargetValue);
                 }
             }
         }

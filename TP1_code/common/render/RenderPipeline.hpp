@@ -1149,9 +1149,15 @@ private:
         }
 
         const SceneRenderTargetSettings* settings = findRenderTargetSettings(renderTargets, normalizedTargetName);
-        const int width = settings != nullptr && settings->width > 0 ? settings->width : viewport[2];
-        const int height = settings != nullptr && settings->height > 0 ? settings->height : viewport[3];
-        const RenderTargetFormat format = settings != nullptr ? settings->format : RenderTargetFormat::Rgba;
+        const int width = settings != nullptr && settings->width > 0
+            ? settings->width
+            : (batch.pass.target.width > 0 ? batch.pass.target.width : viewport[2]);
+        const int height = settings != nullptr && settings->height > 0
+            ? settings->height
+            : (batch.pass.target.height > 0 ? batch.pass.target.height : viewport[3]);
+        const RenderTargetFormat format = settings != nullptr
+            ? settings->format
+            : (batch.pass.target.hasFormat ? batch.pass.target.format : RenderTargetFormat::Rgba);
 
         RenderTargetResource& resource = m_renderTargets[batch.targetInstanceKey];
         if (!resource.ensure(width, height, format))

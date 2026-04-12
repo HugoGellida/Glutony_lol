@@ -3,6 +3,11 @@
   "shader": "built-in/shaders/lit",
   "renderPass": "built-in/render_pass/forward_lit.render_pass",
   "uniforms": [
-    { "name": "_mainCol", "type": "vec3", "value": [0.500, 0.500, 0.500] }
+    { "name": "_mainCol", "type": "vec3", "value": [0.500, 0.500, 0.500] },
+    { "name": "_shadowBiasBase", "type": "float", "value": 0.0005 },
+    { "name": "_shadowBiasSlopeScale", "type": "float", "value": 0.0045 },
+    { "name": "_shadowBiasClamp", "type": "float", "value": 0.0080 },
+    { "name": "_shadowPcfRadius", "type": "int", "value": 2 },
+    { "name": "_shadowStrength", "type": "float", "value": 0.75 }
   ]
 }

@@ -125,6 +125,8 @@ private:
             material = std::move(lit);
         }
 
+        material->setRuntimePreviewSyncEnabled(false);
+
         for (const MaterialUniformDefinition& uniform : definition.uniforms)
         {
             switch (uniform.kind)
@@ -147,6 +149,8 @@ private:
                 break;
             }
         }
+
+        material->setRuntimePreviewSyncEnabled(true);
 
         material->setAssetPath(normalizedPath);
         return material;

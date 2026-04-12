@@ -936,11 +936,13 @@ int main(int argc, char** argv)
 
         glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-        g_scene->renderScene();
+        if (g_publishPreviewFrames)
+            g_scene->renderSceneWithSelectionHighlight();
+        else
+            g_scene->renderScene();
         publishRuntimeState(currentFps);
         publishSelectedObjectState();
         publishDirtyDataAssetState();
-        publishDirtyMaterialState();
         publishPreviewFrame(g_windowFramebufferWidth, g_windowFramebufferHeight);
         glfwSwapBuffers(g_window);
     }

@@ -234,7 +234,9 @@ private:
     void stopExternalProcess(bool restoreEditorScene = true);
     void pausePreviewPlayer();
     void resumePreviewPlayer();
+    bool flushDirtyMaterialAssetsForRuntimeScene();
     void syncRuntimePreviewGameObjectIfNeeded();
+    void syncRuntimePreviewSelectionIfNeeded();
     void syncRuntimePreviewSceneIfNeeded();
     void pollRuntimePreviewState();
     void pollRuntimePreviewSceneState();
@@ -322,10 +324,12 @@ private:
     uint64_t m_runtimeGameObjectSyncSequence = 0;
     uint64_t m_runtimeMaterialSyncSequence = 0;
     uint64_t m_runtimeMaterialStateSequence = 0;
+    uint64_t m_runtimeSelectionSyncSequence = 0;
     uint64_t m_runtimeSceneStateSequence = 0;
     uint64_t m_runtimeSceneSyncSequence = 0;
     uint64_t m_runtimeStateSequence = 0;
     std::optional<int> m_pendingRuntimeSelectionId;
+    std::optional<int> m_lastSentRuntimeSelectionId;
     bool m_runtimeSceneSyncPending = false;
     bool m_consoleRefreshPending = false;
     int m_runtimePreviewFps = -1;

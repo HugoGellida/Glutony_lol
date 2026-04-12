@@ -58,7 +58,7 @@ bool parseVec3Local(const std::string& rawValue, glm::vec3& outValue)
 std::string formatFloatLocal(float value)
 {
     std::ostringstream stream;
-    stream << std::fixed << std::setprecision(3) << value;
+    stream << std::fixed << std::setprecision(6) << value;
     std::string formatted = stream.str();
     while (formatted.size() > 1 && formatted.back() == '0' && formatted[formatted.size() - 2] != '.')
         formatted.pop_back();
@@ -157,7 +157,9 @@ std::string buildInspectorFieldMarkup(
     {
         stream << "<input id='" << fieldId << "' class='" << fieldClass << "' type='";
         stream << ((fieldKind == component_meta::FieldKind::Float || fieldKind == component_meta::FieldKind::Int) ? "number" : "text");
-        stream << "' value='" << editor_ui::escapeRmlText(formattedValue) << "'";
+            stream << "' value='" << editor_ui::escapeRmlText(formattedValue) << "'";
+            if (fieldKind == component_meta::FieldKind::Float)
+                stream << " step='any'";
         if (isAssetField)
             stream << " placeholder='" << editor_ui::escapeRmlText(assetReferenceKindLabelLocal(assetReferenceKind)) << "'";
         stream << " />";

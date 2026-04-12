@@ -207,7 +207,7 @@ bool buildShadowOcclusionUniforms(const render::UniformFactoryExecutionContext& 
 
     const glm::mat4 model = context.transform->getModelWorld();
     writeCameraUniforms(context, writer, model);
-    writer.addMat4Uniform("LIGHT_MVP", buildLightProjectionView(context, selection) * model);
+    writer.addMat4Uniform("LIGHT_MVP", buildLightProjectionView(context, selection));
     writer.addIntUniform("_lightType", selection.light.type == render::LightType::Directional ? 0 : 1);
     writer.addVec3Uniform("_lightPos", selection.light.position);
     writer.addVec3Uniform("_lightDir", selection.light.direction);

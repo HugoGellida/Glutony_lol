@@ -435,6 +435,34 @@ bool writeRuntimePreviewPauseStateFile(
     return true;
 }
 
+bool writeRuntimePreviewSelectionFile(
+    const std::filesystem::path& tempPath,
+    const std::filesystem::path& targetPath,
+    uint64_t sequence,
+    int selectedGameObjectId)
+{
+    std::error_code errorCode;
+    std::filesystem::create_directories(targetPath.parent_path(), errorCode);
+    if (errorCode)
+        return false;
+
+    std::ofstream output(tempPath, std::ios::trunc);
+    if (!output)
+        return false;
+
+    output << sequence << ' ' << selectedGameObjectId << '\n';
+    output.close();
+
+    std::filesystem::rename(tempPath, targetPath, errorCode);
+    if (errorCode)
+    {
+        std::filesystem::remove(tempPath, errorCode);
+        return false;
+    }
+
+    return true;
+}
+
 bool writeRuntimePreviewGameObjectFile(
     const std::filesystem::path& tempPath,
     const std::filesystem::path& targetPath,
@@ -589,7 +617,7 @@ bool spawnDetachedProcess(const std::string& workingDirectory, const std::filesy
 std::string formatFloat(float value)
 {
     std::ostringstream stream;
-    stream << std::fixed << std::setprecision(3) << value;
+    stream << std::fixed << std::setprecision(6) << value;
     return trimCopy(stream.str());
 }
 
@@ -1273,9 +1301,9 @@ void SceneEditorController::update()
     pollExternalProcess();
     pollRuntimePreviewSceneState();
     pollRuntimePreviewState();
-    pollRuntimePreviewMaterialState();
     pollRuntimePreviewDataAssetState();
     pollDataAssetExternalChanges();
+    syncRuntimePreviewSelectionIfNeeded();
     syncRuntimePreviewGameObjectIfNeeded();
     syncRuntimePreviewSceneIfNeeded();
 
@@ -2605,6 +2633,9 @@ bool SceneEditorController::prepareRuntimeSceneFile(std::string& outputPath)
     if (m_scene == nullptr)
         return false;
 
+    if (!flushDirtyMaterialAssetsForRuntimeScene())
+        return false;
+
     std::error_code errorCode;
     const std::filesystem::path sessionDirectory = runtime_preview::sessionDirectory();
     std::filesystem::create_directories(sessionDirectory, errorCode);
@@ -2647,7 +2678,67 @@ bool SceneEditorController::prepareRuntimeSceneFile(std::string& outputPath)
         return false;
 
     m_runtimeSceneSyncPending = false;
+    m_lastSentRuntimeSelectionId.reset();
     outputPath = scenePath.string();
+    return true;
+}
+
+bool SceneEditorController::flushDirtyMaterialAssetsForRuntimeScene()
+{
+    if (m_scene == nullptr)
+        return true;
+
+    // Clear any pending dirty flags first, then persist the current in-memory material state
+    // for every referenced material so Play starts from the live editor values.
+    while (true)
+    {
+        std::string materialAssetPath;
+        asset::MaterialAssetDefinition definition;
+        if (!asset::AssetManager::instance().popDirtyMaterialState(materialAssetPath, definition) || materialAssetPath.empty())
+            break;
+    }
+
+    std::vector<std::string> materialPaths = m_scene->getSceneAssetRegistry().getAssets(asset::AssetType::Material);
+    std::unordered_set<std::string> seenMaterialPaths(materialPaths.begin(), materialPaths.end());
+
+    for (size_t index = 0; index < m_scene->getGameObjectCount(); ++index)
+    {
+        GameObject* gameObject = m_scene->getGameObject(index);
+        if (gameObject == nullptr)
+            continue;
+
+        MeshRenderer* meshRenderer = gameObject->getComponent<MeshRenderer>();
+        if (meshRenderer == nullptr)
+            continue;
+
+        const std::string normalizedMaterialPath = asset::AssetManager::normalizeRelativePath(meshRenderer->getMaterialAssetPath());
+        if (normalizedMaterialPath.empty() || !seenMaterialPaths.insert(normalizedMaterialPath).second)
+            continue;
+
+        materialPaths.push_back(normalizedMaterialPath);
+    }
+
+    for (const std::string& rawMaterialPath : materialPaths)
+    {
+        const std::string normalizedMaterialPath = asset::AssetManager::normalizeRelativePath(rawMaterialPath);
+        if (normalizedMaterialPath.empty())
+            continue;
+
+        dataStruct::Material* material = m_scene->resolveMaterialAsset(normalizedMaterialPath);
+        if (material == nullptr)
+        {
+            appendConsoleSystemMessage("[play] Failed to resolve material before preview launch: " + normalizedMaterialPath, "console_line_error");
+            return false;
+        }
+
+        const std::string diskPath = asset::AssetManager::runtimePath(normalizedMaterialPath);
+        if (!asset::MaterialAssetIO::saveDefinition(diskPath, material->getRuntimeDefinition()))
+        {
+            appendConsoleSystemMessage("[play] Failed to persist current material state before preview launch: " + normalizedMaterialPath, "console_line_error");
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -2698,14 +2789,6 @@ bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
     if (launchAction == PendingLaunchAction::PlayPreview && m_scene != nullptr && !m_runtimeSceneSnapshot.has_value())
         m_runtimeSceneSnapshot = scene_serialization::captureScene(*m_scene);
 
-    std::string scenePath;
-    if (launchAction != PendingLaunchAction::None && !prepareRuntimeSceneFile(scenePath))
-    {
-        appendConsoleSystemMessage("[editor] Failed to prepare runtime scene snapshot.", "console_line_error");
-        requestHierarchyRefresh();
-        return false;
-    }
-
     if (!prepareGeneratedGameplaySource())
     {
         requestHierarchyRefresh();
@@ -2744,7 +2827,7 @@ bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
     m_activeProcessOutputFd = outputFd;
     m_activeProcessKind = ActiveProcessKind::Build;
     m_pendingLaunchAction = launchAction;
-    m_pendingLaunchScenePath = scenePath;
+    m_pendingLaunchScenePath.clear();
     m_playbackState = PlaybackState::Stopped;
     appendConsoleSystemMessage("[build] Building runtime_game...", "console_line_info");
     refreshViewportPresentation();
@@ -2806,7 +2889,9 @@ bool SceneEditorController::startPreviewPlayer(const std::string& scenePath)
     m_runtimeDataAssetSyncSequence = 0;
     m_runtimeDataAssetStateSequence = 0;
     m_runtimeMaterialStateSequence = 0;
+    m_runtimeSelectionSyncSequence = 0;
     m_lastPlaybackStatusText.clear();
+    m_lastSentRuntimeSelectionId.reset();
     appendConsoleSystemMessage("[play] runtime_game started.", "console_line_success");
     refreshViewportPresentation();
     requestHierarchyRefresh();
@@ -2891,12 +2976,14 @@ void SceneEditorController::stopExternalProcess(bool restoreEditorScene)
     m_runtimeStateSequence = 0;
     m_runtimeDataAssetStateSequence = 0;
     m_runtimeMaterialStateSequence = 0;
+    m_runtimeSelectionSyncSequence = 0;
     m_lastPlaybackStatusText.clear();
     m_runtimeGameObjectSyncId = -1;
     m_runtimePauseSequence = 0;
     m_runtimeDataAssetSyncSequence = 0;
     m_runtimeSceneSyncPending = false;
     m_runtimeSceneStateSequence = 0;
+    m_lastSentRuntimeSelectionId.reset();
 
     std::error_code errorCode;
     std::filesystem::remove(runtime_preview::frameMetadataPath(), errorCode);
@@ -3039,6 +3126,9 @@ void SceneEditorController::syncRuntimePreviewSceneIfNeeded()
     if (m_scene == nullptr || !isExternalPreviewActive() || !m_runtimeSceneSyncPending)
         return;
 
+    if (!flushDirtyMaterialAssetsForRuntimeScene())
+        return;
+
     const std::filesystem::path scenePath = runtime_preview::previewScenePath();
     if (!scene_serialization::saveSceneToFile(*m_scene, scenePath.string()))
         return;
@@ -3053,6 +3143,27 @@ void SceneEditorController::syncRuntimePreviewSceneIfNeeded()
 
     ++m_runtimeSceneSyncSequence;
     m_runtimeSceneSyncPending = false;
+}
+
+void SceneEditorController::syncRuntimePreviewSelectionIfNeeded()
+{
+    if (!isExternalPreviewActive() || !m_pendingRuntimeSelectionId.has_value())
+        return;
+
+    if (m_lastSentRuntimeSelectionId.has_value() && *m_lastSentRuntimeSelectionId == *m_pendingRuntimeSelectionId)
+        return;
+
+    if (!writeRuntimePreviewSelectionFile(
+            runtime_preview::selectionMetadataTempPath(),
+            runtime_preview::selectionMetadataPath(),
+            m_runtimeSelectionSyncSequence + 1,
+            *m_pendingRuntimeSelectionId))
+    {
+        return;
+    }
+
+    ++m_runtimeSelectionSyncSequence;
+    m_lastSentRuntimeSelectionId = *m_pendingRuntimeSelectionId;
 }
 
 void SceneEditorController::syncRuntimePreviewGameObjectIfNeeded()
@@ -3114,6 +3225,7 @@ void SceneEditorController::pollRuntimePreviewState()
             return;
 
         m_pendingRuntimeSelectionId.reset();
+        m_lastSentRuntimeSelectionId.reset();
     }
 
     const GameObject* selectedGameObject = m_scene->getSelectedGameObject();
@@ -3264,7 +3376,6 @@ void SceneEditorController::pollExternalProcess()
 
     const ActiveProcessKind completedKind = m_activeProcessKind;
     const PendingLaunchAction launchAction = m_pendingLaunchAction;
-    const std::string launchScenePath = m_pendingLaunchScenePath;
     const bool succeeded = WIFEXITED(status) && WEXITSTATUS(status) == 0;
 
     m_activeProcessPid = -1;
@@ -3281,6 +3392,16 @@ void SceneEditorController::pollExternalProcess()
 
         if (succeeded)
         {
+            std::string launchScenePath;
+            if (launchAction != PendingLaunchAction::None && !prepareRuntimeSceneFile(launchScenePath))
+            {
+                appendConsoleSystemMessage("[editor] Failed to prepare runtime scene snapshot after build.", "console_line_error");
+                m_playbackState = PlaybackState::Stopped;
+                refreshViewportPresentation();
+                requestHierarchyRefresh();
+                return;
+            }
+
             if (launchAction == PendingLaunchAction::PlayPreview)
             {
                 if (!startPreviewPlayer(launchScenePath))

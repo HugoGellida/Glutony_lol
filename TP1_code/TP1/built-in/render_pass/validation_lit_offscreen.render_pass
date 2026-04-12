@@ -16,7 +16,7 @@
       "iterator": "light",
       "uniformFactory": "built-in/uniform_factory/light_shadow_map.uniform_factory",
       "uniforms": [],
-      "target": { "name": "shadow_gbuffer", "shared": true },
+      "target": { "name": "shadow_gbuffer", "shared": true, "width": 2048, "height": 2048, "format": "float" },
       "clear": true,
       "blend": false,
       "depth": "clear"
@@ -33,7 +33,7 @@
           "value": { "name": "shadow_gbuffer", "shared": true }
         }
       ],
-      "target": { "name": "light_occlusion", "shared": true },
+      "target": { "name": "light_occlusion", "shared": true, "format": "float" },
       "clear": true,
       "blend": false,
       "depth": "clear"

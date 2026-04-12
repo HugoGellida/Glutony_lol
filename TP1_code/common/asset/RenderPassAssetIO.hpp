@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../render/SceneRenderTargetSettings.hpp"
+
 #include <glm/glm.hpp>
 
 #include <fstream>
@@ -60,6 +62,10 @@ struct RenderTargetAssetReference
 {
     std::string name;
     bool shared = false;
+    int width = 0;
+    int height = 0;
+    render::RenderTargetFormat format = render::RenderTargetFormat::Rgba;
+    bool hasFormat = false;
 };
 
 enum class RenderPassIterator
@@ -398,6 +404,25 @@ private:
                 {
                     if (!parseBool(value.shared))
                         return false;
+                }
+                else if (key == "width")
+                {
+                    if (!parseInt(value.width))
+                        return false;
+                    value.width = std::max(0, value.width);
+                }
+                else if (key == "height")
+                {
+                    if (!parseInt(value.height))
+                        return false;
+                    value.height = std::max(0, value.height);
+                }
+                else if (key == "format")
+                {
+                    std::string rawValue;
+                    if (!parseString(rawValue) || !render::parseRenderTargetFormat(rawValue, value.format))
+                        return false;
+                    value.hasFormat = true;
                 }
                 else
                 {
@@ -880,7 +905,14 @@ private:
 
     static bool writeRenderTargetReference(std::ostream& output, const RenderTargetAssetReference& value)
     {
-        output << "{ \"name\": \"" << value.name << "\", \"shared\": " << (value.shared ? "true" : "false") << " }";
+        output << "{ \"name\": \"" << value.name << "\", \"shared\": " << (value.shared ? "true" : "false");
+        if (value.width > 0)
+            output << ", \"width\": " << value.width;
+        if (value.height > 0)
+            output << ", \"height\": " << value.height;
+        if (value.hasFormat)
+            output << ", \"format\": \"" << render::renderTargetFormatName(value.format) << "\"";
+        output << " }";
         return static_cast<bool>(output);
     }
 

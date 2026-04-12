@@ -127,7 +127,7 @@ std::string trimCopy(const std::string& value)
 std::string formatFloat(float value)
 {
     std::ostringstream stream;
-    stream << std::fixed << std::setprecision(3) << value;
+    stream << std::fixed << std::setprecision(6) << value;
     return trimCopy(stream.str());
 }
 
@@ -274,6 +274,8 @@ std::string buildInspectorFieldMarkup(
         stream << "<input id='" << fieldId << "' class='" << fieldClass << "' type='";
         stream << ((fieldKind == component_meta::FieldKind::Float || fieldKind == component_meta::FieldKind::Int) ? "number" : "text");
         stream << "' value='" << escapeRmlText(formattedValue) << "'";
+        if (fieldKind == component_meta::FieldKind::Float)
+            stream << " step='any'";
         if (isAssetField)
             stream << " placeholder='" << escapeRmlText(assetReferenceKindLabel(assetReferenceKind)) << "'";
         stream << " />";
