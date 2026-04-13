@@ -79,6 +79,11 @@ int totalIterationCount(const std::vector<render::LightInput>& lights)
     return total;
 }
 
+int logicalLightIterationCount(const std::vector<render::LightInput>& lights)
+{
+    return static_cast<int>(lights.size());
+}
+
 bool selectIteration(const render::UniformFactoryExecutionContext& context, IterationSelection& selection)
 {
     if (context.scene == nullptr)
@@ -106,6 +111,22 @@ bool selectIteration(const render::UniformFactoryExecutionContext& context, Iter
     }
 
     return false;
+}
+
+bool selectLightIteration(const render::UniformFactoryExecutionContext& context, render::LightInput& light)
+{
+    if (context.scene == nullptr)
+        return false;
+
+    const std::vector<render::LightInput> lights = context.scene->collectLightInputs();
+    const int expectedIterationCount = logicalLightIterationCount(lights);
+    if (context.currentIteration < 0 || context.currentIteration >= expectedIterationCount)
+        return false;
+    if (context.iterationCount != expectedIterationCount)
+        return false;
+
+    light = lights[context.currentIteration];
+    return true;
 }
 
 glm::mat4 buildLightProjectionView(const render::UniformFactoryExecutionContext& context, const IterationSelection& selection)
@@ -167,7 +188,30 @@ int iterationCount(const render::UniformFactoryExecutionContext& context)
     return totalIterationCount(context.scene->collectLightInputs());
 }
 
+int lightIterationCount(const render::UniformFactoryExecutionContext& context)
+{
+    if (context.scene == nullptr)
+        return 0;
+
+    return logicalLightIterationCount(context.scene->collectLightInputs());
+}
+
 bool buildUniforms(const render::UniformFactoryExecutionContext& context, const render::UniformFactoryWriter& writer)
+{
+    if (context.camera == nullptr || context.transform == nullptr)
+        return false;
+
+    render::LightInput light;
+    if (!selectLightIteration(context, light))
+        return false;
+
+    const glm::mat4 model = context.transform->getModelWorld();
+    writeCameraUniforms(context, writer, model);
+    writeLightUniforms(writer, light);
+    return true;
+}
+
+bool buildLegacyUniforms(const render::UniformFactoryExecutionContext& context, const render::UniformFactoryWriter& writer)
 {
     if (context.camera == nullptr || context.transform == nullptr)
         return false;

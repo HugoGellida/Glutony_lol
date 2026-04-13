@@ -457,6 +457,86 @@ private:
         return normalizeRenderTargetName(target.name) + '|' + (target.shared ? '1' : '0');
     }
 
+    static int totalLogicalLightCount(const std::vector<LightInput>& lights)
+    {
+        return static_cast<int>(lights.size());
+    }
+
+    static int totalExpandedLightIterationCount(const std::vector<LightInput>& lights)
+    {
+        int total = 0;
+        for (const LightInput& light : lights)
+            total += light.type == LightType::Point ? 6 : 1;
+        return total;
+    }
+
+    static bool tryResolveLogicalLightIndex(
+        const std::vector<LightInput>& lights,
+        int currentIteration,
+        int iterationCount,
+        int& logicalLightIndexOut)
+    {
+        if (lights.empty() || currentIteration < 0 || iterationCount <= 0)
+            return false;
+
+        const int logicalLightCount = totalLogicalLightCount(lights);
+        if (iterationCount == logicalLightCount)
+        {
+            if (currentIteration >= logicalLightCount)
+                return false;
+
+            logicalLightIndexOut = currentIteration;
+            return true;
+        }
+
+        if (iterationCount != totalExpandedLightIterationCount(lights))
+            return false;
+
+        int iterationOffset = 0;
+        for (int lightIndex = 0; lightIndex < logicalLightCount; ++lightIndex)
+        {
+            const int lightIterationCount = lights[lightIndex].type == LightType::Point ? 6 : 1;
+            if (currentIteration < iterationOffset + lightIterationCount)
+            {
+                logicalLightIndexOut = lightIndex;
+                return true;
+            }
+
+            iterationOffset += lightIterationCount;
+        }
+
+        return false;
+    }
+
+    static std::string appendTargetGroupSuffix(const std::string& key, const std::string& targetGroupSuffix)
+    {
+        return targetGroupSuffix.empty() ? key : key + targetGroupSuffix;
+    }
+
+    static std::string resolveLightTargetGroupSuffix(
+        const Batch& batch,
+        const std::vector<LightInput>& lights,
+        int currentIteration,
+        int iterationCount)
+    {
+        if (batch.iterator != asset::RenderPassIterator::Light)
+            return "";
+
+        int logicalLightIndex = 0;
+        if (!tryResolveLogicalLightIndex(lights, currentIteration, iterationCount, logicalLightIndex))
+            return "";
+
+        return "@light" + std::to_string(logicalLightIndex);
+    }
+
+    static std::string resolveBatchTargetInstanceKey(const Batch& batch, const std::string& targetGroupSuffix)
+    {
+        if (!batch.targetInstanceKey.empty())
+            return appendTargetGroupSuffix(batch.targetInstanceKey, targetGroupSuffix);
+
+        return appendTargetGroupSuffix(renderTargetLogicalKey(batch.pass.target), targetGroupSuffix);
+    }
+
     static const SceneRenderTargetSettings* findRenderTargetSettings(const std::vector<SceneRenderTargetSettings>& settings, const std::string& rawName)
     {
         const std::string normalizedName = normalizeRenderTargetName(rawName);
@@ -1146,7 +1226,7 @@ private:
         return true;
     }
 
-    bool bindBatchTarget(const Batch& batch, const std::vector<SceneRenderTargetSettings>& renderTargets, const GLint viewport[4], const GLint finalFramebuffer)
+    bool bindBatchTarget(const Batch& batch, const std::string& targetInstanceKey, const std::vector<SceneRenderTargetSettings>& renderTargets, const GLint viewport[4], const GLint finalFramebuffer)
     {
         const std::string normalizedTargetName = normalizeRenderTargetName(batch.pass.target.name);
         if (normalizedTargetName.empty() || isFinalRenderTargetName(normalizedTargetName))
@@ -1167,7 +1247,7 @@ private:
             ? settings->format
             : (batch.pass.target.hasFormat ? batch.pass.target.format : RenderTargetFormat::Rgba);
 
-        RenderTargetResource& resource = m_renderTargets[batch.targetInstanceKey];
+        RenderTargetResource& resource = m_renderTargets[targetInstanceKey];
         if (!resource.ensure(width, height, format))
         {
             std::cerr << "[render] Failed to allocate render target: " << normalizedTargetName << std::endl;
@@ -1293,7 +1373,6 @@ public:
         const std::vector<SceneRenderTargetSettings>& renderTargets,
         const std::vector<LightInput>& lights)
     {
-        (void)lights;
         const std::size_t nextStructureHash = computeStructureHash(gameObjects, gameObjectCount);
         const bool structureChanged = nextStructureHash != m_structureHash;
         const bool dependencyStateChanged = dependenciesChanged();
@@ -1317,17 +1396,30 @@ public:
 
         std::unordered_map<std::string, std::string> producedRenderTargetInstances;
         std::unordered_set<std::string> initializedRenderTargets;
+        std::unordered_set<std::string> liveRenderTargetInstanceKeys;
         bool renderedAnything = false;
         const auto renderBatch = [&](const Batch& batch, int currentIteration, int iterationCount) {
         {
-            if (!bindBatchTarget(batch, renderTargets, initialViewport, initialFramebuffer))
+                const std::string normalizedTargetName = normalizeRenderTargetName(batch.pass.target.name);
+                const bool writesFinalTarget = normalizedTargetName.empty() || isFinalRenderTargetName(normalizedTargetName);
+                const std::string targetGroupSuffix = resolveLightTargetGroupSuffix(batch, lights, currentIteration, iterationCount);
+                const std::string groupedTargetLogicalKey = writesFinalTarget
+                    ? std::string()
+                    : appendTargetGroupSuffix(batch.targetLogicalKey, targetGroupSuffix);
+                const std::string groupedTargetInstanceKey = writesFinalTarget
+                    ? std::string()
+                    : resolveBatchTargetInstanceKey(batch, targetGroupSuffix);
+
+            if (!bindBatchTarget(batch, groupedTargetInstanceKey, renderTargets, initialViewport, initialFramebuffer))
                     return;
 
-                const std::string normalizedTargetName = normalizeRenderTargetName(batch.pass.target.name);
+                if (!groupedTargetInstanceKey.empty())
+                    liveRenderTargetInstanceKeys.insert(groupedTargetInstanceKey);
+
                 const std::string targetUseKey =
-                    normalizedTargetName.empty() || isFinalRenderTargetName(normalizedTargetName)
+                    writesFinalTarget
                         ? std::string("__final__")
-                        : (!batch.targetInstanceKey.empty() ? batch.targetInstanceKey : renderTargetLogicalKey(batch.pass.target));
+                        : groupedTargetInstanceKey;
 
                 GLbitfield clearMask = 0;
                 if (initializedRenderTargets.insert(targetUseKey).second)
@@ -1349,7 +1441,9 @@ public:
                         return 0;
 
                     const std::string logicalKey = renderTargetLogicalKey(reference);
-                    const auto producedIt = producedRenderTargetInstances.find(logicalKey);
+                    auto producedIt = producedRenderTargetInstances.find(appendTargetGroupSuffix(logicalKey, targetGroupSuffix));
+                    if (producedIt == producedRenderTargetInstances.end() && !targetGroupSuffix.empty())
+                        producedIt = producedRenderTargetInstances.find(logicalKey);
                     if (producedIt == producedRenderTargetInstances.end())
                         return 0;
 
@@ -1366,8 +1460,8 @@ public:
                         renderedAnything = true;
                 }
 
-                if (!batch.targetInstanceKey.empty())
-                    producedRenderTargetInstances[batch.targetLogicalKey] = batch.targetInstanceKey;
+                if (!groupedTargetInstanceKey.empty())
+                    producedRenderTargetInstances[groupedTargetLogicalKey] = groupedTargetInstanceKey;
 
                 glDisable(GL_BLEND);
             }
@@ -1406,6 +1500,14 @@ public:
 
         glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(initialFramebuffer));
         glViewport(initialViewport[0], initialViewport[1], initialViewport[2], initialViewport[3]);
+
+        for (auto it = m_renderTargets.begin(); it != m_renderTargets.end(); )
+        {
+            if (liveRenderTargetInstanceKeys.find(it->first) == liveRenderTargetInstanceKeys.end())
+                it = m_renderTargets.erase(it);
+            else
+                ++it;
+        }
 
         return renderedAnything;
     }

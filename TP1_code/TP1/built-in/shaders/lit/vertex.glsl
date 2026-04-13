@@ -13,12 +13,14 @@ uniform mat4 MVP_ORTHO;
 uniform mat4 MODEL;
 
 out vec3 _normals;
+out vec4 _clipPosition;
 out vec2 _uvs;
 out vec3 _colors;
 out vec3 _worldPos;
 
 void main(){
         gl_Position = MVP * vec4(vertices, 1);
+        _clipPosition = gl_Position;
         _normals = (MVP_ORTHO * vec4(normals, 0)).xyz;
         _uvs = uvs;
         _colors = colors;

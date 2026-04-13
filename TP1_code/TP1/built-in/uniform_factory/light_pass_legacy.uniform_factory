@@ -1,7 +1,7 @@
 {
   "source": "light_pass.cpp",
-  "entry": "buildUniforms",
-  "iterationEntry": "lightIterationCount",
+  "entry": "buildLegacyUniforms",
+  "iterationEntry": "iterationCount",
   "requiresLight": true,
   "outputs": [
     { "name": "MVP", "type": "mat4" },

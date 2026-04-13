@@ -1,6 +1,7 @@
 #version 330 core
 
 in vec3 _normals;
+in vec4 _clipPosition;
 in vec2 _uvs;
 in vec3 _colors;
 in vec3 _worldPos;
@@ -26,7 +27,8 @@ void main(){
         }
 
         float ndl = max(dot(normal, lightVector), 0.0f);
-        vec2 occlusionUv = gl_FragCoord.xy / vec2(textureSize(_lightOcclusionTex, 0));
+        vec2 occlusionUv = (_clipPosition.xy / max(_clipPosition.w, 1e-6f)) * 0.5f + 0.5f;
+        occlusionUv = clamp(occlusionUv, vec2(0.0f), vec2(1.0f));
         float occlusion = clamp(texture(_lightOcclusionTex, occlusionUv).r, 0.0f, 1.0f);
         color = _mainCol * _lightColor * (_lightIntensity * ndl * attenuation * occlusion);
 }
