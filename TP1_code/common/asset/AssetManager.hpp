@@ -8,12 +8,15 @@
 #include "UniformFactoryAssetIO.hpp"
 #include "SceneScriptAssetIO.hpp"
 #include "common/FileLoader.hpp"
+#include "common/app/RuntimePaths.hpp"
 #include "common/gameobject/component/Mesh.hpp"
 #include "common/shader/LitMaterial.hpp"
 #include "common/shader/Shader.hpp"
 #include "common/shader/UnlitMaterial.hpp"
 
 #include <algorithm>
+#include <exception>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -34,6 +37,7 @@ enum class AssetType
     Data,
     SceneScript,
     ComponentScript,
+    Texture,
 };
 
 struct AssetTypeHash
@@ -79,6 +83,7 @@ class AssetManager
 {
 private:
     std::unordered_map<std::string, component::Mesh*> m_meshAssets;
+    std::unordered_map<std::string, std::filesystem::file_time_type> m_meshWriteTimes;
     std::unordered_map<std::string, std::unique_ptr<Shader>> m_shaderAssets;
     std::unordered_map<std::string, std::unique_ptr<dataStruct::Material>> m_materialAssets;
     std::unordered_map<std::string, RenderPhaseAssetDefinition> m_renderPhaseAssets;
@@ -145,7 +150,11 @@ private:
                 break;
             case MaterialUniformKind::Texture:
                 if (!uniform.textureAssetPath.empty())
-                    material->addTexture(uniform.name, runtimePath(uniform.textureAssetPath));
+                {
+                    const std::string resolvedTexturePath = resolveTextureRuntimePath(uniform.textureAssetPath);
+                    if (!resolvedTexturePath.empty())
+                        material->addTextureAsset(uniform.name, uniform.textureAssetPath, resolvedTexturePath);
+                }
                 break;
             }
         }
@@ -161,6 +170,59 @@ private:
         std::vector<std::string>& paths = m_assetPaths[type];
         if (std::find(paths.begin(), paths.end(), relativePath) == paths.end())
             paths.push_back(relativePath);
+    }
+
+    static std::filesystem::file_time_type safeLastWriteTime(const std::string& path)
+    {
+        std::error_code errorCode;
+        const std::filesystem::file_time_type writeTime = std::filesystem::last_write_time(path, errorCode);
+        if (errorCode)
+            return std::filesystem::file_time_type::min();
+        return writeTime;
+    }
+
+    std::unique_ptr<component::Mesh> loadMeshFromDisk(const std::string& normalizedPath)
+    {
+        const std::string diskPath = runtimePath(normalizedPath);
+
+        try
+        {
+            std::unique_ptr<component::Mesh> mesh(fileLoader::loadModelFile(diskPath));
+            if (mesh != nullptr)
+                mesh->setAssetPath(normalizedPath);
+            return mesh;
+        }
+        catch (const std::exception& exception)
+        {
+            std::cerr << "Failed to load mesh asset: " << normalizedPath << " (" << exception.what() << ")" << std::endl;
+        }
+        catch (const char* message)
+        {
+            std::cerr << "Failed to load mesh asset: " << normalizedPath << " (" << message << ")" << std::endl;
+        }
+        catch (...)
+        {
+            std::cerr << "Failed to load mesh asset: " << normalizedPath << std::endl;
+        }
+
+        return nullptr;
+    }
+
+    bool reloadMeshAssetInPlace(const std::string& normalizedPath,
+                                component::Mesh& existingMesh,
+                                const std::filesystem::file_time_type& writeTime)
+    {
+        std::unique_ptr<component::Mesh> reloadedMesh = loadMeshFromDisk(normalizedPath);
+        m_meshWriteTimes[normalizedPath] = writeTime;
+        if (reloadedMesh == nullptr)
+        {
+            std::cerr << "Mesh reload failed for " << normalizedPath << ". Keeping previous valid mesh." << std::endl;
+            return false;
+        }
+
+        existingMesh.replaceGeometryFrom(*reloadedMesh);
+        existingMesh.setAssetPath(normalizedPath);
+        return true;
     }
 
 public:
@@ -205,7 +267,7 @@ public:
 
     static std::string runtimePath(const std::string& relativePath)
     {
-        return "./" + normalizeRelativePath(relativePath);
+        return runtime_app::runtimePath(normalizeRelativePath(relativePath));
     }
 
     static bool hasExtension(const std::string& path, const std::string& extension)
@@ -214,6 +276,47 @@ public:
             return false;
 
         return path.compare(path.size() - extension.size(), extension.size(), extension) == 0;
+    }
+
+    static bool isTextureAssetPath(const std::string& path)
+    {
+        std::string extension = std::filesystem::path(normalizeRelativePath(path)).extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+
+        return extension == ".png" ||
+               extension == ".jpg" ||
+               extension == ".jpeg" ||
+               extension == ".bmp" ||
+               extension == ".tga";
+    }
+
+    std::string resolveTextureRuntimePath(const std::string& relativePath, bool logErrors = true)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (normalizedPath.empty())
+            return "";
+
+        if (!isTextureAssetPath(normalizedPath))
+        {
+            if (logErrors)
+                std::cerr << "Texture asset must use a supported image extension: " << normalizedPath << std::endl;
+            return "";
+        }
+
+        registerGlobalAsset(AssetType::Texture, normalizedPath);
+
+        const std::string diskPath = runtimePath(normalizedPath);
+        std::error_code errorCode;
+        if (!std::filesystem::exists(diskPath, errorCode) || errorCode)
+        {
+            if (logErrors)
+                std::cerr << "Failed to resolve texture asset: " << normalizedPath << std::endl;
+            return "";
+        }
+
+        return diskPath;
     }
 
     component::Mesh* loadMesh(const std::string& relativePath)
@@ -225,14 +328,39 @@ public:
         if (it != m_meshAssets.end())
             return it->second;
 
-        component::Mesh* mesh = fileLoader::loadModelFile(runtimePath(normalizedPath));
+        std::unique_ptr<component::Mesh> mesh = loadMeshFromDisk(normalizedPath);
         if (mesh == nullptr)
             return nullptr;
 
-        mesh->setAssetPath(normalizedPath);
-        mesh->ownerCount++;
-        m_meshAssets[normalizedPath] = mesh;
-        return mesh;
+        component::Mesh* meshPtr = mesh.get();
+        meshPtr->ownerCount++;
+        m_meshAssets[normalizedPath] = mesh.release();
+        m_meshWriteTimes[normalizedPath] = safeLastWriteTime(runtimePath(normalizedPath));
+        return meshPtr;
+    }
+
+    void refreshLoadedMeshesIfSourcesChanged()
+    {
+        for (auto& entry : m_meshAssets)
+        {
+            component::Mesh* mesh = entry.second;
+            if (mesh == nullptr)
+                continue;
+
+            const std::string diskPath = runtimePath(entry.first);
+            const std::filesystem::file_time_type currentWriteTime = safeLastWriteTime(diskPath);
+            auto observedWriteTime = m_meshWriteTimes.find(entry.first);
+            if (observedWriteTime == m_meshWriteTimes.end())
+            {
+                m_meshWriteTimes[entry.first] = currentWriteTime;
+                continue;
+            }
+
+            if (observedWriteTime->second == currentWriteTime)
+                continue;
+
+            reloadMeshAssetInPlace(entry.first, *mesh, currentWriteTime);
+        }
     }
 
     Shader* loadShader(const std::string& relativePath)

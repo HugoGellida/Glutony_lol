@@ -49,9 +49,10 @@ set(RMLUI_SVG_PLUGIN OFF CACHE BOOL "" FORCE)
 set(RMLUI_PRECOMPILED_HEADERS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
-option(GLUTONY_FETCH_FREETYPE "Download and build Freetype when it is not available on the host" ON)
+option(GLUTONY_FETCH_FREETYPE "Download and build a bundled static copy of Freetype for standalone runtimes" ON)
+option(GLUTONY_USE_SYSTEM_FREETYPE "Link against the system Freetype instead of the bundled static copy" OFF)
 
-if(GLUTONY_FETCH_FREETYPE)
+if(GLUTONY_USE_SYSTEM_FREETYPE)
     find_package(Freetype QUIET)
 
     if(FREETYPE_FOUND AND NOT TARGET Freetype::Freetype)
@@ -61,44 +62,47 @@ if(GLUTONY_FETCH_FREETYPE)
             INTERFACE_LINK_LIBRARIES "${FREETYPE_LIBRARIES}"
         )
     endif()
+elseif(GLUTONY_FETCH_FREETYPE)
+    message(STATUS "Fetching a bundled static copy of Freetype for RmlUi.")
 
-    if(NOT TARGET Freetype::Freetype)
-        message(STATUS "Freetype not found on the host, fetching a static copy for RmlUi.")
+    set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
 
-        set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
-        set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
-        set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
-        set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
-        set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        freetype
+        URL https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz
+    )
 
-        FetchContent_Declare(
-            freetype
-            URL https://download.savannah.gnu.org/releases/freetype/freetype-2.13.3.tar.xz
-            DOWNLOAD_EXTRACT_TIMESTAMP FALSE
-        )
-
-        if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.14")
-            FetchContent_MakeAvailable(freetype)
-        else()
-            FetchContent_GetProperties(freetype)
-            if(NOT freetype_POPULATED)
-                FetchContent_Populate(freetype)
-                add_subdirectory(${freetype_SOURCE_DIR} ${freetype_BINARY_DIR} EXCLUDE_FROM_ALL)
-            endif()
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.14")
+        FetchContent_MakeAvailable(freetype)
+    else()
+        FetchContent_GetProperties(freetype)
+        if(NOT freetype_POPULATED)
+            FetchContent_Populate(freetype)
+            add_subdirectory(${freetype_SOURCE_DIR} ${freetype_BINARY_DIR} EXCLUDE_FROM_ALL)
         endif()
+    endif()
 
-        if(TARGET freetype AND NOT TARGET Freetype::Freetype)
-            add_library(Freetype::Freetype ALIAS freetype)
-        endif()
+    if(TARGET freetype AND NOT TARGET Freetype::Freetype)
+        add_library(Freetype::Freetype ALIAS freetype)
     endif()
 endif()
 
 if(NOT TARGET Freetype::Freetype)
     message(FATAL_ERROR
-        "Freetype is required by RmlUi. Install it on the host or leave GLUTONY_FETCH_FREETYPE=ON "
+        "Freetype is required by RmlUi. Enable GLUTONY_USE_SYSTEM_FREETYPE to use a host package or leave GLUTONY_FETCH_FREETYPE=ON "
         "to build a bundled static copy automatically."
     )
 endif()
+
+function(glutony_enable_portable_runtime_linking target_name)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_link_options(${target_name} PRIVATE -static-libstdc++ -static-libgcc)
+    endif()
+endfunction()
 
 # Compile external dependencies
 add_subdirectory(external)
@@ -286,15 +290,6 @@ function(glutony_configure_runtime_assets target_name runtime_working_directory)
         VS_DEBUGGER_WORKING_DIRECTORY "${runtime_working_directory}"
         XCODE_ATTRIBUTE_CONFIGURATION_BUILD_DIR "${runtime_working_directory}"
     )
-
-    if(target_name STREQUAL "TP1" AND NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
-        add_custom_command(
-            TARGET ${target_name} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy
-                    "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/$<TARGET_FILE_NAME:${target_name}>"
-                    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/"
-        )
-    endif()
 endfunction()
 
 if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
@@ -313,6 +308,17 @@ if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
     COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in"
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in"
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "${CMAKE_CURRENT_BINARY_DIR}/built-in/fonts"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/RmlUi/Samples/assets/LatoLatin-Regular.ttf"
+            "${CMAKE_CURRENT_BINARY_DIR}/built-in/fonts/LatoLatin-Regular.ttf"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/RmlUi/Samples/assets/LatoLatin-Bold.ttf"
+            "${CMAKE_CURRENT_BINARY_DIR}/built-in/fonts/LatoLatin-Bold.ttf"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/RmlUi/Samples/assets/LICENSE.txt"
+            "${CMAKE_CURRENT_BINARY_DIR}/built-in/fonts/LICENSE.txt"
         COMMAND ${CMAKE_COMMAND} -E rm -f
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/lit_default.material.json"
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/selection_highlight.material.json"
@@ -348,6 +354,9 @@ endif()
 target_link_libraries(TP1 PRIVATE app_common editor_support gameplay_sources)
 target_link_libraries(runtime_game PRIVATE app_common engine_core gameplay_sources)
 
+glutony_enable_portable_runtime_linking(TP1)
+glutony_enable_portable_runtime_linking(runtime_game)
+
 if(WIN32)
     target_link_libraries(TP1 PRIVATE Comdlg32)
     target_link_libraries(runtime_game PRIVATE Comdlg32)
@@ -362,7 +371,7 @@ if(TARGET glutony_sync_editor_runtime_assets)
     add_dependencies(TP1 glutony_sync_editor_runtime_assets)
 endif()
 
-glutony_configure_runtime_assets(TP1 "${CMAKE_CURRENT_SOURCE_DIR}/TP1/")
+glutony_configure_runtime_assets(TP1 "${CMAKE_CURRENT_BINARY_DIR}")
 glutony_configure_runtime_assets(runtime_game "${CMAKE_CURRENT_BINARY_DIR}")
 
 SOURCE_GROUP(common REGULAR_EXPRESSION ".*/common/.*")

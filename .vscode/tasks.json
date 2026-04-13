@@ -10,6 +10,21 @@
 			"type": "shell",
 			"command": "true",
 			"isBackground": false
+		},
+		{
+			"label": "build-runtime-game",
+			"type": "shell",
+			"command": "cmake",
+			"args": [
+				"--build",
+				"${workspaceFolder}/TP1_code/build",
+				"--target",
+				"runtime_game",
+				"--parallel",
+				"4"
+			],
+			"isBackground": false,
+			"group": "build"
 		}
 	],
 	"version": "2.0.0"

@@ -16,6 +16,7 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
+#include <common/app/RuntimePaths.hpp>
 #include <common/app/RuntimePreviewSession.hpp>
 #include <common/app/RuntimeWindow.hpp>
 #include <common/Scene.hpp>
@@ -825,6 +826,8 @@ void setup_glfw_callbacks(GLFWwindow* glfwWindow)
 
 int main(int argc, char** argv)
 {
+    runtime_app::adoptProcessWorkingDirectoryToRuntimeRoot();
+
     RuntimeOptions runtimeOptions;
     parseRuntimeOptions(argc, argv, runtimeOptions);
 

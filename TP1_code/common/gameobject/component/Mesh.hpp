@@ -105,6 +105,44 @@ namespace component
             m_onGPU = false;
         }
 
+        void replaceGeometryFrom(Mesh& replacement)
+        {
+            if (&replacement == this)
+                return;
+
+            delete[] m_vertices;
+            delete[] m_normals;
+            delete[] m_colors;
+            delete[] m_uvs;
+            delete[] m_triangles;
+
+            m_vertices = replacement.m_vertices;
+            m_normals = replacement.m_normals;
+            m_colors = replacement.m_colors;
+            m_uvs = replacement.m_uvs;
+            m_triangles = replacement.m_triangles;
+            m_vStride = replacement.m_vStride;
+            m_tStride = replacement.m_tStride;
+            m_hasNormals = replacement.m_hasNormals;
+            m_hasColors = replacement.m_hasColors;
+            m_hasUVs = replacement.m_hasUVs;
+            m_onGPU = false;
+            m_boundsDirty = true;
+
+            replacement.m_vertices = nullptr;
+            replacement.m_normals = nullptr;
+            replacement.m_colors = nullptr;
+            replacement.m_uvs = nullptr;
+            replacement.m_triangles = nullptr;
+            replacement.m_vStride = 0;
+            replacement.m_tStride = 0;
+            replacement.m_hasNormals = false;
+            replacement.m_hasColors = false;
+            replacement.m_hasUVs = false;
+            replacement.m_onGPU = false;
+            replacement.m_boundsDirty = true;
+        }
+
         void computeNormals()
         {
 

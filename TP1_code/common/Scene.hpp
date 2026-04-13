@@ -121,6 +121,11 @@ private:
             refreshMaterialAsset(materialPath);
     }
 
+    void refreshMeshesForChangedSources()
+    {
+        asset::AssetManager::instance().refreshLoadedMeshesIfSourcesChanged();
+    }
+
     component::Mesh* useProceduralPlaneAsset()
     {
         const std::string assetPath = proceduralPlaneAssetPath();
@@ -307,6 +312,7 @@ public:
         double mouseAnchorX = 0.0,
         double mouseAnchorY = 0.0)
     {
+        refreshMeshesForChangedSources();
         refreshMaterialsForChangedShaders();
 
         if (m_physicsSimulationEnabled)

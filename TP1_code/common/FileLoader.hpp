@@ -3,6 +3,8 @@
 #include <string>
 #include <iostream>
 #include <fstream>
+#include <sstream>
+#include <unordered_map>
 #include <vector>
 #include "common/gameobject/component/Mesh.hpp"
 #include <glm/glm.hpp>
@@ -344,125 +346,214 @@ namespace fileLoader
         return mesh;
     }
 
+    struct ObjVertexKey
+    {
+        int positionIndex = -1;
+        int texcoordIndex = -1;
+        int normalIndex = -1;
+    };
+
+    inline int resolveObjIndex(const int rawIndex, const size_t count)
+    {
+        if (rawIndex > 0)
+            return rawIndex - 1;
+        if (rawIndex < 0)
+            return static_cast<int>(count) + rawIndex;
+        return -1;
+    }
+
+    inline bool parseObjVertexKey(const std::string& token,
+                                  const size_t positionCount,
+                                  const size_t texcoordCount,
+                                  const size_t normalCount,
+                                  ObjVertexKey& keyOut)
+    {
+        keyOut = ObjVertexKey();
+
+        const size_t firstSlash = token.find('/');
+        const size_t secondSlash = firstSlash == std::string::npos ? std::string::npos : token.find('/', firstSlash + 1);
+
+        const std::string positionToken = firstSlash == std::string::npos ? token : token.substr(0, firstSlash);
+        const std::string texcoordToken = firstSlash == std::string::npos
+            ? std::string()
+            : token.substr(firstSlash + 1, (secondSlash == std::string::npos ? token.size() : secondSlash) - firstSlash - 1);
+        const std::string normalToken = secondSlash == std::string::npos ? std::string() : token.substr(secondSlash + 1);
+
+        if (positionToken.empty())
+            return false;
+
+        try
+        {
+            keyOut.positionIndex = resolveObjIndex(std::stoi(positionToken), positionCount);
+            if (!texcoordToken.empty())
+                keyOut.texcoordIndex = resolveObjIndex(std::stoi(texcoordToken), texcoordCount);
+            if (!normalToken.empty())
+                keyOut.normalIndex = resolveObjIndex(std::stoi(normalToken), normalCount);
+        }
+        catch (const std::exception&)
+        {
+            return false;
+        }
+
+        if (keyOut.positionIndex < 0 || keyOut.positionIndex >= static_cast<int>(positionCount))
+            return false;
+        if (keyOut.texcoordIndex >= static_cast<int>(texcoordCount))
+            return false;
+        if (keyOut.normalIndex >= static_cast<int>(normalCount))
+            return false;
+
+        return true;
+    }
+
+    inline std::string makeObjVertexKeyId(const ObjVertexKey& key)
+    {
+        return std::to_string(key.positionIndex) + "/" + std::to_string(key.texcoordIndex) + "/" + std::to_string(key.normalIndex);
+    }
+
 
     static component::Mesh * LoadObj(string path)
     {
-        // 1. open file
-        //   1.1. count elems
-        // 2. construct temp buffers
-        // 3. convert to internal mesh class
-        // 4. return it.
-                std::ifstream fileStream(path, std::ios::in);
-
+        std::ifstream fileStream(path, std::ios::in);
         if (!fileStream.is_open()) {
             throw "File could not be opened";
         }
 
-        uint vStride = 0;
-        uint tStride = 0;
-        uint nStride = 0;
-        // v vn vt f , g
-        std::string line = "";
-        while (!fileStream.eof()) { 
-            getline(fileStream, line);
-            if (line.size() > 2)
-            {
-                if (line[0] == 'v' && line[1] == ' ')
-                    vStride++;
-                if (line[0] == 'f' && line[1] == ' ')
-                {
-                    if (__objLineQuad(2, line))
-                        tStride+=2;
-                    else
-                        tStride++;
-                }
-                if (line[0] == 'v' && line[1] == 'n')
-                    nStride++;
-            }
-        }
-        fileStream.close();
+        std::vector<glm::vec3> positions;
+        std::vector<glm::vec3> normals;
+        std::vector<glm::vec2> texcoords;
+        std::vector<ObjVertexKey> triangleVertices;
+        triangleVertices.reserve(1024);
 
-        vector<float> verts = vector<float>(vStride * 3);
-        vector<uint> tri = vector<uint>(tStride * 3);
-        vector<float> norm = vector<float>(nStride * 3);
-        vector<uint> normConv = vector<uint>(vStride * 3);
-        std::ifstream fileStream2(path, std::ios::in);
-        // now reread to actually collect and parse.
-        if (!fileStream2.is_open()) {
-            throw "File could not be opened";
-        }
-        uint v = 0;
-        uint t = 0;
-        uint n = 0;
-        line = "";
-        component::Mesh * mesh = new component::Mesh(vStride, tStride, nStride > 0);
-        while (!fileStream2.eof())
+        bool sawAnyTexcoords = false;
+        bool allReferencedNormalsAvailable = true;
+
+        std::string line;
+        while (std::getline(fileStream, line))
         {
-            getline(fileStream2, line);
-            if (line[0] == 'v' && line[1] == ' ')
+            if (line.size() < 2 || line[0] == '#')
+                continue;
+
+            std::istringstream stream(line);
+            std::string prefix;
+            stream >> prefix;
+
+            if (prefix == "v")
             {
-                uint i = 2;
-                verts[v*3] = readFloat(i, line);
-                verts[v*3+1] = readFloat(++i, line);
-                verts[v*3+2] = readFloat(++i, line);
-                v++;
+                float x = 0.0f;
+                float y = 0.0f;
+                float z = 0.0f;
+                if (stream >> x >> y >> z)
+                    positions.push_back(glm::vec3(x, y, z));
             }
-            else if (line[0] == 'v' && line[1] == 'n')
+            else if (prefix == "vn")
             {
-                uint i = 2;
-                norm[n*3] = readFloat(i, line);
-                norm[n*3+1] = readFloat(++i, line);
-                norm[n*3+2] = readFloat(++i, line);
-                n++;
+                float x = 0.0f;
+                float y = 0.0f;
+                float z = 0.0f;
+                if (stream >> x >> y >> z)
+                    normals.push_back(glm::vec3(x, y, z));
             }
-            else if (line[0] == 'f' && line[1] == ' ')
+            else if (prefix == "vt")
             {
-                uint i = 2;
-                uint t0, t1, t2;
-                uint tu0, tu1, tu2;
-                uint tn0, tn1, tn2;
-                bool quad = __objLineQuad(i, line);
-                readFace(i, line, t0, tu0, tn0);
-                readFace(++i, line, t1, tu1, tn1);
-                readFace(++i, line, t2, tu2, tn2);
-                if (nStride > 0)
+                float u = 0.0f;
+                float v = 0.0f;
+                if (stream >> u >> v)
                 {
-                    normConv[t0 - 1] = tn0 - 1;
-                    normConv[t1 - 1] = tn1 - 1;
-                    normConv[t2 - 1] = tn2 - 1;
+                    texcoords.push_back(glm::vec2(u, v));
+                    sawAnyTexcoords = true;
                 }
-                tri[t*3] = t0 - 1;
-                tri[t*3+1] = t1 - 1;
-                tri[t*3+2] = t2 - 1;
-                t++;
-                if (quad)
+            }
+            else if (prefix == "f")
+            {
+                std::vector<ObjVertexKey> polygonVertices;
+                std::string token;
+                while (stream >> token)
                 {
-                    uint t3, tu3, tn3;
-                    readFace(++i, line, t3, tu3, tn3);
-                    tri[t*3] = t0 - 1;
-                    tri[t*3+1] = t2 - 1;
-                    tri[t*3+2] = t3 - 1;
-                    if (nStride > 0)
-                        normConv[t3 - 1] = tn3 - 1;
-                    t++;
+                    ObjVertexKey key;
+                    if (!parseObjVertexKey(token, positions.size(), texcoords.size(), normals.size(), key))
+                        continue;
+
+                    if (key.texcoordIndex >= 0)
+                        sawAnyTexcoords = true;
+                    if (key.normalIndex < 0)
+                        allReferencedNormalsAvailable = false;
+
+                    polygonVertices.push_back(key);
                 }
-                
+
+                if (polygonVertices.size() < 3)
+                    continue;
+
+                for (size_t index = 1; index + 1 < polygonVertices.size(); ++index)
+                {
+                    triangleVertices.push_back(polygonVertices[0]);
+                    triangleVertices.push_back(polygonVertices[index]);
+                    triangleVertices.push_back(polygonVertices[index + 1]);
+                }
             }
         }
-        fileStream2.close();
-        for (uint i = 0; i < v; i++)
+
+        std::unordered_map<std::string, uint> vertexLookup;
+        std::vector<glm::vec3> meshPositions;
+        std::vector<glm::vec3> meshNormals;
+        std::vector<glm::vec2> meshUvs;
+        std::vector<uint> meshTriangles;
+
+        meshPositions.reserve(triangleVertices.size());
+        meshNormals.reserve(triangleVertices.size());
+        meshUvs.reserve(triangleVertices.size());
+        meshTriangles.reserve(triangleVertices.size());
+
+        for (const ObjVertexKey& key : triangleVertices)
         {
-            if (nStride == 0)
-                mesh -> setVertice(i, glm::vec3(verts[i*3], verts[i*3+1], verts[i*3+2]));
-            else
-                mesh -> setVertice(i, glm::vec3(verts[i*3], verts[i*3+1], verts[i*3+2]), glm::vec3(norm[normConv[i]*3], norm[normConv[i]*3 + 1], norm[normConv[i]*3 + 2]));
+            const std::string keyId = makeObjVertexKeyId(key);
+            const auto existing = vertexLookup.find(keyId);
+            if (existing != vertexLookup.end())
+            {
+                meshTriangles.push_back(existing->second);
+                continue;
+            }
+
+            const uint newIndex = static_cast<uint>(meshPositions.size());
+            vertexLookup[keyId] = newIndex;
+            meshTriangles.push_back(newIndex);
+
+            meshPositions.push_back(positions[static_cast<size_t>(key.positionIndex)]);
+            meshNormals.push_back(
+                key.normalIndex >= 0 && key.normalIndex < static_cast<int>(normals.size())
+                    ? normals[static_cast<size_t>(key.normalIndex)]
+                    : glm::vec3(0.0f));
+            meshUvs.push_back(
+                key.texcoordIndex >= 0 && key.texcoordIndex < static_cast<int>(texcoords.size())
+                    ? texcoords[static_cast<size_t>(key.texcoordIndex)]
+                    : glm::vec2(0.0f));
         }
-        for (uint i = 0; i < t; i++)
+
+        const bool hasNormals = !normals.empty() && allReferencedNormalsAvailable;
+        const bool hasUVs = sawAnyTexcoords;
+        component::Mesh * mesh = new component::Mesh(
+            static_cast<uint>(meshPositions.size()),
+            static_cast<uint>(meshTriangles.size() / 3),
+            hasNormals,
+            false,
+            hasUVs);
+
+        for (size_t index = 0; index < meshPositions.size(); ++index)
         {
-            mesh -> setTriangle(i, tri[i*3], tri[i*3+1], tri[i*3+2]);
+            mesh->setVertice(
+                static_cast<uint>(index),
+                meshPositions[index],
+                hasNormals ? meshNormals[index] : glm::vec3(0.0f),
+                glm::vec3(0.0f),
+                hasUVs ? meshUvs[index] : glm::vec2(0.0f));
         }
-        if (nStride == 0)
-            mesh -> computeNormals();
+
+        for (size_t index = 0; index < meshTriangles.size() / 3; ++index)
+            mesh->setTriangle(static_cast<uint>(index), meshTriangles[index * 3], meshTriangles[index * 3 + 1], meshTriangles[index * 3 + 2]);
+
+        if (!hasNormals)
+            mesh->computeNormals();
+
         return mesh;
     }
     

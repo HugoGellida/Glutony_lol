@@ -111,6 +111,36 @@ namespace dataStruct
             if (m_runtimePreviewSyncEnabled)
                 m_runtimeDefinitionDirty = true;
         }
+
+        size_t textureSlotForLocation(const std::string& uniformLocation, bool& alreadyPresent) const
+        {
+            for (size_t index = 0; index < textures.size(); ++index)
+            {
+                if (textures[index].getLocation() != uniformLocation)
+                    continue;
+
+                alreadyPresent = true;
+                return index;
+            }
+
+            alreadyPresent = false;
+            return textures.size();
+        }
+
+        void assignTextureUniform(const std::string& uniformLocation, const std::string& resolvedTexturePath)
+        {
+            if (resolvedTexturePath.empty())
+                return;
+
+            bool updated = false;
+            const size_t textureSlot = textureSlotForLocation(uniformLocation, updated);
+            UniformTex2D uniform(uniformLocation, Texture2D(resolvedTexturePath, static_cast<GLuint>(textureSlot)));
+
+            if (updated)
+                textures[textureSlot] = std::move(uniform);
+            else
+                textures.push_back(std::move(uniform));
+        }
     protected:
 
         uint m_uni1f_stride = 0;
@@ -154,21 +184,9 @@ namespace dataStruct
             push_back(m_uniMat4f, new UniformMat4x4f("MODEL", m_model), m_uniMat4f_stride);
         }
         
-        void addTexture(std::string uniformLocation, std::string texturePath)
+        void addTexture(const std::string& uniformLocation, const std::string& texturePath)
         {
-            bool updated = false;
-            for (size_t index = 0; index < textures.size(); ++index)
-            {
-                if (textures[index].getLocation() != uniformLocation)
-                    continue;
-
-                textures[index] = UniformTex2D(uniformLocation, Texture2D(texturePath, static_cast<GLuint>(index)));
-                updated = true;
-                break;
-            }
-
-            if (!updated)
-                textures.push_back(UniformTex2D(uniformLocation, Texture2D(texturePath, textures.size())));
+            assignTextureUniform(uniformLocation, texturePath);
 
             asset::MaterialUniformDefinition& uniform = getOrCreateRuntimeUniformDefinition(uniformLocation, asset::MaterialUniformKind::Texture);
             const std::string normalizedTexturePath = normalizeAssetPathValue(texturePath);
@@ -179,21 +197,29 @@ namespace dataStruct
             }
         }
 
+        void addTextureAsset(const std::string& uniformLocation, const std::string& textureAssetPath, const std::string& resolvedTexturePath)
+        {
+            assignTextureUniform(uniformLocation, resolvedTexturePath);
+
+            asset::MaterialUniformDefinition& uniform = getOrCreateRuntimeUniformDefinition(uniformLocation, asset::MaterialUniformKind::Texture);
+            const std::string normalizedTexturePath = normalizeAssetPathValue(textureAssetPath);
+            if (uniform.textureAssetPath != normalizedTexturePath)
+            {
+                uniform.textureAssetPath = normalizedTexturePath;
+                markRuntimeDefinitionDirty();
+            }
+        }
+
         void addExternalTexture(const std::string& uniformLocation, GLuint textureId)
         {
             bool updated = false;
-            for (size_t index = 0; index < textures.size(); ++index)
-            {
-                if (textures[index].getLocation() != uniformLocation)
-                    continue;
+            const size_t textureSlot = textureSlotForLocation(uniformLocation, updated);
+            UniformTex2D uniform(uniformLocation, Texture2D(textureId, static_cast<GLuint>(textureSlot), false));
 
-                textures[index] = UniformTex2D(uniformLocation, Texture2D(textureId, static_cast<GLuint>(index), false));
-                updated = true;
-                break;
-            }
-
-            if (!updated)
-                textures.push_back(UniformTex2D(uniformLocation, Texture2D(textureId, static_cast<GLuint>(textures.size()), false)));
+            if (updated)
+                textures[textureSlot] = std::move(uniform);
+            else
+                textures.push_back(std::move(uniform));
         }
 
         void addBoolUniform(const std::string& uniformLocation, bool value)

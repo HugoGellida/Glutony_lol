@@ -623,7 +623,11 @@ private:
             break;
         case asset::MaterialUniformKind::Texture:
             if (!uniform.textureAssetPath.empty())
-                material.addTexture(uniform.name, asset::AssetManager::runtimePath(uniform.textureAssetPath));
+            {
+                const std::string resolvedTexturePath = asset::AssetManager::instance().resolveTextureRuntimePath(uniform.textureAssetPath);
+                if (!resolvedTexturePath.empty())
+                    material.addTextureAsset(uniform.name, uniform.textureAssetPath, resolvedTexturePath);
+            }
             break;
         }
     }
@@ -652,7 +656,11 @@ private:
             break;
         case asset::RenderPassUniformKind::Texture:
             if (!uniform.assetPath.empty())
-                material.addTexture(uniform.name, asset::AssetManager::runtimePath(uniform.assetPath));
+            {
+                const std::string resolvedTexturePath = asset::AssetManager::instance().resolveTextureRuntimePath(uniform.assetPath);
+                if (!resolvedTexturePath.empty())
+                    material.addTextureAsset(uniform.name, uniform.assetPath, resolvedTexturePath);
+            }
             break;
         case asset::RenderPassUniformKind::RenderTarget:
         {

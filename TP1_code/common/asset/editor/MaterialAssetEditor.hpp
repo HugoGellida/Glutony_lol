@@ -175,6 +175,14 @@ inline MaterialAssetDefinition normalizeDefinitionForShaders(const MaterialAsset
         }
     }
 
+    for (const MaterialUniformDefinition& uniform : definition.uniforms)
+    {
+        if (findUniformDefinition(normalized, uniform.name, uniform.kind) != nullptr)
+            continue;
+
+        normalized.uniforms.push_back(uniform);
+    }
+
     return normalized;
 }
 

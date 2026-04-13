@@ -573,7 +573,20 @@ bool SceneEditorController::applyMaterialAssetEditorFieldValue(const MaterialAss
             const std::string* parsedString = std::get_if<std::string>(&parsedValue);
             if (parsedString == nullptr)
                 return false;
-            uniform->textureAssetPath = asset::AssetManager::normalizeRelativePath(*parsedString);
+
+            const std::string normalizedTexturePath = asset::AssetManager::normalizeRelativePath(trimCopyLocal(*parsedString));
+            if (normalizedTexturePath.empty())
+            {
+                uniform->textureAssetPath.clear();
+                break;
+            }
+
+            if (!asset::AssetManager::isTextureAssetPath(normalizedTexturePath))
+                return false;
+            if (asset::AssetManager::instance().resolveTextureRuntimePath(normalizedTexturePath, false).empty())
+                return false;
+
+            uniform->textureAssetPath = normalizedTexturePath;
             break;
         }
         }

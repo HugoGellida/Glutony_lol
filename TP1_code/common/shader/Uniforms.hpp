@@ -3,6 +3,7 @@
 
 #include <GL/glew.h>
 #include <string>
+#include <utility>
 #include <glm/glm.hpp>
 #include <glm/mat4x4.hpp>
 #include "Texture2D.hpp"
@@ -22,10 +23,9 @@ protected:
     T value;
     std::string loc;
 protected:
-    Uniform(std::string loc, T value) : IUniform()
+    Uniform(std::string location, T initialValue)
+        : value(std::move(initialValue)), loc(std::move(location))
     {
-        this -> loc = loc;
-        this -> value = value;
     }
 };
 
@@ -47,7 +47,7 @@ public:
     {
         // FOR UNINITIALIZED VALUES, NO TRUE USAGE.
     }
-    UniformTex2D(std::string loc, Texture2D value) : Uniform(loc, value) {}
+    UniformTex2D(std::string loc, Texture2D value) : Uniform(std::move(loc), std::move(value)) {}
     void upload(GLint progID) override
     {
         value.bind(progID, loc.c_str());

@@ -27,6 +27,7 @@ using namespace glm;
 
 
 #include <common/geometry/Plane.hpp>
+#include <common/app/RuntimePaths.hpp>
 #include <common/app/RuntimePreviewSession.hpp>
 #include <common/app/RuntimeWindow.hpp>
 #include <common/shader/Shader.hpp>
@@ -857,6 +858,8 @@ void setup_glfw_callbacks(GLFWwindow* glfwWindow)
 
 int main( void )
 {
+    runtime_app::adoptProcessWorkingDirectoryToRuntimeRoot();
+
     runtime_app::RuntimeWindow runtimeWindow;
     if (!runtime_app::initializeWindow(
             runtimeWindow,
@@ -921,8 +924,10 @@ int main( void )
             return -1;
         }
 
-        Rml::LoadFontFace("../external/RmlUi/Samples/assets/LatoLatin-Regular.ttf");
-        Rml::LoadFontFace("../external/RmlUi/Samples/assets/LatoLatin-Bold.ttf");
+        const std::string regularFontPath = runtime_app::runtimePath("built-in/fonts/LatoLatin-Regular.ttf");
+        const std::string boldFontPath = runtime_app::runtimePath("built-in/fonts/LatoLatin-Bold.ttf");
+        Rml::LoadFontFace(regularFontPath);
+        Rml::LoadFontFace(boldFontPath);
 
         g_rmlContext = Rml::CreateContext("editor", Rml::Vector2i(g_windowFramebufferWidth, g_windowFramebufferHeight));
         if (g_rmlContext == nullptr || !g_editorUi.initialize(g_rmlContext))
