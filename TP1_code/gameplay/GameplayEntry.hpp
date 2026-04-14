@@ -23,6 +23,7 @@ using SceneScriptEntry = void(*)(Scene& scene);
 using ComponentScriptStartEntry = void(*)(Scene& scene, GameObject& gameObject, component::ScriptComponent& scriptComponent, asset::DataAssetDefinition* dataAssetDefinition);
 using ComponentScriptUpdateEntry = void(*)(Scene& scene, GameObject& gameObject, component::ScriptComponent& scriptComponent, asset::DataAssetDefinition* dataAssetDefinition, float deltaTime);
 
+void registerBuiltInRenderUniformFactories();
 void registerGeneratedSceneScripts();
 void registerGeneratedRenderUniformFactories();
 void bootstrap();

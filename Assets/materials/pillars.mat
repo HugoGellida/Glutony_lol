@@ -1,7 +1,7 @@
 {
   "type": "lit",
   "shader": "built-in/shaders/lit",
-  "renderPass": "Assets/rp/forward_lit_tex.render_pass",
+  "renderPass": "Assets/rp/forward_lit_tex_directional_occlusion.render_pass",
   "uniforms": [
     { "name": "_mainCol", "type": "vec3", "value": [0.125, 0.090, 0.124] },
     { "name": "_lightType", "type": "int", "value": 0 },

@@ -147,10 +147,82 @@ option(GLUTONY_BUILD_GAMEPLAY "Build gameplay root sources" ON)
 
 set(GLUTONY_GAMEPLAY_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/gameplay/sources.cmake" CACHE FILEPATH "Gameplay manifest listing root cpp sources")
 set(GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/GeneratedSceneScripts.cpp")
+set(GLUTONY_GENERATED_BUILTIN_UNIFORM_FACTORIES_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/GeneratedBuiltInUniformFactories.cpp")
 
 if(NOT EXISTS "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}")
     file(WRITE "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}" "#include \"GameplayEntry.hpp\"\n\nnamespace gameplay\n{\nvoid registerGeneratedSceneScripts()\n{\n}\n\nvoid registerGeneratedRenderUniformFactories()\n{\n}\n}\n")
 endif()
+
+file(GLOB GLUTONY_BUILTIN_UNIFORM_FACTORY_ASSET_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in/uniform_factory/*.uniform_factory"
+)
+
+set(_glutony_builtin_uniform_factory_include_paths "")
+set(_glutony_builtin_uniform_factory_registration_block "")
+foreach(_glutony_uniform_factory_asset_file IN LISTS GLUTONY_BUILTIN_UNIFORM_FACTORY_ASSET_FILES)
+    file(READ "${_glutony_uniform_factory_asset_file}" _glutony_uniform_factory_json)
+    get_filename_component(_glutony_uniform_factory_asset_name "${_glutony_uniform_factory_asset_file}" NAME)
+
+    string(JSON _glutony_uniform_factory_source_path GET "${_glutony_uniform_factory_json}" source)
+
+    set(_glutony_uniform_factory_entry_name "buildUniforms")
+    string(JSON _glutony_optional_json_value ERROR_VARIABLE _glutony_optional_json_error GET "${_glutony_uniform_factory_json}" entry)
+    if(NOT _glutony_optional_json_error)
+        set(_glutony_uniform_factory_entry_name "${_glutony_optional_json_value}")
+    endif()
+
+    set(_glutony_uniform_factory_iteration_entry_name "iterationCount")
+    string(JSON _glutony_optional_json_value ERROR_VARIABLE _glutony_optional_json_error GET "${_glutony_uniform_factory_json}" iterationEntry)
+    if(NOT _glutony_optional_json_error)
+        set(_glutony_uniform_factory_iteration_entry_name "${_glutony_optional_json_value}")
+    endif()
+
+    set(_glutony_uniform_factory_group_entry_name "")
+    string(JSON _glutony_optional_json_value ERROR_VARIABLE _glutony_optional_json_error GET "${_glutony_uniform_factory_json}" groupEntry)
+    if(NOT _glutony_optional_json_error)
+        set(_glutony_uniform_factory_group_entry_name "${_glutony_optional_json_value}")
+    endif()
+
+    set(_glutony_uniform_factory_baked_group_entry_name "")
+    string(JSON _glutony_optional_json_value ERROR_VARIABLE _glutony_optional_json_error GET "${_glutony_uniform_factory_json}" bakeGroupEntry)
+    if(NOT _glutony_optional_json_error)
+        set(_glutony_uniform_factory_baked_group_entry_name "${_glutony_optional_json_value}")
+    endif()
+
+    set(_glutony_uniform_factory_group_entry_expression "nullptr")
+    if(NOT _glutony_uniform_factory_group_entry_name STREQUAL "")
+        set(_glutony_uniform_factory_group_entry_expression "&${_glutony_uniform_factory_group_entry_name}")
+    endif()
+
+    set(_glutony_uniform_factory_baked_group_entry_expression "nullptr")
+    if(NOT _glutony_uniform_factory_baked_group_entry_name STREQUAL "")
+        set(_glutony_uniform_factory_baked_group_entry_expression "&${_glutony_uniform_factory_baked_group_entry_name}")
+    endif()
+
+    set(_glutony_uniform_factory_include_path "built-in/uniform_factory/${_glutony_uniform_factory_source_path}")
+    list(FIND _glutony_builtin_uniform_factory_include_paths "${_glutony_uniform_factory_include_path}" _glutony_uniform_factory_include_index)
+    if(_glutony_uniform_factory_include_index EQUAL -1)
+        list(APPEND _glutony_builtin_uniform_factory_include_paths "${_glutony_uniform_factory_include_path}")
+    endif()
+
+    string(APPEND _glutony_builtin_uniform_factory_registration_block
+        "    registerRenderUniformFactory(\"built-in/uniform_factory/${_glutony_uniform_factory_asset_name}\", &${_glutony_uniform_factory_entry_name}, &${_glutony_uniform_factory_iteration_entry_name}, ${_glutony_uniform_factory_group_entry_expression}, ${_glutony_uniform_factory_baked_group_entry_expression});\n")
+endforeach()
+
+set(_glutony_generated_builtin_uniform_factories_source "#include \"GameplayEntry.hpp\"\n\n")
+foreach(_glutony_include_path IN LISTS _glutony_builtin_uniform_factory_include_paths)
+    string(APPEND _glutony_generated_builtin_uniform_factories_source "#include \"./${_glutony_include_path}\"\n")
+endforeach()
+
+if(_glutony_builtin_uniform_factory_include_paths)
+    string(APPEND _glutony_generated_builtin_uniform_factories_source "\n")
+endif()
+
+string(APPEND _glutony_generated_builtin_uniform_factories_source
+    "namespace gameplay\n{\nvoid registerBuiltInRenderUniformFactories()\n{\n    static bool registered = false;\n    if (registered)\n        return;\n\n    registered = true;\n")
+string(APPEND _glutony_generated_builtin_uniform_factories_source "${_glutony_builtin_uniform_factory_registration_block}")
+string(APPEND _glutony_generated_builtin_uniform_factories_source "}\n}\n")
+file(WRITE "${GLUTONY_GENERATED_BUILTIN_UNIFORM_FACTORIES_SOURCE}" "${_glutony_generated_builtin_uniform_factories_source}")
 
 set(GLUTONY_APP_COMMON_SOURCES
     common/app/RuntimeWindow.cpp
@@ -305,7 +377,7 @@ if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
                 "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
         COMMAND ${CMAKE_COMMAND} -E make_directory
                 "${CMAKE_CURRENT_BINARY_DIR}/Assets"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in"
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in"
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -322,7 +394,7 @@ if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
         COMMAND ${CMAKE_COMMAND} -E rm -f
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/lit_default.material.json"
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/selection_highlight.material.json"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/TP1/.pipeline_cache"
             "${CMAKE_CURRENT_BINARY_DIR}/.pipeline_cache"
         COMMENT "Synchronizing editor runtime assets into the build directory"
@@ -368,7 +440,9 @@ if(NOT BUILD_SHARED_LIBS)
 endif()
 
 if(TARGET glutony_sync_editor_runtime_assets)
+    add_dependencies(gameplay_sources glutony_sync_editor_runtime_assets)
     add_dependencies(TP1 glutony_sync_editor_runtime_assets)
+    add_dependencies(runtime_game glutony_sync_editor_runtime_assets)
 endif()
 
 glutony_configure_runtime_assets(TP1 "${CMAKE_CURRENT_BINARY_DIR}")

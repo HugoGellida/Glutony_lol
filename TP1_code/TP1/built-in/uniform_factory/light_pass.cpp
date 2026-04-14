@@ -91,6 +91,18 @@ int logicalLightIterationCount(const std::vector<render::LightInput>& lights)
     return static_cast<int>(lights.size());
 }
 
+int filteredLogicalLightIterationCount(const std::vector<render::LightInput>& lights, render::LightType type)
+{
+    int total = 0;
+    for (const render::LightInput& light : lights)
+    {
+        if (light.type == type)
+            ++total;
+    }
+
+    return total;
+}
+
 bool selectIteration(const render::UniformFactoryExecutionContext& context, IterationSelection& selection)
 {
     if (context.scene == nullptr)
@@ -136,6 +148,41 @@ bool selectLightIteration(const render::UniformFactoryExecutionContext& context,
 
     light = lights[context.currentIteration];
     return true;
+}
+
+bool selectFilteredLogicalLightIteration(
+    const render::UniformFactoryExecutionContext& context,
+    render::LightType type,
+    render::LightInput& light,
+    int& lightIndex)
+{
+    if (context.scene == nullptr)
+        return false;
+
+    const std::vector<render::LightInput> lights = context.scene->collectLightInputs();
+    const int expectedIterationCount = filteredLogicalLightIterationCount(lights, type);
+    if (context.currentIteration < 0 || context.currentIteration >= expectedIterationCount)
+        return false;
+    if (context.iterationCount != expectedIterationCount)
+        return false;
+
+    int filteredIndex = 0;
+    for (int index = 0; index < static_cast<int>(lights.size()); ++index)
+    {
+        if (lights[index].type != type)
+            continue;
+
+        if (filteredIndex == context.currentIteration)
+        {
+            light = lights[index];
+            lightIndex = index;
+            return true;
+        }
+
+        ++filteredIndex;
+    }
+
+    return false;
 }
 
 glm::mat4 buildLightProjectionView(const render::UniformFactoryExecutionContext& context, const IterationSelection& selection)
@@ -205,6 +252,22 @@ int lightIterationCount(const render::UniformFactoryExecutionContext& context)
     return logicalLightIterationCount(context.scene->collectLightInputs());
 }
 
+int directionalLightIterationCount(const render::UniformFactoryExecutionContext& context)
+{
+    if (context.scene == nullptr)
+        return 0;
+
+    return filteredLogicalLightIterationCount(context.scene->collectLightInputs(), render::LightType::Directional);
+}
+
+int pointLightIterationCount(const render::UniformFactoryExecutionContext& context)
+{
+    if (context.scene == nullptr)
+        return 0;
+
+    return filteredLogicalLightIterationCount(context.scene->collectLightInputs(), render::LightType::Point);
+}
+
 std::string logicalLightGroup(const render::UniformFactoryExecutionContext& context)
 {
     if (context.scene == nullptr)
@@ -239,6 +302,16 @@ std::string expandedLightBakeGroup(const render::UniformFactoryExecutionContext&
     return "";
 }
 
+std::string directionalLightGroup(const render::UniformFactoryExecutionContext& context)
+{
+    render::LightInput light;
+    int lightIndex = -1;
+    if (selectFilteredLogicalLightIteration(context, render::LightType::Directional, light, lightIndex))
+        return lightGroupSuffix(lightIndex);
+
+    return "";
+}
+
 bool buildUniforms(const render::UniformFactoryExecutionContext& context, const render::UniformFactoryWriter& writer)
 {
     if (context.camera == nullptr || context.transform == nullptr)
@@ -246,6 +319,38 @@ bool buildUniforms(const render::UniformFactoryExecutionContext& context, const 
 
     render::LightInput light;
     if (!selectLightIteration(context, light))
+        return false;
+
+    const glm::mat4 model = context.transform->getModelWorld();
+    writeCameraUniforms(context, writer, model);
+    writeLightUniforms(writer, light);
+    return true;
+}
+
+bool buildDirectionalUniforms(const render::UniformFactoryExecutionContext& context, const render::UniformFactoryWriter& writer)
+{
+    if (context.camera == nullptr || context.transform == nullptr)
+        return false;
+
+    render::LightInput light;
+    int lightIndex = -1;
+    if (!selectFilteredLogicalLightIteration(context, render::LightType::Directional, light, lightIndex))
+        return false;
+
+    const glm::mat4 model = context.transform->getModelWorld();
+    writeCameraUniforms(context, writer, model);
+    writeLightUniforms(writer, light);
+    return true;
+}
+
+bool buildPointUniforms(const render::UniformFactoryExecutionContext& context, const render::UniformFactoryWriter& writer)
+{
+    if (context.camera == nullptr || context.transform == nullptr)
+        return false;
+
+    render::LightInput light;
+    int lightIndex = -1;
+    if (!selectFilteredLogicalLightIteration(context, render::LightType::Point, light, lightIndex))
         return false;
 
     const glm::mat4 model = context.transform->getModelWorld();
@@ -299,5 +404,30 @@ bool buildShadowOcclusionUniforms(const render::UniformFactoryExecutionContext& 
     writer.addVec3Uniform("_lightPos", selection.light.position);
     writer.addVec3Uniform("_lightDir", selection.light.direction);
     writer.addIntUniform("_shadowFaceIndex", selection.faceIndex);
+    return true;
+}
+
+bool buildDirectionalShadowOcclusionUniforms(const render::UniformFactoryExecutionContext& context, const render::UniformFactoryWriter& writer)
+{
+    if (context.camera == nullptr || context.transform == nullptr)
+        return false;
+
+    render::LightInput light;
+    int lightIndex = -1;
+    if (!selectFilteredLogicalLightIteration(context, render::LightType::Directional, light, lightIndex))
+        return false;
+
+    IterationSelection selection;
+    selection.light = light;
+    selection.lightIndex = lightIndex;
+    selection.faceIndex = 0;
+
+    const glm::mat4 model = context.transform->getModelWorld();
+    writeCameraUniforms(context, writer, model);
+    writer.addMat4Uniform("LIGHT_MVP", buildLightProjectionView(context, selection));
+    writer.addIntUniform("_lightType", 0);
+    writer.addVec3Uniform("_lightPos", selection.light.position);
+    writer.addVec3Uniform("_lightDir", selection.light.direction);
+    writer.addIntUniform("_shadowFaceIndex", 0);
     return true;
 }

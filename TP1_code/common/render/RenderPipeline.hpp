@@ -1843,8 +1843,10 @@ private:
                     : std::string();
             if (!bakedAssetPathMatchesMetadata(bakedTargetAssetPath, targetMetadata))
                 bakedTargetAssetPath.clear();
+            const bool hasResolvedBakedTargetTexture =
+                !bakedTargetAssetPath.empty() && resolveCachedTextureAsset(bakedTargetAssetPath) != nullptr;
             const bool dynamicOnlyForBatch =
-                options.dynamicOnlyOnBakeableTargets && targetMetadata != nullptr && targetMetadata->bakeable && !bakedTargetAssetPath.empty();
+                options.dynamicOnlyOnBakeableTargets && targetMetadata != nullptr && targetMetadata->bakeable && hasResolvedBakedTargetTexture;
 
             bool batchHasDrawableItems = false;
             for (const DrawItem& item : batch.items)

@@ -1546,6 +1546,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
                 {
                     m_sceneSavePromptOpen = false;
                     executePendingSceneAction();
+                    refreshPresentation();
                 }
                 requestHierarchyRefresh();
                 event.StopPropagation();
@@ -1557,6 +1558,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
                 m_sceneSavePromptOpen = false;
                 if (executePendingSceneAction())
                     clearSceneDirty();
+                refreshPresentation();
                 requestHierarchyRefresh();
                 event.StopPropagation();
                 return;
@@ -1565,6 +1567,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             if (!promptCancelElementId.empty())
             {
                 closePendingSceneActionPrompt();
+                refreshPresentation();
                 requestHierarchyRefresh();
                 event.StopPropagation();
                 return;
@@ -2067,6 +2070,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
                 if (file->fileKind == AssetBrowserFileKind::Scene)
                 {
                     beginPendingSceneAction(PendingSceneAction::OpenFile, file->diskPath);
+                    refreshPresentation();
                     event.StopPropagation();
                     return;
                 }
@@ -3789,6 +3793,8 @@ bool SceneEditorController::prepareGeneratedGameplaySource()
             for (const asset::RenderPassStepDefinition& pass : renderPassDefinition->passes)
             {
                 const std::string uniformFactoryAssetPath = asset::AssetManager::normalizeRelativePath(pass.uniformFactoryPath);
+                if (uniformFactoryAssetPath.rfind("built-in/uniform_factory/", 0) == 0)
+                    continue;
                 if (uniformFactoryAssetPath.empty() || !seenUniformFactoryAssets.insert(uniformFactoryAssetPath).second)
                     continue;
 

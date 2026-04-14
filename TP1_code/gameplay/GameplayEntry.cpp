@@ -60,6 +60,7 @@ void bootstrap()
 	if (bootstrapped)
 		return;
 
+	registerBuiltInRenderUniformFactories();
 	registerGeneratedSceneScripts();
 	registerGeneratedRenderUniformFactories();
 	bootstrapped = true;
