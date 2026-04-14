@@ -16,7 +16,7 @@
       "iterator": "light",
       "uniformFactory": "built-in/uniform_factory/light_shadow_map.uniform_factory",
       "uniforms": [],
-      "target": { "name": "shadow_gbuffer", "shared": true, "width": 2048, "height": 2048, "format": "float" },
+      "target": { "name": "shadow_gbuffer", "shared": true, "width": 2048, "height": 2048, "format": "float", "bakeable": true, "bakeCombine": "min" },
       "clear": true,
       "blend": false,
       "depth": "clear"

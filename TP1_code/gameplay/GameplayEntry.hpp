@@ -28,10 +28,17 @@ void registerGeneratedRenderUniformFactories();
 void bootstrap();
 void registerSceneScript(const std::string& assetPath, SceneScriptEntry entry);
 void registerComponentScript(const std::string& assetPath, ComponentScriptStartEntry startEntry, ComponentScriptUpdateEntry updateEntry);
-void registerRenderUniformFactory(const std::string& assetPath, render::UniformFactoryEntry entry, render::UniformFactoryIterationCountEntry iterationCountEntry);
+void registerRenderUniformFactory(
+	const std::string& assetPath,
+	render::UniformFactoryEntry entry,
+	render::UniformFactoryIterationCountEntry iterationCountEntry,
+	render::UniformFactoryIterationGroupEntry groupEntry = nullptr,
+	render::UniformFactoryIterationGroupEntry bakedGroupEntry = nullptr);
 void runSceneScript(Scene& scene);
 void runPendingComponentScriptStarts(Scene& scene);
 void runComponentScriptUpdates(Scene& scene, float deltaTime);
 bool queryRenderUniformFactoryIterationCount(const std::string& assetPath, const render::UniformFactoryExecutionContext& context, int& iterationCountOut);
+bool queryRenderUniformFactoryIterationGroup(const std::string& assetPath, const render::UniformFactoryExecutionContext& context, std::string& groupOut);
+bool queryRenderUniformFactoryBakedIterationGroup(const std::string& assetPath, const render::UniformFactoryExecutionContext& context, std::string& groupOut);
 bool runRenderUniformFactory(const std::string& assetPath, const render::UniformFactoryExecutionContext& context, const render::UniformFactoryWriter& writer);
 }

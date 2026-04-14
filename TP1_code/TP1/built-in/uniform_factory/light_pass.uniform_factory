@@ -2,6 +2,7 @@
   "source": "light_pass.cpp",
   "entry": "buildUniforms",
   "iterationEntry": "lightIterationCount",
+  "groupEntry": "logicalLightGroup",
   "requiresLight": true,
   "outputs": [
     { "name": "MVP", "type": "mat4" },

@@ -21,6 +21,8 @@ struct RenderUniformFactoryCallbacks
 {
 	render::UniformFactoryEntry build = nullptr;
 	render::UniformFactoryIterationCountEntry iterationCount = nullptr;
+	render::UniformFactoryIterationGroupEntry group = nullptr;
+	render::UniformFactoryIterationGroupEntry bakedGroup = nullptr;
 };
 
 std::unordered_map<std::string, SceneScriptEntry>& sceneScriptRegistry()
@@ -81,13 +83,18 @@ void registerComponentScript(const std::string& assetPath, ComponentScriptStartE
 	componentScriptRegistry()[normalizedPath] = {startEntry, updateEntry};
 }
 
-void registerRenderUniformFactory(const std::string& assetPath, render::UniformFactoryEntry entry, render::UniformFactoryIterationCountEntry iterationCountEntry)
+void registerRenderUniformFactory(
+	const std::string& assetPath,
+	render::UniformFactoryEntry entry,
+	render::UniformFactoryIterationCountEntry iterationCountEntry,
+	render::UniformFactoryIterationGroupEntry groupEntry,
+	render::UniformFactoryIterationGroupEntry bakedGroupEntry)
 {
 	const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(assetPath);
 	if (normalizedPath.empty() || entry == nullptr)
 		return;
 
-	renderUniformFactoryRegistry()[normalizedPath] = {entry, iterationCountEntry};
+	renderUniformFactoryRegistry()[normalizedPath] = {entry, iterationCountEntry, groupEntry, bakedGroupEntry};
 }
 
 void runSceneScript(Scene& scene)
@@ -177,6 +184,44 @@ bool queryRenderUniformFactoryIterationCount(const std::string& assetPath, const
 	}
 
 	iterationCountOut = it->second.iterationCount(context);
+	return true;
+}
+
+bool queryRenderUniformFactoryIterationGroup(const std::string& assetPath, const render::UniformFactoryExecutionContext& context, std::string& groupOut)
+{
+	groupOut.clear();
+
+	const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(assetPath);
+	if (normalizedPath.empty())
+		return false;
+
+	const auto it = renderUniformFactoryRegistry().find(normalizedPath);
+	if (it == renderUniformFactoryRegistry().end())
+		return false;
+
+	if (it->second.group == nullptr)
+		return true;
+
+	groupOut = it->second.group(context);
+	return true;
+}
+
+bool queryRenderUniformFactoryBakedIterationGroup(const std::string& assetPath, const render::UniformFactoryExecutionContext& context, std::string& groupOut)
+{
+	groupOut.clear();
+
+	const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(assetPath);
+	if (normalizedPath.empty())
+		return false;
+
+	const auto it = renderUniformFactoryRegistry().find(normalizedPath);
+	if (it == renderUniformFactoryRegistry().end())
+		return false;
+
+	if (it->second.bakedGroup == nullptr)
+		return true;
+
+	groupOut = it->second.bakedGroup(context);
 	return true;
 }
 

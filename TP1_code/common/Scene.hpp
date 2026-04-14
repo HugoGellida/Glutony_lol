@@ -628,6 +628,7 @@ public:
         normalizedSettings.name = render::normalizeRenderTargetName(rawSettings.name);
         normalizedSettings.width = std::max(0, rawSettings.width);
         normalizedSettings.height = std::max(0, rawSettings.height);
+        normalizedSettings.bakedTextureAssetPath = asset::AssetManager::normalizeRelativePath(rawSettings.bakedTextureAssetPath);
         if (normalizedSettings.name.empty() || render::isFinalRenderTargetName(normalizedSettings.name))
             return false;
 
@@ -636,7 +637,8 @@ public:
         {
             if (existing->width == normalizedSettings.width &&
                 existing->height == normalizedSettings.height &&
-                existing->format == normalizedSettings.format)
+                existing->format == normalizedSettings.format &&
+                existing->bakedTextureAssetPath == normalizedSettings.bakedTextureAssetPath)
                 return false;
 
             *existing = normalizedSettings;
@@ -652,6 +654,12 @@ public:
         m_renderPipeline.invalidate();
         return true;
     }
+        bool bakeRenderTargets(std::vector<render::RenderPipeline::BakedRenderTargetResult>& outputs)
+        {
+            refreshMaterialsForChangedShaders();
+            refreshMeshesForChangedSources();
+            return m_renderPipeline.bake(m_camera, m_gameObjects, m_gameObjectCount, collectVisibleRenderTargetSettings(), collectLightInputs(), outputs);
+        }
 
     std::vector<render::SceneRenderTargetSettings> collectVisibleRenderTargetSettings() const
     {

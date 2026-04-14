@@ -228,6 +228,7 @@ private:
     bool prepareRuntimeSceneFile(std::string& outputPath);
     bool prepareGeneratedGameplaySource();
     bool rebuildSceneRenderPipelines();
+    bool bakeSceneRenderTargets();
     bool startBuild(PendingLaunchAction launchAction);
     bool startPreviewPlayer(const std::string& scenePath);
     bool startDetachedPlayer(const std::string& scenePath);

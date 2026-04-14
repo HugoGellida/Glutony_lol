@@ -28,7 +28,7 @@ struct GameObjectSnapshot
 
 struct SceneSnapshot
 {
-    int version = 3;
+    int version = 4;
     int nextGameObjectId = 1;
     bool physicsSimulationEnabled = false;
     int selectedGameObjectId = -1;
@@ -203,7 +203,8 @@ inline bool saveSnapshotToStream(std::ostream& output, const SceneSnapshot& snap
                << std::quoted(renderTarget.name) << ' '
                << renderTarget.width << ' '
                << renderTarget.height << ' '
-               << render::renderTargetFormatName(renderTarget.format) << '\n';
+             << render::renderTargetFormatName(renderTarget.format) << ' '
+             << std::quoted(renderTarget.bakedTextureAssetPath) << '\n';
     }
 
     output << "GAME_OBJECTS " << snapshot.gameObjects.size() << '\n';
@@ -403,6 +404,18 @@ inline bool loadSnapshotFromStream(std::istream& input, SceneSnapshot& snapshot)
                 return false;
             if (!render::parseRenderTargetFormat(formatToken, renderTarget.format))
                 return false;
+
+            input >> std::ws;
+            if (input.peek() == '"')
+            {
+                if (!(input >> std::quoted(renderTarget.bakedTextureAssetPath)))
+                    return false;
+            }
+            else
+            {
+                renderTarget.bakedTextureAssetPath.clear();
+            }
+
             snapshot.renderTargets.push_back(renderTarget);
         }
 

@@ -66,6 +66,8 @@ struct RenderTargetAssetReference
     int height = 0;
     render::RenderTargetFormat format = render::RenderTargetFormat::Rgba;
     bool hasFormat = false;
+    bool bakeable = false;
+    render::RenderTargetBakeCombineOp bakeCombine = render::RenderTargetBakeCombineOp::Multiply;
 };
 
 enum class RenderPassIterator
@@ -423,6 +425,17 @@ private:
                     if (!parseString(rawValue) || !render::parseRenderTargetFormat(rawValue, value.format))
                         return false;
                     value.hasFormat = true;
+                }
+                else if (key == "bakeable")
+                {
+                    if (!parseBool(value.bakeable))
+                        return false;
+                }
+                else if (key == "bakeCombine" || key == "bake_combine")
+                {
+                    std::string rawValue;
+                    if (!parseString(rawValue) || !render::parseRenderTargetBakeCombineOp(rawValue, value.bakeCombine))
+                        return false;
                 }
                 else
                 {
@@ -912,6 +925,8 @@ private:
             output << ", \"height\": " << value.height;
         if (value.hasFormat)
             output << ", \"format\": \"" << render::renderTargetFormatName(value.format) << "\"";
+        if (value.bakeable)
+            output << ", \"bakeable\": true, \"bakeCombine\": \"" << render::renderTargetBakeCombineOpName(value.bakeCombine) << "\"";
         output << " }";
         return static_cast<bool>(output);
     }

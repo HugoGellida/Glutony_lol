@@ -289,7 +289,8 @@ public:
                extension == ".jpg" ||
                extension == ".jpeg" ||
                extension == ".bmp" ||
-               extension == ".tga";
+             extension == ".tga" ||
+             extension == ".rttex";
     }
 
     std::string resolveTextureRuntimePath(const std::string& relativePath, bool logErrors = true)

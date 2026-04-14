@@ -73,5 +73,6 @@ public:
 };
 
 using UniformFactoryIterationCountEntry = int(*)(const UniformFactoryExecutionContext& context);
+using UniformFactoryIterationGroupEntry = std::string(*)(const UniformFactoryExecutionContext& context);
 using UniformFactoryEntry = bool(*)(const UniformFactoryExecutionContext& context, const UniformFactoryWriter& writer);
 }

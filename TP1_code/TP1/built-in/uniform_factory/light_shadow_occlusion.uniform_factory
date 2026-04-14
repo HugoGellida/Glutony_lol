@@ -2,6 +2,8 @@
   "source": "light_pass.cpp",
   "entry": "buildShadowOcclusionUniforms",
   "iterationEntry": "iterationCount",
+  "groupEntry": "logicalLightGroup",
+  "bakeGroupEntry": "expandedLightBakeGroup",
   "requiresLight": true,
   "outputs": [
     { "name": "MVP", "type": "mat4" },

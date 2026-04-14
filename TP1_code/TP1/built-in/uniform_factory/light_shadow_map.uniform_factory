@@ -2,6 +2,8 @@
   "source": "light_pass.cpp",
   "entry": "buildShadowMapUniforms",
   "iterationEntry": "iterationCount",
+  "groupEntry": "logicalLightGroup",
+  "bakeGroupEntry": "expandedLightBakeGroup",
   "requiresLight": true,
   "outputs": [
     { "name": "LIGHT_MVP", "type": "mat4" }

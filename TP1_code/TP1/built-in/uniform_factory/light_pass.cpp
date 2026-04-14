@@ -6,6 +6,7 @@
 #include <glm/matrix.hpp>
 
 #include <cmath>
+#include <string>
 #include <vector>
 
 namespace
@@ -19,8 +20,14 @@ constexpr float kPointShadowFarPlane = 30.0f;
 struct IterationSelection
 {
     render::LightInput light;
+    int lightIndex = 0;
     int faceIndex = 0;
 };
+
+std::string lightGroupSuffix(int lightIndex)
+{
+    return lightIndex >= 0 ? "@light" + std::to_string(lightIndex) : std::string();
+}
 
 glm::vec3 normalizeOr(const glm::vec3& value, const glm::vec3& fallback)
 {
@@ -97,12 +104,14 @@ bool selectIteration(const render::UniformFactoryExecutionContext& context, Iter
         return false;
 
     int iterationOffset = 0;
-    for (const render::LightInput& light : lights)
+    for (int lightIndex = 0; lightIndex < static_cast<int>(lights.size()); ++lightIndex)
     {
+        const render::LightInput& light = lights[lightIndex];
         const int lightIterationCount = light.type == render::LightType::Point ? 6 : 1;
         if (context.currentIteration < iterationOffset + lightIterationCount)
         {
             selection.light = light;
+            selection.lightIndex = lightIndex;
             selection.faceIndex = light.type == render::LightType::Point ? context.currentIteration - iterationOffset : 0;
             return true;
         }
@@ -113,7 +122,7 @@ bool selectIteration(const render::UniformFactoryExecutionContext& context, Iter
     return false;
 }
 
-bool selectLightIteration(const render::UniformFactoryExecutionContext& context, render::LightInput& light)
+bool selectLightIteration(const render::UniformFactoryExecutionContext& context, render::LightInput& light, int* lightIndexOut = nullptr)
 {
     if (context.scene == nullptr)
         return false;
@@ -126,6 +135,8 @@ bool selectLightIteration(const render::UniformFactoryExecutionContext& context,
         return false;
 
     light = lights[context.currentIteration];
+    if (lightIndexOut != nullptr)
+        *lightIndexOut = context.currentIteration;
     return true;
 }
 
@@ -194,6 +205,34 @@ int lightIterationCount(const render::UniformFactoryExecutionContext& context)
         return 0;
 
     return logicalLightIterationCount(context.scene->collectLightInputs());
+}
+
+std::string logicalLightGroup(const render::UniformFactoryExecutionContext& context)
+{
+    render::LightInput light;
+    int lightIndex = -1;
+    if (selectLightIteration(context, light, &lightIndex))
+        return lightGroupSuffix(lightIndex);
+
+    IterationSelection selection;
+    if (selectIteration(context, selection))
+        return lightGroupSuffix(selection.lightIndex);
+
+    return "";
+}
+
+std::string expandedLightBakeGroup(const render::UniformFactoryExecutionContext& context)
+{
+    IterationSelection selection;
+    if (selectIteration(context, selection))
+    {
+        std::string suffix = lightGroupSuffix(selection.lightIndex);
+        if (selection.light.type == render::LightType::Point)
+            suffix += "@face" + std::to_string(selection.faceIndex);
+        return suffix;
+    }
+
+    return logicalLightGroup(context);
 }
 
 bool buildUniforms(const render::UniformFactoryExecutionContext& context, const render::UniformFactoryWriter& writer)

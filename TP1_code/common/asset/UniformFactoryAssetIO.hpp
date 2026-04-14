@@ -28,6 +28,8 @@ struct UniformFactoryAssetDefinition
     std::string sourcePath;
     std::string entryName = "buildUniforms";
     std::string iterationEntryName = "iterationCount";
+    std::string groupEntryName;
+    std::string bakedGroupEntryName;
     bool requiresLight = false;
     std::vector<UniformFactoryOutputDefinition> outputs;
 };
@@ -230,6 +232,16 @@ private:
                     if (!parseString(definition.iterationEntryName))
                         return false;
                 }
+                else if (key == "groupEntry")
+                {
+                    if (!parseString(definition.groupEntryName))
+                        return false;
+                }
+                else if (key == "bakeGroupEntry" || key == "bakedGroupEntry")
+                {
+                    if (!parseString(definition.bakedGroupEntryName))
+                        return false;
+                }
                 else if (key == "requiresLight")
                 {
                     if (!parseBool(definition.requiresLight))
@@ -332,6 +344,10 @@ public:
         output << "  \"source\": \"" << definition.sourcePath << "\",\n";
         output << "  \"entry\": \"" << definition.entryName << "\",\n";
         output << "  \"iterationEntry\": \"" << definition.iterationEntryName << "\",\n";
+        if (!definition.groupEntryName.empty())
+            output << "  \"groupEntry\": \"" << definition.groupEntryName << "\",\n";
+        if (!definition.bakedGroupEntryName.empty())
+            output << "  \"bakeGroupEntry\": \"" << definition.bakedGroupEntryName << "\",\n";
         output << "  \"requiresLight\": " << (definition.requiresLight ? "true" : "false") << ",\n";
         output << "  \"outputs\": [\n";
         for (size_t outputIndex = 0; outputIndex < definition.outputs.size(); ++outputIndex)

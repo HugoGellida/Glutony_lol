@@ -57,9 +57,12 @@ std::string buildSceneEditorMenuMarkup(bool isFileMenuOpen, bool isEditMenuOpen,
     buildRunItem.setDomIdOverride("scene_menu_build_run");
     UI::MenuItem rebuildRenderPipelineItem(0, 0, "Rebuild Render Pipeline");
     rebuildRenderPipelineItem.setDomIdOverride("scene_menu_rebuild_render_pipeline");
+    UI::MenuItem bakeRenderTargetsItem(0, 0, "Bake Bakeable Targets");
+    bakeRenderTargetsItem.setDomIdOverride("scene_menu_bake_render_targets");
     editMenu.addChild(&buildItem);
     editMenu.addChild(&buildRunItem);
     editMenu.addChild(&rebuildRenderPipelineItem);
+    editMenu.addChild(&bakeRenderTargetsItem);
 
     UI::MenuEntry windowMenu(0, 0, "Window");
     windowMenu.setDomIdOverride("builder_menu_window");
@@ -734,6 +737,7 @@ void SceneEditorController::refreshInspectorValuesPresentation()
                     refreshStringFieldValue(makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "width")), std::to_string(renderTarget.width));
                     refreshStringFieldValue(makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "height")), std::to_string(renderTarget.height));
                     refreshStringFieldValue(makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "format")), render::renderTargetFormatName(renderTarget.format));
+                    refreshStringFieldValue(makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "bakedTexture")), renderTarget.bakedTextureAssetPath);
                 }
             }
 
@@ -961,6 +965,7 @@ std::string SceneEditorController::buildInspectorMarkup() const
                 const std::string widthFieldId = makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "width"));
                 const std::string heightFieldId = makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "height"));
                 const std::string formatFieldId = makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "format"));
+                const std::string bakedTextureFieldId = makeSceneFieldElementId(makeSceneRenderTargetFieldKey(renderTarget.name, "bakedTexture"));
 
                 stream << buildInspectorFieldMarkup(
                     widthFieldId,
@@ -986,6 +991,14 @@ std::string SceneEditorController::buildInspectorMarkup() const
                     renderTargetFormatOptions(),
                     component_meta::AssetReferenceKind::None,
                     formatFieldId == m_hoveredInspectorFieldId);
+                stream << buildInspectorFieldMarkup(
+                    bakedTextureFieldId,
+                    "Baked Texture",
+                    component_meta::FieldKind::Asset,
+                    component_meta::SerializedValue(renderTarget.bakedTextureAssetPath),
+                    {},
+                    component_meta::AssetReferenceKind::Texture,
+                    bakedTextureFieldId == m_hoveredInspectorFieldId);
             }
         }
         stream << "</div>";

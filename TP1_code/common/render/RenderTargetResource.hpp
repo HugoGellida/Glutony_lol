@@ -5,6 +5,7 @@
 #include "SceneRenderTargetSettings.hpp"
 
 #include <algorithm>
+#include <vector>
 
 namespace render
 {
@@ -151,6 +152,57 @@ public:
     GLuint depthTextureId() const
     {
         return m_depthTexture;
+    }
+
+    int width() const
+    {
+        return m_width;
+    }
+
+    int height() const
+    {
+        return m_height;
+    }
+
+    RenderTargetFormat format() const
+    {
+        return m_format;
+    }
+
+    bool readColorRgba8(std::vector<unsigned char>& pixelsOut) const
+    {
+        if (m_framebuffer == 0 || m_width <= 0 || m_height <= 0)
+            return false;
+
+        pixelsOut.assign(static_cast<size_t>(m_width) * static_cast<size_t>(m_height) * 4U, 0);
+
+        GLint previousFramebuffer = 0;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_framebuffer);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, m_width, m_height, GL_RGBA, GL_UNSIGNED_BYTE, pixelsOut.data());
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+
+        return glGetError() == GL_NO_ERROR;
+    }
+
+    bool readColorFloat(std::vector<float>& pixelsOut) const
+    {
+        if (m_framebuffer == 0 || m_width <= 0 || m_height <= 0 || m_format != RenderTargetFormat::Float)
+            return false;
+
+        pixelsOut.assign(static_cast<size_t>(m_width) * static_cast<size_t>(m_height), 0.0f);
+
+        GLint previousFramebuffer = 0;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_framebuffer);
+        glReadBuffer(GL_COLOR_ATTACHMENT0);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, m_width, m_height, GL_RED, GL_FLOAT, pixelsOut.data());
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousFramebuffer));
+
+        return glGetError() == GL_NO_ERROR;
     }
 
     void release()

@@ -14,12 +14,21 @@ enum class RenderTargetFormat
     Rgba,
 };
 
+enum class RenderTargetBakeCombineOp
+{
+    Multiply,
+    Add,
+    Min,
+    Max,
+};
+
 struct SceneRenderTargetSettings
 {
     std::string name;
     int width = 0;
     int height = 0;
     RenderTargetFormat format = RenderTargetFormat::Rgba;
+    std::string bakedTextureAssetPath;
 };
 
 inline std::string normalizeRenderTargetName(const std::string& rawName)
@@ -57,6 +66,40 @@ inline const char* renderTargetFormatName(RenderTargetFormat format)
     default:
         return "rgba";
     }
+}
+
+inline const char* renderTargetBakeCombineOpName(RenderTargetBakeCombineOp op)
+{
+    switch (op)
+    {
+    case RenderTargetBakeCombineOp::Add:
+        return "add";
+    case RenderTargetBakeCombineOp::Min:
+        return "min";
+    case RenderTargetBakeCombineOp::Max:
+        return "max";
+    case RenderTargetBakeCombineOp::Multiply:
+    default:
+        return "multiply";
+    }
+}
+
+inline bool parseRenderTargetBakeCombineOp(const std::string& rawValue, RenderTargetBakeCombineOp& op)
+{
+    std::string normalized = rawValue;
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+
+    if (normalized == "mul" || normalized == "multiply")
+        return op = RenderTargetBakeCombineOp::Multiply, true;
+    if (normalized == "add")
+        return op = RenderTargetBakeCombineOp::Add, true;
+    if (normalized == "min")
+        return op = RenderTargetBakeCombineOp::Min, true;
+    if (normalized == "max")
+        return op = RenderTargetBakeCombineOp::Max, true;
+    return false;
 }
 
 inline bool parseRenderTargetFormat(const std::string& rawValue, RenderTargetFormat& format)

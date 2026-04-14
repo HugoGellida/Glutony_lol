@@ -152,6 +152,16 @@ public:
         glBindTexture(GL_TEXTURE_2D, m_textureID);
     }
 
+    bool isEmpty() const
+    {
+        return m_empty;
+    }
+
+    GLuint textureId() const
+    {
+        return m_textureID;
+    }
+
 
 
     ~Texture2D()

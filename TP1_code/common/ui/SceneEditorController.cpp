@@ -18,7 +18,9 @@
 #include <common/UI/ToolbarButton.hpp>
 #include <common/UI/ToolbarGroup.hpp>
 
+#include <common/asset/TextureAssetIO.hpp>
 #include <common/app/RuntimePreviewSession.hpp>
+#include <common/app/RuntimePaths.hpp>
 #include <common/platform/NativeFileDialog.hpp>
 #include <common/Scene.hpp>
 
@@ -127,9 +129,12 @@ std::string buildSceneEditorMenuMarkup(bool isFileMenuOpen, bool isEditMenuOpen,
     buildRunItem.setDomIdOverride("scene_menu_build_run");
     UI::MenuItem rebuildRenderPipelineItem(0, 0, "Rebuild Render Pipeline");
     rebuildRenderPipelineItem.setDomIdOverride("scene_menu_rebuild_render_pipeline");
+    UI::MenuItem bakeRenderTargetsItem(0, 0, "Bake Bakeable Targets");
+    bakeRenderTargetsItem.setDomIdOverride("scene_menu_bake_render_targets");
     editMenu.addChild(&buildItem);
     editMenu.addChild(&buildRunItem);
     editMenu.addChild(&rebuildRenderPipelineItem);
+    editMenu.addChild(&bakeRenderTargetsItem);
 
     UI::MenuEntry windowMenu(0, 0, "Window");
     windowMenu.setDomIdOverride("builder_menu_window");
@@ -242,6 +247,47 @@ std::string trimCopy(const std::string& value)
         --end;
 
     return value.substr(start, end - start);
+}
+
+std::string sanitizeAssetToken(const std::string& value)
+{
+    std::string sanitized;
+    sanitized.reserve(value.size());
+    for (unsigned char character : value)
+    {
+        if (std::isalnum(character) != 0 || character == '_' || character == '-')
+            sanitized.push_back(static_cast<char>(character));
+        else
+            sanitized.push_back('_');
+    }
+
+    while (!sanitized.empty() && sanitized.front() == '_')
+        sanitized.erase(sanitized.begin());
+    while (!sanitized.empty() && sanitized.back() == '_')
+        sanitized.pop_back();
+
+    return sanitized.empty() ? std::string("target") : sanitized;
+}
+
+std::string applyBakedTextureGroupSuffix(const std::string& baseAssetPath, const std::string& groupSuffix)
+{
+    const std::string normalizedBasePath = asset::AssetManager::normalizeRelativePath(baseAssetPath);
+    if (normalizedBasePath.empty() || groupSuffix.empty())
+        return normalizedBasePath;
+
+    const std::filesystem::path basePath(normalizedBasePath);
+    const std::filesystem::path fileName = basePath.stem().string() + groupSuffix + basePath.extension().string();
+    return asset::AssetManager::normalizeRelativePath((basePath.parent_path() / fileName).generic_string());
+}
+
+std::string defaultBakedTextureBaseAssetPath(const std::string& currentSceneFilePath, const std::string& targetName, const std::string& extension = ".tga")
+{
+    std::string sceneStem = "untitled_scene";
+    if (!currentSceneFilePath.empty())
+        sceneStem = sanitizeAssetToken(std::filesystem::path(currentSceneFilePath).stem().string());
+
+    return asset::AssetManager::normalizeRelativePath(
+        (std::filesystem::path("Assets") / "baked" / sceneStem / (sanitizeAssetToken(targetName) + extension)).generic_string());
 }
 
 std::string lowercaseCopy(const std::string& value)
@@ -1420,6 +1466,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String rebuildRenderPipelineMenuItemElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_menu_rebuild_render_pipeline"; });
+    const Rml::String bakeRenderTargetsMenuItemElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_menu_bake_render_targets"; });
     const Rml::String windowMenuButtonElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "builder_menu_window_button"; });
@@ -1737,6 +1786,15 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         {
             closeHeaderMenus();
             rebuildSceneRenderPipelines();
+            refreshPresentation();
+            event.StopPropagation();
+            return;
+        }
+
+        if (!bakeRenderTargetsMenuItemElementId.empty())
+        {
+            closeHeaderMenus();
+            bakeSceneRenderTargets();
             refreshPresentation();
             event.StopPropagation();
             return;
@@ -2439,6 +2497,17 @@ bool SceneEditorController::applyInspectorFieldValue(const InspectorFieldBinding
                 return m_scene->upsertRenderTargetSettings(settings);
             }
 
+            if (renderTargetProperty == "bakedTexture")
+            {
+                const std::string normalizedPath = asset::AssetManager::normalizeRelativePath(value);
+                if (!normalizedPath.empty() && !asset::AssetManager::isTextureAssetPath(normalizedPath))
+                    return false;
+                if (settings.bakedTextureAssetPath == normalizedPath)
+                    return false;
+                settings.bakedTextureAssetPath = normalizedPath;
+                return m_scene->upsertRenderTargetSettings(settings);
+            }
+
             return false;
         }
 
@@ -2766,6 +2835,65 @@ bool SceneEditorController::rebuildSceneRenderPipelines()
 
     appendConsoleSystemMessage("[render] Render pipeline assets rebuilt.", "console_line_success");
     requestHierarchyRefresh();
+    return true;
+}
+
+bool SceneEditorController::bakeSceneRenderTargets()
+{
+    if (m_scene == nullptr)
+        return false;
+
+    std::vector<render::RenderPipeline::BakedRenderTargetResult> bakedTargets;
+    if (!m_scene->bakeRenderTargets(bakedTargets) || bakedTargets.empty())
+    {
+        appendConsoleSystemMessage("[bake] No bakeable render targets were produced.", "console_line_warning");
+        return false;
+    }
+
+    bool wroteAnyTexture = false;
+    bool sceneSettingsChanged = false;
+    std::unordered_set<std::string> updatedTargetNames;
+
+    for (const render::RenderPipeline::BakedRenderTargetResult& bakedTarget : bakedTargets)
+    {
+        const std::string bakedExtension = bakedTarget.format == render::RenderTargetFormat::Float ? ".rttex" : ".tga";
+        const std::string baseAssetPath = defaultBakedTextureBaseAssetPath(m_currentSceneFilePath, bakedTarget.targetName, bakedExtension);
+        const std::string outputAssetPath = applyBakedTextureGroupSuffix(baseAssetPath, bakedTarget.targetGroupSuffix);
+        const std::string diskPath = asset::AssetManager::runtimePath(outputAssetPath);
+
+        const bool saved =
+            bakedTarget.format == render::RenderTargetFormat::Float
+                ? asset::TextureAssetIO::saveRFloatTexture(diskPath, bakedTarget.width, bakedTarget.height, bakedTarget.pixelsFloat)
+                : asset::TextureAssetIO::saveRgba8Tga(diskPath, bakedTarget.width, bakedTarget.height, bakedTarget.pixelsRgba8);
+        if (!saved)
+        {
+            appendConsoleSystemMessage("[bake] Failed to save baked texture asset: " + outputAssetPath, "console_line_error");
+            continue;
+        }
+
+        wroteAnyTexture = true;
+        appendConsoleSystemMessage(
+            "[bake] Saved " + bakedTarget.targetName + bakedTarget.targetGroupSuffix + " -> " + outputAssetPath,
+            "console_line_success");
+
+        if (!updatedTargetNames.insert(bakedTarget.targetName).second)
+            continue;
+
+        render::SceneRenderTargetSettings settings = m_scene->resolveRenderTargetSettings(bakedTarget.targetName);
+        if (settings.bakedTextureAssetPath == baseAssetPath)
+            continue;
+
+        settings.bakedTextureAssetPath = baseAssetPath;
+        sceneSettingsChanged = m_scene->upsertRenderTargetSettings(settings) || sceneSettingsChanged;
+    }
+
+    if (!wroteAnyTexture)
+        return false;
+
+    if (sceneSettingsChanged)
+        markSceneDirty(true);
+
+    refreshInspectorValuesPresentation();
     return true;
 }
 
@@ -3683,8 +3811,14 @@ bool SceneEditorController::prepareGeneratedGameplaySource()
                 return false;
 
             registerIncludePath(*includePath);
+            const std::string groupEntryExpression = definition->groupEntryName.empty()
+                ? "nullptr"
+                : "&" + definition->groupEntryName;
+            const std::string bakedGroupEntryExpression = definition->bakedGroupEntryName.empty()
+                ? "nullptr"
+                : "&" + definition->bakedGroupEntryName;
             renderFactoryRegistrationLines.push_back(
-                "    registerRenderUniformFactory(\"" + escapeCppStringLiteral(uniformFactoryAssetPath) + "\", &" + definition->entryName + ", &" + definition->iterationEntryName + ");");
+                "    registerRenderUniformFactory(\"" + escapeCppStringLiteral(uniformFactoryAssetPath) + "\", &" + definition->entryName + ", &" + definition->iterationEntryName + ", " + groupEntryExpression + ", " + bakedGroupEntryExpression + ");");
         }
     }
 
