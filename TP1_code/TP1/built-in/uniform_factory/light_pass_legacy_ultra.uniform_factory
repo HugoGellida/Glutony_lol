@@ -1,0 +1,17 @@
+{
+  "source": "light_pass_ultra.cpp",
+  "entry": "ultra_light_factory::buildLegacyUniforms",
+  "iterationEntry": "ultra_light_factory::iterationCount",
+  "groupEntry": "ultra_light_factory::logicalLightGroup",
+  "requiresLight": true,
+  "outputs": [
+    { "name": "MVP", "type": "mat4" },
+    { "name": "MVP_ORTHO", "type": "mat4" },
+    { "name": "MODEL", "type": "mat4" },
+    { "name": "_lightType", "type": "int" },
+    { "name": "_lightPos", "type": "vec3" },
+    { "name": "_lightDir", "type": "vec3" },
+    { "name": "_lightColor", "type": "vec3" },
+    { "name": "_lightIntensity", "type": "float" }
+  ]
+}

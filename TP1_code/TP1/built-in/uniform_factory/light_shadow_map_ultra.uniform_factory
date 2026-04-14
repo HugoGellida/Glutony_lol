@@ -1,0 +1,11 @@
+{
+  "source": "light_pass_ultra.cpp",
+  "entry": "ultra_light_factory::buildShadowMapUniforms",
+  "iterationEntry": "ultra_light_factory::iterationCount",
+  "groupEntry": "ultra_light_factory::logicalLightGroup",
+  "bakeGroupEntry": "ultra_light_factory::expandedLightBakeGroup",
+  "requiresLight": true,
+  "outputs": [
+    { "name": "LIGHT_MVP", "type": "mat4" }
+  ]
+}
