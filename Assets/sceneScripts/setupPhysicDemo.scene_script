@@ -1,0 +1,4 @@
+{
+  "source": "Assets/sceneScripts/setupPhysicDemo.cpp",
+  "entry": "sceneMain"
+}

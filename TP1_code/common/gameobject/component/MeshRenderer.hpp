@@ -19,15 +19,52 @@ namespace component
         std::string m_meshAssetPath;
         std::string m_materialAssetPath;
         bool m_onGPU = false;
-        GLuint m_VBO;
-        GLuint m_VAO;
-        GLuint m_EBO;
-        GLuint m_NORMALS;
-        GLuint m_UVS;
+        GLuint m_VBO = 0;
+        GLuint m_VAO = 0;
+        GLuint m_EBO = 0;
+        GLuint m_NORMALS = 0;
+        GLuint m_UVS = 0;
         bool m_hasNorm = false;
         bool m_hasUVS = false;
         bool invertCull = false;
         bool m_wireframe = false;
+
+        void releaseGpuResources()
+        {
+            if (m_VBO != 0)
+            {
+                glDeleteBuffers(1, &m_VBO);
+                m_VBO = 0;
+            }
+
+            if (m_EBO != 0)
+            {
+                glDeleteBuffers(1, &m_EBO);
+                m_EBO = 0;
+            }
+
+            if (m_NORMALS != 0)
+            {
+                glDeleteBuffers(1, &m_NORMALS);
+                m_NORMALS = 0;
+            }
+
+            if (m_UVS != 0)
+            {
+                glDeleteBuffers(1, &m_UVS);
+                m_UVS = 0;
+            }
+
+            if (m_VAO != 0)
+            {
+                glDeleteVertexArrays(1, &m_VAO);
+                m_VAO = 0;
+            }
+
+            m_hasNorm = false;
+            m_hasUVS = false;
+            m_onGPU = false;
+        }
 
         void prepareRenderState()
         {
@@ -63,9 +100,11 @@ namespace component
 
         void setMesh(component::Mesh* mesh)
         {
+            if (m_mesh != mesh)
+                releaseGpuResources();
+
             m_mesh = mesh;
             m_meshAssetPath = (m_mesh != nullptr) ? m_mesh->getAssetPath() : "";
-            m_onGPU = false;
         }
 
         component::Mesh* getMesh() const
@@ -119,15 +158,7 @@ namespace component
             if (m_onGPU && m_mesh -> isOnGPU())
                 return;
             if (m_onGPU)
-            {
-                glDeleteBuffers(1, &m_VBO);
-                glDeleteBuffers(1, &m_EBO);
-                if (m_hasNorm)
-                    glDeleteBuffers(1, &m_NORMALS);
-                if (m_hasUVS)
-                    glDeleteBuffers(1, &m_UVS);
-                glDeleteVertexArrays(1, &m_VAO);
-            }
+                releaseGpuResources();
 
             glGenVertexArrays(1, &m_VAO);
             glBindVertexArray(m_VAO);
@@ -265,14 +296,7 @@ namespace component
 
         ~MeshRenderer()
         {
-            // clean FBO
-            glDeleteBuffers(1, &m_VBO);
-            glDeleteBuffers(1, &m_EBO);
-            if (m_hasNorm)
-                glDeleteBuffers(1, &m_NORMALS);
-            if (m_hasUVS)
-                glDeleteBuffers(1, &m_UVS);
-            glDeleteVertexArrays(1, &m_VAO);
+            releaseGpuResources();
         }
 
 
