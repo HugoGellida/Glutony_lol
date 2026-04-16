@@ -462,9 +462,7 @@ if(NOT BUILD_SHARED_LIBS)
 endif()
 
 if(TARGET glutony_sync_editor_runtime_assets)
-    add_dependencies(gameplay_sources glutony_sync_editor_runtime_assets)
     add_dependencies(TP1 glutony_sync_editor_runtime_assets)
-    add_dependencies(runtime_game glutony_sync_editor_runtime_assets)
 endif()
 
 glutony_configure_runtime_assets(TP1 "${CMAKE_CURRENT_BINARY_DIR}")
