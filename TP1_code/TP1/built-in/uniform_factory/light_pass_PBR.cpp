@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace ultra_light_factory
+namespace pbr_light_factory
 {
 constexpr float kDirectionalShadowHalfExtent = 20.0f;
 constexpr float kDirectionalShadowDepth = 60.0f;
@@ -156,6 +156,7 @@ void writeCameraUniforms(const render::UniformFactoryExecutionContext& context, 
     writer.addMat4Uniform("MVP", projection * view * model);
     writer.addMat4Uniform("MVP_ORTHO", glm::transpose(glm::inverse(model)));
     writer.addMat4Uniform("MODEL", model);
+    writer.addVec3Uniform("_CAMPOS", context.camera->m_position);
 }
 
 void writeLightUniforms(const render::UniformFactoryWriter& writer, const render::LightInput& light)
@@ -243,7 +244,6 @@ bool buildShadowOcclusionUniforms(const render::UniformFactoryExecutionContext& 
     writer.addVec3Uniform("_lightPos", selection.light.position);
     writer.addVec3Uniform("_lightDir", selection.light.direction);
     writer.addIntUniform("_shadowFaceIndex", selection.faceIndex);
-    writer.addVec3Uniform("_CAMPOS",context.camera->m_position);
     return true;
 }
 }

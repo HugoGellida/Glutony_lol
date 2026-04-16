@@ -1,8 +1,8 @@
 {
-  "source": "light_pass_ultra.cpp",
-  "entry": "ultra_light_factory::buildLegacyUniforms",
-  "iterationEntry": "ultra_light_factory::iterationCount",
-  "groupEntry": "ultra_light_factory::logicalLightGroup",
+  "source": "light_pass_PBR.cpp",
+  "entry": "pbr_light_factory::buildLegacyUniforms",
+  "iterationEntry": "pbr_light_factory::iterationCount",
+  "groupEntry": "pbr_light_factory::logicalLightGroup",
   "requiresLight": true,
   "outputs": [
     { "name": "MVP", "type": "mat4" },

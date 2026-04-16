@@ -149,13 +149,20 @@ private:
                 material->addVec3Uniform(uniform.name, uniform.vec3Value);
                 break;
             case MaterialUniformKind::Texture:
+            {
+                bool hasTexture = false;
                 if (!uniform.textureAssetPath.empty())
                 {
                     const std::string resolvedTexturePath = resolveTextureRuntimePath(uniform.textureAssetPath);
                     if (!resolvedTexturePath.empty())
+                    {
                         material->addTextureAsset(uniform.name, uniform.textureAssetPath, resolvedTexturePath);
+                        hasTexture = true;
+                    }
                 }
+                material->addBoolUniform(uniform.name + "_present", hasTexture);
                 break;
+            }
             }
         }
 

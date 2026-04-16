@@ -999,7 +999,7 @@ private:
         return GL_FUNC_ADD;
     }
 
-    static void applyUniformDefinition(dataStruct::Material& material, const asset::MaterialUniformDefinition& uniform)
+    void applyUniformDefinition(dataStruct::Material& material, const asset::MaterialUniformDefinition& uniform)
     {
         switch (uniform.kind)
         {
@@ -1016,17 +1016,35 @@ private:
             material.addVec3Uniform(uniform.name, uniform.vec3Value);
             break;
         case asset::MaterialUniformKind::Texture:
+        {
+            bool hasTexture = false;
             if (!uniform.textureAssetPath.empty())
             {
-                const std::string resolvedTexturePath = asset::AssetManager::instance().resolveTextureRuntimePath(uniform.textureAssetPath);
-                if (!resolvedTexturePath.empty())
-                    material.addTextureAsset(uniform.name, uniform.textureAssetPath, resolvedTexturePath);
+                // Temporary pass materials are rebuilt frequently, so reuse cached GPU textures
+                // instead of constructing a new Texture2D from disk every draw.
+                Texture2D* cachedTexture = resolveCachedTextureAsset(uniform.textureAssetPath);
+                if (cachedTexture != nullptr && !cachedTexture->isEmpty())
+                {
+                    material.addExternalTexture(uniform.name, cachedTexture->textureId());
+                    hasTexture = true;
+                }
+                else
+                {
+                    const std::string resolvedTexturePath = asset::AssetManager::instance().resolveTextureRuntimePath(uniform.textureAssetPath);
+                    if (!resolvedTexturePath.empty())
+                    {
+                        material.addTextureAsset(uniform.name, uniform.textureAssetPath, resolvedTexturePath);
+                        hasTexture = true;
+                    }
+                }
             }
+            material.addBoolUniform(uniform.name + "_present", hasTexture);
             break;
+        }
         }
     }
 
-    static void applyPassUniformDefinition(
+    void applyPassUniformDefinition(
         dataStruct::Material& material,
         const asset::RenderPassUniformDefinition& uniform,
         const std::function<GLuint(const asset::RenderTargetAssetReference&)>& resolveRenderTargetTexture)
@@ -1049,13 +1067,29 @@ private:
             material.addMat4Uniform(uniform.name, uniform.mat4Value);
             break;
         case asset::RenderPassUniformKind::Texture:
+        {
+            bool hasTexture = false;
             if (!uniform.assetPath.empty())
             {
-                const std::string resolvedTexturePath = asset::AssetManager::instance().resolveTextureRuntimePath(uniform.assetPath);
-                if (!resolvedTexturePath.empty())
-                    material.addTextureAsset(uniform.name, uniform.assetPath, resolvedTexturePath);
+                Texture2D* cachedTexture = resolveCachedTextureAsset(uniform.assetPath);
+                if (cachedTexture != nullptr && !cachedTexture->isEmpty())
+                {
+                    material.addExternalTexture(uniform.name, cachedTexture->textureId());
+                    hasTexture = true;
+                }
+                else
+                {
+                    const std::string resolvedTexturePath = asset::AssetManager::instance().resolveTextureRuntimePath(uniform.assetPath);
+                    if (!resolvedTexturePath.empty())
+                    {
+                        material.addTextureAsset(uniform.name, uniform.assetPath, resolvedTexturePath);
+                        hasTexture = true;
+                    }
+                }
             }
+            material.addBoolUniform(uniform.name + "_present", hasTexture);
             break;
+        }
         case asset::RenderPassUniformKind::RenderTarget:
         {
             const GLuint textureId = resolveRenderTargetTexture(uniform.renderTargetValue);
@@ -1295,7 +1329,7 @@ private:
         return shaderAssetPath != asset::AssetManager::normalizeRelativePath(batch.pass.shaderPath);
     }
 
-    static bool executeDrawItem(
+    bool executeDrawItem(
         const Camera& camera,
         const Batch& batch,
         const DrawItem& item,
