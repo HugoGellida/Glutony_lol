@@ -148,9 +148,31 @@ option(GLUTONY_BUILD_GAMEPLAY "Build gameplay root sources" ON)
 set(GLUTONY_GAMEPLAY_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/gameplay/sources.cmake" CACHE FILEPATH "Gameplay manifest listing root cpp sources")
 set(GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/GeneratedSceneScripts.cpp")
 set(GLUTONY_GENERATED_BUILTIN_UNIFORM_FACTORIES_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/GeneratedBuiltInUniformFactories.cpp")
+set(GLUTONY_GENERATED_SCENE_SCRIPTS_STUB_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/gameplay/GeneratedSceneScripts.cpp")
 
 if(NOT EXISTS "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}")
-    file(WRITE "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}" "#include \"GameplayEntry.hpp\"\n\nnamespace gameplay\n{\nvoid registerGeneratedSceneScripts()\n{\n}\n\nvoid registerGeneratedRenderUniformFactories()\n{\n}\n}\n")
+    configure_file(
+        "${GLUTONY_GENERATED_SCENE_SCRIPTS_STUB_SOURCE}"
+        "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}"
+        COPYONLY
+    )
+endif()
+
+file(READ "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}" _glutony_generated_scene_scripts_content)
+string(REGEX REPLACE
+    "#include \"\\./built-in/uniform_factory/[^\n]+\\.cpp\"\n"
+    ""
+    _glutony_generated_scene_scripts_sanitized
+    "${_glutony_generated_scene_scripts_content}"
+)
+string(REGEX REPLACE
+    "[ \t]*registerRenderUniformFactory\\(\"built-in/uniform_factory/[^\n]*\n"
+    ""
+    _glutony_generated_scene_scripts_sanitized
+    "${_glutony_generated_scene_scripts_sanitized}"
+)
+if(NOT _glutony_generated_scene_scripts_sanitized STREQUAL _glutony_generated_scene_scripts_content)
+    file(WRITE "${GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE}" "${_glutony_generated_scene_scripts_sanitized}")
 endif()
 
 file(GLOB GLUTONY_BUILTIN_UNIFORM_FACTORY_ASSET_FILES CONFIGURE_DEPENDS
@@ -377,7 +399,7 @@ if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
                 "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
         COMMAND ${CMAKE_COMMAND} -E make_directory
                 "${CMAKE_CURRENT_BINARY_DIR}/Assets"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in"
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in"
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -394,7 +416,7 @@ if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
         COMMAND ${CMAKE_COMMAND} -E rm -f
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/lit_default.material.json"
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/selection_highlight.material.json"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/TP1/.pipeline_cache"
             "${CMAKE_CURRENT_BINARY_DIR}/.pipeline_cache"
         COMMENT "Synchronizing editor runtime assets into the build directory"

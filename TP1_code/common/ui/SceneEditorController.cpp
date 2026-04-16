@@ -2910,11 +2910,12 @@ bool SceneEditorController::startBuild(PendingLaunchAction launchAction)
         std::vector<std::string> issues;
         if (!m_scene->validateRenderPipelines(&issues))
         {
-            appendConsoleSystemMessage("[render] Preview launch blocked: rebuild render pipelines first.", "console_line_error");
+            appendConsoleSystemMessage("[render] Render pipelines are stale; rebuilding before launch.", "console_line_warning");
             for (const std::string& issue : issues)
-                appendConsoleSystemMessage("[render] " + issue, "console_line_error");
-            requestHierarchyRefresh();
-            return false;
+                appendConsoleSystemMessage("[render] " + issue, "console_line_warning");
+
+            if (!rebuildSceneRenderPipelines())
+                return false;
         }
     }
 

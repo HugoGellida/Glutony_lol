@@ -95,4 +95,6 @@ void sceneMain(Scene& scene)
             rb -> RecomputeInverseMass();
         }
     }
+    std::cout << "Manual RP rebuild" << std::endl;
+    scene.buildRenderPipelines();
 }

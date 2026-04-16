@@ -1661,7 +1661,13 @@ public:
         m_compiled = false;
         m_failed = false;
         m_structureHash = 0;
+        m_phaseOrder.clear();
+        m_batches.clear();
+        m_renderTargets.clear();
         m_compositedRenderTargets.clear();
+        m_renderTargetMetadata.clear();
+        m_cachedTextureAssets.clear();
+        m_trackedAssetWriteTimes.clear();
     }
 
     static bool validateCompiledRenderPass(
