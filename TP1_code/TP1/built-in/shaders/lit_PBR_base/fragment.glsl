@@ -7,5 +7,5 @@ in vec2 v_uvs;
 out vec4 color;
 
 void main(){
-        color = vec4(texture(_albedoMap, v_uvs).rgb, 1.0);
+        color = vec4(texture(_albedoMap, v_uvs).rgb * 0.03, 1.0);
 }

@@ -29,6 +29,8 @@ private:
             return GL_RG8;
         case RenderTargetFormat::Rgb:
             return GL_RGB8;
+        case RenderTargetFormat::RgbaFloat:
+            return GL_RGBA16F;
         case RenderTargetFormat::Rgba:
         default:
             return GL_RGBA8;
@@ -45,6 +47,7 @@ private:
             return GL_RG;
         case RenderTargetFormat::Rgb:
             return GL_RGB;
+        case RenderTargetFormat::RgbaFloat:
         case RenderTargetFormat::Rgba:
         default:
             return GL_RGBA;
@@ -53,7 +56,7 @@ private:
 
     static GLenum colorType(RenderTargetFormat format)
     {
-        return format == RenderTargetFormat::Float ? GL_FLOAT : GL_UNSIGNED_BYTE;
+        return (format == RenderTargetFormat::Float || format == RenderTargetFormat::RgbaFloat) ? GL_FLOAT : GL_UNSIGNED_BYTE;
     }
 
     void moveFrom(RenderTargetResource& other)

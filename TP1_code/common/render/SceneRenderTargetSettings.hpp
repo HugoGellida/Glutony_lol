@@ -12,6 +12,7 @@ enum class RenderTargetFormat
     Rg,
     Rgb,
     Rgba,
+    RgbaFloat,
 };
 
 enum class RenderTargetBakeCombineOp
@@ -63,6 +64,9 @@ inline const char* renderTargetFormatName(RenderTargetFormat format)
     case RenderTargetFormat::Rgb:
         return "rgb";
     case RenderTargetFormat::Rgba:
+        return "rgba";
+    case RenderTargetFormat::RgbaFloat:
+        return "rgbaFloat";
     default:
         return "rgba";
     }
@@ -117,6 +121,8 @@ inline bool parseRenderTargetFormat(const std::string& rawValue, RenderTargetFor
         return format = RenderTargetFormat::Rgb, true;
     if (normalized == "rgba")
         return format = RenderTargetFormat::Rgba, true;
+    if (normalized == "rgbafloat" || normalized == "rgba_float" || normalized == "hdr")
+        return format = RenderTargetFormat::RgbaFloat, true;
     return false;
 }
 }

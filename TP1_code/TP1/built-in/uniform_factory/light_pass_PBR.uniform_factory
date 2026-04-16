@@ -1,5 +1,5 @@
 {
-  "source": "light_pass_ultra.cpp",
+  "source": "light_pass_PBR.cpp",
   "entry": "ultra_light_factory::buildLegacyUniforms",
   "iterationEntry": "ultra_light_factory::iterationCount",
   "groupEntry": "ultra_light_factory::logicalLightGroup",

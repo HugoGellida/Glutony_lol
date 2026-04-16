@@ -210,6 +210,7 @@ bool buildLegacyUniforms(const render::UniformFactoryExecutionContext& context, 
     const glm::mat4 model = context.transform->getModelWorld();
     writeCameraUniforms(context, writer, model);
     writeLightUniforms(writer, selection.light);
+    writer.addVec3Uniform("_CAMPOS", context.camera->m_position);
     return true;
 }
 

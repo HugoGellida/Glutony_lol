@@ -926,8 +926,19 @@ int main( void )
 
         const std::string regularFontPath = runtime_app::runtimePath("built-in/fonts/LatoLatin-Regular.ttf");
         const std::string boldFontPath = runtime_app::runtimePath("built-in/fonts/LatoLatin-Bold.ttf");
-        Rml::LoadFontFace(regularFontPath);
-        Rml::LoadFontFace(boldFontPath);
+        const auto loadEditorFont = [](const std::string& absolutePath, const char* relativePath) {
+            if (Rml::LoadFontFace(absolutePath))
+                return true;
+            if (Rml::LoadFontFace(relativePath))
+                return true;
+
+            std::cerr << "Failed to load RmlUi font face. Tried '" << absolutePath
+                      << "' and '" << relativePath << "'." << std::endl;
+            return false;
+        };
+
+        loadEditorFont(regularFontPath, "built-in/fonts/LatoLatin-Regular.ttf");
+        loadEditorFont(boldFontPath, "built-in/fonts/LatoLatin-Bold.ttf");
 
         g_rmlContext = Rml::CreateContext("editor", Rml::Vector2i(g_windowFramebufferWidth, g_windowFramebufferHeight));
         if (g_rmlContext == nullptr || !g_editorUi.initialize(g_rmlContext))

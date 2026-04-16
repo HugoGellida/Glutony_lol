@@ -863,6 +863,7 @@ private:
         std::ostringstream stream;
         stream << pass.phaseName << '|'
                << asset::AssetManager::normalizeRelativePath(pass.shaderPath) << '|'
+                             << static_cast<int>(pass.drawMode) << '|'
                << pass.target.name << '|'
                << (pass.target.shared ? '1' : '0') << '|'
              << (pass.target.bakeable ? '1' : '0') << '|'
@@ -1351,6 +1352,126 @@ private:
 
         item.renderer->renderWithMaterial(camera, *item.transform, material);
         return true;
+    }
+
+    static bool renderFullscreenMaterial(dataStruct::Material& material)
+    {
+        Shader* shader = material.getShader();
+        if (shader == nullptr || shader->getProgramId() == 0)
+            return false;
+
+        GLint previousProgram = 0;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &previousProgram);
+        GLint previousActiveTexture = 0;
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &previousActiveTexture);
+        GLint previousVao = 0;
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &previousVao);
+
+        const GLboolean depthEnabled = glIsEnabled(GL_DEPTH_TEST);
+        const GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
+        const GLboolean scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+        GLboolean previousDepthMask = GL_TRUE;
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &previousDepthMask);
+
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_SCISSOR_TEST);
+        glDepthMask(GL_FALSE);
+
+        material.sync();
+        glBindVertexArray(fullscreenTriangleVao());
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        glBindVertexArray(static_cast<GLuint>(previousVao));
+        glUseProgram(static_cast<GLuint>(previousProgram));
+        glActiveTexture(static_cast<GLenum>(previousActiveTexture));
+        glDepthMask(previousDepthMask);
+
+        if (depthEnabled)
+            glEnable(GL_DEPTH_TEST);
+        else
+            glDisable(GL_DEPTH_TEST);
+        if (cullEnabled)
+            glEnable(GL_CULL_FACE);
+        else
+            glDisable(GL_CULL_FACE);
+        if (scissorEnabled)
+            glEnable(GL_SCISSOR_TEST);
+        else
+            glDisable(GL_SCISSOR_TEST);
+
+        return true;
+    }
+
+    static bool executeFullscreenPass(
+        const Camera& camera,
+        const Batch& batch,
+        const std::function<GLuint(const asset::RenderTargetAssetReference&)>& resolveRenderTargetTexture,
+        int currentIteration,
+        int iterationCount)
+    {
+        Shader* shader = asset::AssetManager::instance().loadShader(batch.pass.shaderPath);
+        if (shader == nullptr)
+            return false;
+
+        dataStruct::Material material(shader);
+        material.setRuntimePreviewSyncEnabled(false);
+
+        asset::MaterialAssetKind materialKind = asset::MaterialAssetKind::Lit;
+        std::string renderPassPath;
+        const DrawItem* referenceItem = batch.items.empty() ? nullptr : &batch.items.front();
+        dataStruct::Material* sourceMaterial = referenceItem != nullptr ? resolveMaterial(*referenceItem) : nullptr;
+        if (sourceMaterial != nullptr)
+        {
+            materialKind = sourceMaterial->getRuntimeDefinition().kind;
+            renderPassPath = sourceMaterial->getRuntimeDefinition().renderPassPath;
+        }
+        material.setRuntimeDefinitionHeader(materialKind, batch.pass.shaderPath, renderPassPath);
+
+        for (const asset::RenderPassUniformDefinition& uniform : batch.pass.uniforms)
+            applyPassUniformDefinition(material, uniform, resolveRenderTargetTexture);
+
+        if (!batch.pass.uniformFactoryPath.empty())
+        {
+            if (referenceItem == nullptr || referenceItem->renderer == nullptr || referenceItem->transform == nullptr || sourceMaterial == nullptr)
+                return false;
+
+            GameObject* owner = referenceItem->renderer->getOwner();
+            if (owner == nullptr)
+                return false;
+
+            if (!applyUniformFactory(
+                    material,
+                    batch.pass.uniformFactoryPath,
+                    camera,
+                    *owner,
+                    *referenceItem->renderer,
+                    *referenceItem->transform,
+                    *sourceMaterial,
+                    nullptr,
+                    currentIteration,
+                    iterationCount))
+            {
+                return false;
+            }
+        }
+
+        return renderFullscreenMaterial(material);
+    }
+
+    static float offscreenColorClearValue(
+        const Batch& batch,
+        const SceneRenderTargetSettings* targetSettings)
+    {
+        const RenderTargetFormat targetFormat = targetSettings != nullptr
+            ? targetSettings->format
+            : (batch.pass.target.hasFormat ? batch.pass.target.format : RenderTargetFormat::Rgba);
+        const std::string shaderPath = asset::AssetManager::normalizeRelativePath(batch.pass.shaderPath);
+
+        if (targetFormat == RenderTargetFormat::Float && shaderPath == "built-in/shaders/shadow_depth")
+            return 1.0f;
+
+        return 0.0f;
     }
 
     static void configureBlendState(const asset::RenderBlendStateDefinition& blend)
@@ -1883,8 +2004,34 @@ private:
                 clearMask |= GL_DEPTH_BUFFER_BIT;
             if (clearMask != 0)
             {
+                GLfloat previousClearColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                glGetFloatv(GL_COLOR_CLEAR_VALUE, previousClearColor);
+                GLdouble previousClearDepth = 1.0;
+                glGetDoublev(GL_DEPTH_CLEAR_VALUE, &previousClearDepth);
+
+                if ((clearMask & GL_COLOR_BUFFER_BIT) != 0 && !writesFinalTarget)
+                {
+                    const float clearValue = offscreenColorClearValue(batch, targetSettings);
+                    glClearColor(clearValue, clearValue, clearValue, clearValue);
+                }
+
+                if ((clearMask & GL_DEPTH_BUFFER_BIT) != 0)
+                    glClearDepth(1.0);
+
                 glDepthMask(GL_TRUE);
                 glClear(clearMask);
+
+                if ((clearMask & GL_COLOR_BUFFER_BIT) != 0 && !writesFinalTarget)
+                {
+                    glClearColor(
+                        previousClearColor[0],
+                        previousClearColor[1],
+                        previousClearColor[2],
+                        previousClearColor[3]);
+                }
+
+                if ((clearMask & GL_DEPTH_BUFFER_BIT) != 0)
+                    glClearDepth(previousClearDepth);
             }
 
             configureBlendState(batch.pass.blend);
@@ -1952,13 +2099,21 @@ private:
                 return 0;
             };
 
-            for (const DrawItem& item : batch.items)
+            if (batch.pass.drawMode == asset::RenderPassDrawMode::Fullscreen)
             {
-                if (!shouldRenderItem(item, dynamicOnlyForBatch))
-                    continue;
-
-                if (executeDrawItem(camera, batch, item, resolveRenderTargetTexture, nullptr, currentIteration, iterationCount))
+                if (executeFullscreenPass(camera, batch, resolveRenderTargetTexture, currentIteration, iterationCount))
                     renderedAnything = true;
+            }
+            else
+            {
+                for (const DrawItem& item : batch.items)
+                {
+                    if (!shouldRenderItem(item, dynamicOnlyForBatch))
+                        continue;
+
+                    if (executeDrawItem(camera, batch, item, resolveRenderTargetTexture, nullptr, currentIteration, iterationCount))
+                        renderedAnything = true;
+                }
             }
 
             if (!groupedTargetInstanceKey.empty())

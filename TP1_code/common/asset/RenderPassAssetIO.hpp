@@ -76,6 +76,12 @@ enum class RenderPassIterator
     Light,
 };
 
+enum class RenderPassDrawMode
+{
+    Mesh,
+    Fullscreen,
+};
+
 enum class RenderPassUniformKind
 {
     Bool,
@@ -105,6 +111,7 @@ struct RenderPassStepDefinition
     std::string phaseName;
     std::string shaderPath;
     RenderPassIterator iterator = RenderPassIterator::None;
+    RenderPassDrawMode drawMode = RenderPassDrawMode::Mesh;
     std::string uniformFactoryPath;
     std::vector<RenderPassUniformDefinition> uniforms;
     RenderTargetAssetReference target;
@@ -377,6 +384,15 @@ private:
                 return value = RenderPassIterator::None, true;
             if (rawValue == "light")
                 return value = RenderPassIterator::Light, true;
+            return false;
+        }
+
+        static bool parseDrawModeValue(const std::string& rawValue, RenderPassDrawMode& value)
+        {
+            if (rawValue == "mesh")
+                return value = RenderPassDrawMode::Mesh, true;
+            if (rawValue == "fullscreen" || rawValue == "full_screen" || rawValue == "screen")
+                return value = RenderPassDrawMode::Fullscreen, true;
             return false;
         }
 
@@ -717,6 +733,12 @@ private:
                     if (!parseString(rawValue) || !parseIteratorValue(rawValue, value.iterator))
                         return false;
                 }
+                else if (key == "draw" || key == "drawMode" || key == "draw_mode")
+                {
+                    std::string rawValue;
+                    if (!parseString(rawValue) || !parseDrawModeValue(rawValue, value.drawMode))
+                        return false;
+                }
                 else if (key == "uniformFactory" || key == "uniform_factory")
                 {
                     if (!parseString(value.uniformFactoryPath))
@@ -916,6 +938,11 @@ private:
         return value == RenderPassIterator::Light ? "light" : "none";
     }
 
+    static const char* drawModeValue(RenderPassDrawMode value)
+    {
+        return value == RenderPassDrawMode::Fullscreen ? "fullscreen" : "mesh";
+    }
+
     static bool writeRenderTargetReference(std::ostream& output, const RenderTargetAssetReference& value)
     {
         output << "{ \"name\": \"" << value.name << "\", \"shared\": " << (value.shared ? "true" : "false");
@@ -967,6 +994,7 @@ public:
             output << "      \"phase\": \"" << pass.phaseName << "\",\n";
             output << "      \"shader\": \"" << pass.shaderPath << "\",\n";
             output << "      \"iterator\": \"" << iteratorValue(pass.iterator) << "\",\n";
+            output << "      \"draw\": \"" << drawModeValue(pass.drawMode) << "\",\n";
             if (!pass.uniformFactoryPath.empty())
                 output << "      \"uniformFactory\": \"" << pass.uniformFactoryPath << "\",\n";
             output << "      \"uniforms\": [\n";

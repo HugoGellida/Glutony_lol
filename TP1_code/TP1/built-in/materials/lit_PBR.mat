@@ -1,16 +1,26 @@
 {
-    "type" : "lit",
-    "shader" : "built-in/shaders/lit",
-    "renderPass" : "built-in/render_pass/forward_lit_PBR.render_pass",
-    "uniforms" : [
-        {"name" : "_albedoMap", "type" : "texture", "value" : ""},
-        {"name" : "_normalMap", "type" : "texture", "value" : ""},
-        {"name" : "_metallicMap", "type" : "texture", "value" : ""},
-        {"name" : "_roughnessMap", "type" : "texture", "value" : ""},
-        { "name": "_shadowBiasBase", "type": "float", "value": 0.001 },
-        { "name": "_shadowBiasSlopeScale", "type": "float", "value": 0.004 },
-        { "name": "_shadowBiasClamp", "type": "float", "value": 0.008 },
-        { "name": "_shadowPcfRadius", "type": "int", "value": 2 },
-        { "name": "_shadowStrength", "type": "float", "value": 0.750 }
-    ]
+  "type": "lit",
+  "shader": "built-in/shaders/lit",
+  "renderPass": "built-in/render_pass/forward_lit_PBR.render_pass",
+  "uniforms": [
+    { "name": "_albedoMap", "type": "texture", "value": "Assets/textures/Rock063_1K-JPG_Color.jpg" },
+    { "name": "_shadowDepthTex", "type": "texture", "value": "" },
+    { "name": "_lightType", "type": "int", "value": 0 },
+    { "name": "_lightPos", "type": "vec3", "value": [0.000, 0.000, 0.000] },
+    { "name": "_lightDir", "type": "vec3", "value": [0.000, 0.000, 0.000] },
+    { "name": "_shadowFaceIndex", "type": "int", "value": 0 },
+    { "name": "_shadowBiasBase", "type": "float", "value": 0.001 },
+    { "name": "_shadowBiasSlopeScale", "type": "float", "value": 0.004 },
+    { "name": "_shadowBiasClamp", "type": "float", "value": 0.008 },
+    { "name": "_shadowPcfRadius", "type": "int", "value": 2 },
+    { "name": "_shadowStrength", "type": "float", "value": 0.750 },
+    { "name": "_roughnessMap", "type": "texture", "value": "Assets/textures/Rock063_1K-JPG_Roughness.jpg" },
+    { "name": "_metallicMap", "type": "texture", "value": "" },
+    { "name": "_lightColor", "type": "vec3", "value": [0.000, 0.000, 0.000] },
+    { "name": "_lightIntensity", "type": "float", "value": 0.000 },
+    { "name": "_lightOcclusionTex", "type": "texture", "value": "" },
+    { "name": "_CAMPOS", "type": "vec3", "value": [0.000, 0.000, 0.000] },
+    { "name": "_sourceTex", "type": "texture", "value": "" },
+    { "name": "_normalMap", "type": "texture", "value": "Assets/textures/Rock063_1K-JPG_NormalGL.jpg" }
+  ]
 }

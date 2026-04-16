@@ -4,9 +4,10 @@
       "phase": "built-in/render_phase/geometry.render_phase",
       "shader": "built-in/shaders/lit_PBR_base",
       "iterator": "none",
+      "draw": "mesh",
       "uniforms": [],
-      "target": { "name": "final", "shared": true },
-      "clear": false,
+      "target": { "name": "pbr_color", "shared": true, "format": "rgbaFloat" },
+      "clear": true,
       "blend": false,
       "depth": "preserve"
     },
@@ -14,7 +15,8 @@
       "phase": "built-in/render_phase/light_shadow.render_phase",
       "shader": "built-in/shaders/shadow_depth",
       "iterator": "light",
-      "uniformFactory": "built-in/uniform_factory/light_shadow_map_ultra.uniform_factory",
+      "draw": "mesh",
+      "uniformFactory": "built-in/uniform_factory/light_shadow_map.uniform_factory",
       "uniforms": [],
       "target": { "name": "shadow_gbuffer", "shared": true, "width": 2048, "height": 2048, "format": "float", "bakeable": true, "bakeCombine": "min" },
       "clear": true,
@@ -25,7 +27,8 @@
       "phase": "built-in/render_phase/light_shadow.render_phase",
       "shader": "built-in/shaders/shadow_occlusion",
       "iterator": "light",
-      "uniformFactory": "built-in/uniform_factory/light_shadow_occlusion_ultra.uniform_factory",
+      "draw": "mesh",
+      "uniformFactory": "built-in/uniform_factory/light_shadow_occlusion.uniform_factory",
       "uniforms": [
         {
           "name": "_shadowDepthTex",
@@ -34,20 +37,48 @@
         }
       ],
       "target": { "name": "light_occlusion", "shared": true, "format": "float" },
-      "clear": true,
-      "blend": false,
+      "clear": false,
+      "blend": {
+        "enabled": true,
+        "op": "add",
+        "src": "one",
+        "dst": "one"
+      },
       "depth": "clear"
     },
     {
       "phase": "built-in/render_phase/lighting.render_phase",
       "shader": "built-in/shaders/lit_PBR_light",
       "iterator": "light",
+      "draw": "mesh",
       "uniformFactory": "built-in/uniform_factory/light_pass_PBR.uniform_factory",
       "uniforms": [
         {
           "name": "_lightOcclusionTex",
           "type": "renderTarget",
           "value": { "name": "light_occlusion", "shared": true }
+        }
+      ],
+      "target": { "name": "pbr_color", "shared": true, "format": "rgbaFloat" },
+      "clear": false,
+      "blend": {
+        "enabled": true,
+        "op": "add",
+        "src": "one",
+        "dst": "one"
+      },
+      "depth": "preserve"
+    },
+    {
+      "phase": "built-in/render_phase/post_lighting.render_phase",
+      "shader": "built-in/shaders/lit_PBR_present",
+      "iterator": "none",
+      "draw": "fullscreen",
+      "uniforms": [
+        {
+          "name": "_sourceTex",
+          "type": "renderTarget",
+          "value": { "name": "pbr_color", "shared": true, "format": "rgbaFloat" }
         }
       ],
       "target": { "name": "final", "shared": true },
