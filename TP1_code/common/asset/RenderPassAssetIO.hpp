@@ -76,6 +76,12 @@ enum class RenderPassIterator
     Light,
 };
 
+enum class RenderPassDrawMode
+{
+    Mesh,
+    Fullscreen,
+};
+
 enum class RenderPassUniformKind
 {
     Bool,
@@ -104,6 +110,7 @@ struct RenderPassStepDefinition
 {
     std::string phaseName;
     std::string shaderPath;
+    RenderPassDrawMode drawMode = RenderPassDrawMode::Mesh;
     RenderPassIterator iterator = RenderPassIterator::None;
     std::string uniformFactoryPath;
     std::vector<RenderPassUniformDefinition> uniforms;
@@ -377,6 +384,15 @@ private:
                 return value = RenderPassIterator::None, true;
             if (rawValue == "light")
                 return value = RenderPassIterator::Light, true;
+            return false;
+        }
+
+        static bool parseDrawModeValue(const std::string& rawValue, RenderPassDrawMode& value)
+        {
+            if (rawValue == "mesh")
+                return value = RenderPassDrawMode::Mesh, true;
+            if (rawValue == "fullscreen")
+                return value = RenderPassDrawMode::Fullscreen, true;
             return false;
         }
 
@@ -711,6 +727,12 @@ private:
                         return false;
                     hasShader = true;
                 }
+                else if (key == "draw")
+                {
+                    std::string rawValue;
+                    if (!parseString(rawValue) || !parseDrawModeValue(rawValue, value.drawMode))
+                        return false;
+                }
                 else if (key == "iterator")
                 {
                     std::string rawValue;
@@ -916,6 +938,11 @@ private:
         return value == RenderPassIterator::Light ? "light" : "none";
     }
 
+    static const char* drawModeValue(RenderPassDrawMode value)
+    {
+        return value == RenderPassDrawMode::Fullscreen ? "fullscreen" : "mesh";
+    }
+
     static bool writeRenderTargetReference(std::ostream& output, const RenderTargetAssetReference& value)
     {
         output << "{ \"name\": \"" << value.name << "\", \"shared\": " << (value.shared ? "true" : "false");
@@ -966,6 +993,7 @@ public:
             output << "    {\n";
             output << "      \"phase\": \"" << pass.phaseName << "\",\n";
             output << "      \"shader\": \"" << pass.shaderPath << "\",\n";
+            output << "      \"draw\": \"" << drawModeValue(pass.drawMode) << "\",\n";
             output << "      \"iterator\": \"" << iteratorValue(pass.iterator) << "\",\n";
             if (!pass.uniformFactoryPath.empty())
                 output << "      \"uniformFactory\": \"" << pass.uniformFactoryPath << "\",\n";

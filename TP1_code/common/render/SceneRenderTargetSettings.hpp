@@ -11,6 +11,7 @@ enum class RenderTargetFormat
     Float,
     Rg,
     Rgb,
+    Rgba16f,
     Rgba,
 };
 
@@ -62,6 +63,8 @@ inline const char* renderTargetFormatName(RenderTargetFormat format)
         return "rg";
     case RenderTargetFormat::Rgb:
         return "rgb";
+    case RenderTargetFormat::Rgba16f:
+        return "rgba16f";
     case RenderTargetFormat::Rgba:
     default:
         return "rgba";
@@ -115,6 +118,8 @@ inline bool parseRenderTargetFormat(const std::string& rawValue, RenderTargetFor
         return format = RenderTargetFormat::Rg, true;
     if (normalized == "rgb")
         return format = RenderTargetFormat::Rgb, true;
+    if (normalized == "rgba16f" || normalized == "hdr")
+        return format = RenderTargetFormat::Rgba16f, true;
     if (normalized == "rgba")
         return format = RenderTargetFormat::Rgba, true;
     return false;
