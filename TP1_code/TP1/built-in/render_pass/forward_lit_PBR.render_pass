@@ -50,7 +50,7 @@
           "value": { "name": "light_occlusion", "shared": true }
         }
       ],
-      "target": { "name": "hdr_color", "shared": true, "format": "rgba16f" },
+      "target": { "name": "hdr_color", "shared": true, "grouped": false, "format": "rgba16f" },
       "clear": false,
       "blend": {
         "enabled": true,
