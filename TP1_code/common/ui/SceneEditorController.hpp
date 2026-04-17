@@ -140,9 +140,12 @@ private:
     void refreshAssetBrowserTreePresentation(bool preserveScroll = false);
     void refreshAssetBrowserFilesPresentation(bool preserveScroll = false);
     void refreshAssetBrowserOverlayPresentation();
+    void applyPendingConsoleScrollRestore();
+    void syncConsoleScrollPresentation();
     void refreshAssetBrowserDirectorySelectionPresentation(const std::string& previousDirectoryId);
     void refreshAssetBrowserFileSelectionPresentation(const std::string& previousFileId);
     void refreshCachedRects();
+    void applyPendingInspectorScrollRestore();
     std::string buildHierarchyMarkup() const;
     std::string buildHierarchyNodeMarkup(const UiGOHierarchyNode& node, int depth) const;
     std::string buildHierarchyContextMenuMarkup() const;
@@ -268,6 +271,9 @@ private:
     Rml::Element* m_bottomBrowserFilesPane = nullptr;
     Rml::Element* m_bottomBrowserSplitter = nullptr;
     Rml::Element* m_bottomBrowserTreePane = nullptr;
+    Rml::Element* m_consoleOutputElement = nullptr;
+    Rml::Element* m_consoleOutputSpacerElement = nullptr;
+    Rml::Element* m_consoleSelectionElement = nullptr;
     Rml::Element* m_rightSplitter = nullptr;
     Rml::Element* m_rightPanel = nullptr;
     std::function<void(editor_ui::EditorMode)> m_modeChangeCallback;
@@ -291,6 +297,8 @@ private:
     PendingSceneAction m_pendingSceneAction = PendingSceneAction::None;
     ActiveProcessKind m_activeProcessKind = ActiveProcessKind::None;
     PendingLaunchAction m_pendingLaunchAction = PendingLaunchAction::None;
+    bool m_executePendingSceneActionOnUpdate = false;
+    bool m_clearSceneDirtyAfterPendingSceneAction = false;
     std::optional<scene_serialization::SceneSnapshot> m_runtimeSceneSnapshot;
     std::string m_currentSceneFilePath;
     std::string m_pendingSceneTargetPath;
@@ -316,6 +324,7 @@ private:
     size_t m_inspectorComponentContextMenuIndex = 0;
     std::unordered_set<std::string> m_collapsedInspectorGroups;
     std::vector<std::string> m_consoleLines;
+    std::vector<std::string> m_consoleRawLines;
     int m_activeProcessPid = -1;
     int m_activeProcessOutputFd = -1;
     int m_runtimeGameObjectSyncId = -1;
@@ -333,6 +342,13 @@ private:
     std::optional<int> m_lastSentRuntimeSelectionId;
     bool m_runtimeSceneSyncPending = false;
     bool m_consoleRefreshPending = false;
+    bool m_pendingInspectorScrollRestore = false;
+    float m_pendingInspectorScrollTop = 0.0f;
+    float m_pendingInspectorScrollLeft = 0.0f;
+    bool m_pendingConsoleScrollRestore = false;
+    bool m_pendingConsoleStickToBottom = false;
+    float m_pendingConsoleScrollTop = 0.0f;
+    float m_pendingConsoleScrollLeft = 0.0f;
     int m_runtimePreviewFps = -1;
     std::string m_lastPlaybackStatusText;
     std::unordered_map<std::string, std::filesystem::file_time_type> m_observedDataAssetWriteTimes;

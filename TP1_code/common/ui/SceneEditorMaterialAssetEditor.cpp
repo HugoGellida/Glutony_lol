@@ -803,14 +803,20 @@ void SceneEditorController::refreshMaterialAssetEditorPresentation(const Inspect
     const std::string currentAssetPath = assetPath != nullptr ? *assetPath : std::string();
 
     if (Rml::Element* icon = m_document->GetElementById(makeMaterialAssetEditorIconElementId(binding.nodeId, binding.componentIndex, binding.fieldKey)))
-        icon->SetInnerRML(isMaterialAssetEditorCollapsed(binding) ? ">" : "v");
+    {
+        const char* nextIconMarkup = isMaterialAssetEditorCollapsed(binding) ? ">" : "v";
+        if (icon->GetInnerRML() != nextIconMarkup)
+            icon->SetInnerRML(nextIconMarkup);
+    }
 
     if (Rml::Element* body = m_document->GetElementById(makeMaterialAssetEditorBodyElementId(binding.nodeId, binding.componentIndex, binding.fieldKey)))
     {
         if (isMaterialAssetEditorCollapsed(binding))
         {
-            body->SetInnerRML("");
-            body->SetAttribute("data-material-structure", "");
+            if (!body->GetInnerRML().empty())
+                body->SetInnerRML("");
+            if (body->GetAttribute<Rml::String>("data-material-structure", "") != "")
+                body->SetAttribute("data-material-structure", "");
             return;
         }
 
@@ -823,7 +829,9 @@ void SceneEditorController::refreshMaterialAssetEditorPresentation(const Inspect
             if (elementIsFocusedOrContainsFocus(m_context, body))
                 return;
 
-            body->SetInnerRML(buildMaterialAssetEditorBodyMarkup(binding, currentAssetPath));
+            const std::string nextBodyMarkup = buildMaterialAssetEditorBodyMarkup(binding, currentAssetPath);
+            if (body->GetInnerRML() != nextBodyMarkup)
+                body->SetInnerRML(nextBodyMarkup);
             body->SetAttribute("data-material-structure", nextStructureSignature);
             return;
         }

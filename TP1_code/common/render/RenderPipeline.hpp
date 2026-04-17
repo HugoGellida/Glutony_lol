@@ -307,6 +307,42 @@ private:
         return rigidBody == nullptr || rigidBody->isStatic;
     }
 
+    static const char* drawModeName(asset::RenderPassDrawMode drawMode)
+    {
+        switch (drawMode)
+        {
+        case asset::RenderPassDrawMode::Fullscreen:
+            return "fullscreen";
+        case asset::RenderPassDrawMode::Geometry:
+        default:
+            return "geometry";
+        }
+    }
+
+    static const char* iteratorName(asset::RenderPassIterator iterator)
+    {
+        switch (iterator)
+        {
+        case asset::RenderPassIterator::Light:
+            return "light";
+        case asset::RenderPassIterator::None:
+        default:
+            return "none";
+        }
+    }
+
+    static std::string joinStrings(const std::vector<std::string>& values, const char* separator)
+    {
+        std::ostringstream stream;
+        for (size_t index = 0; index < values.size(); ++index)
+        {
+            if (index > 0)
+                stream << separator;
+            stream << values[index];
+        }
+        return stream.str();
+    }
+
     static void mergeRenderTargetMetadata(
         std::unordered_map<std::string, RenderTargetMetadata>& metadata,
         const asset::RenderTargetAssetReference& reference)
@@ -333,6 +369,71 @@ private:
         const std::string normalizedName = normalizeRenderTargetName(rawName);
         const auto it = m_renderTargetMetadata.find(normalizedName);
         return it != m_renderTargetMetadata.end() ? &it->second : nullptr;
+    }
+
+    std::string describeRenderTargetReference(
+        const asset::RenderTargetAssetReference& reference,
+        const std::vector<SceneRenderTargetSettings>& renderTargets) const
+    {
+        const std::string normalizedName = normalizeRenderTargetName(reference.name);
+        if (normalizedName.empty())
+            return "-";
+        if (isFinalRenderTargetName(normalizedName))
+            return "final[framebuffer]";
+
+        const SceneRenderTargetSettings* settings = findRenderTargetSettings(renderTargets, normalizedName);
+        const RenderTargetMetadata* metadata = findRenderTargetMetadata(normalizedName);
+        const RenderTargetFormat format = settings != nullptr
+            ? settings->format
+            : (reference.hasFormat
+                ? reference.format
+                : (metadata != nullptr && metadata->hasFormat ? metadata->format : RenderTargetFormat::Rgba));
+        const int width = settings != nullptr && settings->width > 0 ? settings->width : reference.width;
+        const int height = settings != nullptr && settings->height > 0 ? settings->height : reference.height;
+
+        std::ostringstream stream;
+        stream << normalizedName << '['
+               << (reference.shared ? "shared" : "unique") << ','
+               << (reference.grouped ? "grouped" : "ungrouped") << ','
+               << renderTargetFormatName(format);
+        if (width > 0 || height > 0)
+            stream << ',' << (width > 0 ? std::to_string(width) : std::string("viewport"))
+                   << 'x'
+                   << (height > 0 ? std::to_string(height) : std::string("viewport"));
+        if (settings != nullptr && !settings->bakedTextureAssetPath.empty())
+            stream << ",baked";
+        stream << ']';
+        return stream.str();
+    }
+
+    std::string describeBatchRenderTargetFlow(
+        const Batch& batch,
+        const std::vector<SceneRenderTargetSettings>& renderTargets) const
+    {
+        std::vector<std::string> inputs;
+        for (const asset::RenderPassUniformDefinition& uniform : batch.pass.uniforms)
+        {
+            if (uniform.kind != asset::RenderPassUniformKind::RenderTarget)
+                continue;
+            inputs.push_back(describeRenderTargetReference(uniform.renderTargetValue, renderTargets));
+        }
+
+        const std::string output = describeRenderTargetReference(batch.pass.target, renderTargets);
+        return (inputs.empty() ? std::string("-") : joinStrings(inputs, ", ")) + " -> " + output;
+    }
+
+    static std::string describeSceneRenderTargetSettings(const SceneRenderTargetSettings& settings)
+    {
+        std::ostringstream stream;
+        stream << normalizeRenderTargetName(settings.name) << '[' << renderTargetFormatName(settings.format);
+        if (settings.width > 0 || settings.height > 0)
+            stream << ',' << (settings.width > 0 ? std::to_string(settings.width) : std::string("viewport"))
+                   << 'x'
+                   << (settings.height > 0 ? std::to_string(settings.height) : std::string("viewport"));
+        if (!settings.bakedTextureAssetPath.empty())
+            stream << ",baked=" << asset::AssetManager::normalizeRelativePath(settings.bakedTextureAssetPath);
+        stream << ']';
+        return stream.str();
     }
 
     static std::string lowercaseCopy(std::string value)
@@ -1477,23 +1578,53 @@ private:
         glGetIntegerv(GL_ACTIVE_TEXTURE, &previousActiveTexture);
         const GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
         const GLboolean depthEnabled = glIsEnabled(GL_DEPTH_TEST);
+        const GLboolean scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+        const GLboolean stencilEnabled = glIsEnabled(GL_STENCIL_TEST);
         GLboolean previousDepthMask = GL_TRUE;
         glGetBooleanv(GL_DEPTH_WRITEMASK, &previousDepthMask);
+        GLint previousPolygonMode[2] = {GL_FILL, GL_FILL};
+        glGetIntegerv(GL_POLYGON_MODE, previousPolygonMode);
 
+        int textureUnitCount = 0;
+        for (const asset::RenderPassUniformDefinition& uniform : batch.pass.uniforms)
+        {
+            if (uniform.kind == asset::RenderPassUniformKind::Texture ||
+                uniform.kind == asset::RenderPassUniformKind::RenderTarget)
+            {
+                ++textureUnitCount;
+            }
+        }
+
+        std::vector<GLint> previousTextureBindings(static_cast<size_t>(textureUnitCount), 0);
+        for (int textureUnitIndex = 0; textureUnitIndex < textureUnitCount; ++textureUnitIndex)
+        {
+            glActiveTexture(GL_TEXTURE0 + textureUnitIndex);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &previousTextureBindings[static_cast<size_t>(textureUnitIndex)]);
+        }
+        glActiveTexture(static_cast<GLenum>(previousActiveTexture));
+
+        glDisable(GL_SCISSOR_TEST);
+        glDisable(GL_STENCIL_TEST);
         glDisable(GL_CULL_FACE);
         glDisable(GL_DEPTH_TEST);
         glDepthMask(GL_FALSE);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         Transform fullscreenTransform;
         material.bind(camera, fullscreenTransform);
         glBindVertexArray(fullscreenTriangleVao());
         glDrawArrays(GL_TRIANGLES, 0, 3);
 
-        glBindTexture(GL_TEXTURE_2D, 0);
+        for (int textureUnitIndex = 0; textureUnitIndex < textureUnitCount; ++textureUnitIndex)
+        {
+            glActiveTexture(GL_TEXTURE0 + textureUnitIndex);
+            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(previousTextureBindings[static_cast<size_t>(textureUnitIndex)]));
+        }
         glActiveTexture(static_cast<GLenum>(previousActiveTexture));
         glBindVertexArray(static_cast<GLuint>(previousVao));
         glUseProgram(static_cast<GLuint>(previousProgram));
         glDepthMask(previousDepthMask);
+        glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(previousPolygonMode[0]));
 
         if (cullEnabled)
             glEnable(GL_CULL_FACE);
@@ -1504,6 +1635,16 @@ private:
             glEnable(GL_DEPTH_TEST);
         else
             glDisable(GL_DEPTH_TEST);
+
+        if (scissorEnabled)
+            glEnable(GL_SCISSOR_TEST);
+        else
+            glDisable(GL_SCISSOR_TEST);
+
+        if (stencilEnabled)
+            glEnable(GL_STENCIL_TEST);
+        else
+            glDisable(GL_STENCIL_TEST);
 
         return true;
     }
@@ -2245,6 +2386,91 @@ public:
         options.allowBakedInputs = true;
         options.dynamicOnlyOnBakeableTargets = true;
         return executeInternal(camera, gameObjects, gameObjectCount, renderTargets, lights, options);
+    }
+
+    bool describeExecutionGraph(
+        GameObject* const* gameObjects,
+        size_t gameObjectCount,
+        const std::vector<SceneRenderTargetSettings>& renderTargets,
+        std::vector<std::string>& lines)
+    {
+        lines.clear();
+
+        const std::size_t nextStructureHash = computeStructureHash(gameObjects, gameObjectCount);
+        const bool structureChanged = nextStructureHash != m_structureHash;
+        const bool dependencyStateChanged = dependenciesChanged();
+        if (!m_compiled || structureChanged || dependencyStateChanged)
+        {
+            if (m_failed && !structureChanged && !dependencyStateChanged)
+                return false;
+
+            if (!rebuild(gameObjects, gameObjectCount))
+            {
+                m_structureHash = nextStructureHash;
+                m_failed = true;
+                return false;
+            }
+        }
+
+        std::ostringstream summary;
+        summary << "SRP graph (tree) phases=" << m_phaseOrder.size() << " batches=" << m_batches.size();
+        lines.push_back(summary.str());
+
+        if (renderTargets.empty())
+        {
+            lines.push_back("visible_rt: (none)");
+        }
+        else
+        {
+            lines.push_back("visible_rt:");
+            for (const SceneRenderTargetSettings& settings : renderTargets)
+                lines.push_back("  |- " + describeSceneRenderTargetSettings(settings));
+        }
+
+        if (m_batches.empty())
+        {
+            lines.push_back("(no batches compiled)");
+            return true;
+        }
+
+        size_t globalBatchIndex = 0;
+        for (size_t phaseIndex = 0; phaseIndex < m_phaseOrder.size(); ++phaseIndex)
+        {
+            const std::string& phaseAssetPath = m_phaseOrder[phaseIndex];
+            size_t phaseBatchCount = 0;
+            for (const Batch& batch : m_batches)
+            {
+                if (batch.phaseAssetPath == phaseAssetPath)
+                    ++phaseBatchCount;
+            }
+
+            if (phaseBatchCount == 0)
+                continue;
+
+            std::ostringstream phaseLine;
+            phaseLine << "phase[" << phaseIndex << "] " << phaseAssetPath << " batches=" << phaseBatchCount;
+            lines.push_back(phaseLine.str());
+
+            for (const Batch& batch : m_batches)
+            {
+                if (batch.phaseAssetPath != phaseAssetPath)
+                    continue;
+
+                std::ostringstream batchLine;
+                batchLine << "  |- batch[" << globalBatchIndex << "] "
+                          << batch.sourceRenderPassPath << '#' << batch.sourcePassIndex
+                          << " draw=" << drawModeName(batch.pass.drawMode)
+                          << " iter=" << iteratorName(batch.iterator)
+                          << " matched_objects=" << batch.items.size();
+                if (batch.pass.drawMode == asset::RenderPassDrawMode::Fullscreen)
+                    batchLine << " executes_once=1";
+                lines.push_back(batchLine.str());
+                lines.push_back("  |  rt: " + describeBatchRenderTargetFlow(batch, renderTargets));
+                ++globalBatchIndex;
+            }
+        }
+
+        return true;
     }
 
     bool bake(

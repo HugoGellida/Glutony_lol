@@ -871,14 +871,20 @@ void SceneEditorController::refreshDataAssetEditorPresentation(const InspectorFi
         return;
 
     if (Rml::Element* icon = m_document->GetElementById(makeDataAssetEditorIconElementId(binding)))
-        icon->SetInnerRML(isDataAssetEditorCollapsed(binding) ? ">" : "v");
+    {
+        const char* nextIconMarkup = isDataAssetEditorCollapsed(binding) ? ">" : "v";
+        if (icon->GetInnerRML() != nextIconMarkup)
+            icon->SetInnerRML(nextIconMarkup);
+    }
 
     if (Rml::Element* body = m_document->GetElementById(makeDataAssetEditorBodyElementId(binding)))
     {
         if (isDataAssetEditorCollapsed(binding))
         {
-            body->SetInnerRML("");
-            body->SetAttribute("data-data-structure", "");
+            if (!body->GetInnerRML().empty())
+                body->SetInnerRML("");
+            if (body->GetAttribute<Rml::String>("data-data-structure", "") != "")
+                body->SetAttribute("data-data-structure", "");
             return;
         }
 
@@ -891,7 +897,9 @@ void SceneEditorController::refreshDataAssetEditorPresentation(const InspectorFi
             if (elementIsFocusedOrContainsFocus(m_context, body))
                 return;
 
-            body->SetInnerRML(buildDataAssetEditorBodyMarkup(binding, *currentAssetPath));
+            const std::string nextBodyMarkup = buildDataAssetEditorBodyMarkup(binding, *currentAssetPath);
+            if (body->GetInnerRML() != nextBodyMarkup)
+                body->SetInnerRML(nextBodyMarkup);
             body->SetAttribute("data-data-structure", nextStructureSignature);
             return;
         }

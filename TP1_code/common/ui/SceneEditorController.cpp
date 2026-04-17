@@ -2,6 +2,8 @@
 
 #include "EditorUiDocuments.hpp"
 
+#include <RmlUi/Core/Input.h>
+
 #include <common/UI/MenuBar.hpp>
 #include <common/UI/MenuEntry.hpp>
 #include <common/UI/MenuItem.hpp>
@@ -297,6 +299,37 @@ std::string lowercaseCopy(const std::string& value)
         return static_cast<char>(std::tolower(character));
     });
     return lowered;
+}
+
+bool isConsoleSelectionMutationKey(const Rml::Event& event)
+{
+    if (event.GetId() != Rml::EventId::Keydown)
+        return false;
+
+    const auto keyIdentifier = static_cast<Rml::Input::KeyIdentifier>(event.GetParameter<int>("key_identifier", 0));
+    const bool ctrl = event.GetParameter<int>("ctrl_key", 0) > 0;
+    const bool alt = event.GetParameter<int>("alt_key", 0) > 0;
+    const bool meta = event.GetParameter<int>("meta_key", 0) > 0;
+    const bool shift = event.GetParameter<int>("shift_key", 0) > 0;
+
+    switch (keyIdentifier)
+    {
+    case Rml::Input::KI_BACK:
+    case Rml::Input::KI_DELETE:
+    case Rml::Input::KI_RETURN:
+    case Rml::Input::KI_NUMPADENTER:
+        return true;
+
+    case Rml::Input::KI_V:
+    case Rml::Input::KI_X:
+        return (ctrl || meta) && !alt;
+
+    case Rml::Input::KI_INSERT:
+        return shift && !ctrl && !meta;
+
+    default:
+        return false;
+    }
 }
 
 std::string classifyConsoleLine(const std::string& line, const std::string& sourceClass)
@@ -1266,6 +1299,9 @@ void SceneEditorController::deactivate()
     m_bottomBrowserFilesPane = nullptr;
     m_bottomBrowserSplitter = nullptr;
     m_bottomBrowserTreePane = nullptr;
+    m_consoleOutputElement = nullptr;
+    m_consoleOutputSpacerElement = nullptr;
+    m_consoleSelectionElement = nullptr;
     m_rightSplitter = nullptr;
     m_rightPanel = nullptr;
     m_isWindowMenuOpen = false;
@@ -1288,6 +1324,10 @@ void SceneEditorController::deactivate()
     m_pendingLaunchAction = PendingLaunchAction::None;
     m_pendingLaunchScenePath.clear();
     m_consolePartialLine.clear();
+    m_pendingConsoleScrollRestore = false;
+    m_pendingConsoleStickToBottom = false;
+    m_pendingConsoleScrollTop = 0.0f;
+    m_pendingConsoleScrollLeft = 0.0f;
     m_assetBrowserModel.clear();
     m_hierarchyModel.clear();
     m_layoutManager.clear();
@@ -1344,6 +1384,12 @@ void SceneEditorController::update()
     if (m_context == nullptr || m_document == nullptr)
         return;
 
+    if (m_executePendingSceneActionOnUpdate)
+    {
+        m_executePendingSceneActionOnUpdate = false;
+        executePendingSceneAction();
+    }
+
     pollExternalProcess();
     pollRuntimePreviewSceneState();
     pollRuntimePreviewState();
@@ -1381,6 +1427,9 @@ void SceneEditorController::update()
     updatePlaybackStatusPresentation();
     applyLayout();
     m_context->Update();
+    applyPendingInspectorScrollRestore();
+    applyPendingConsoleScrollRestore();
+    syncConsoleScrollPresentation();
     refreshCachedRects();
 }
 
@@ -1388,6 +1437,78 @@ void SceneEditorController::render()
 {
     if (m_context != nullptr)
         m_context->Render();
+}
+
+void SceneEditorController::applyPendingInspectorScrollRestore()
+{
+    if (!m_pendingInspectorScrollRestore || m_document == nullptr)
+        return;
+
+    if (Rml::Element* inspectorBody = m_document->GetElementById("scene_inspector_panel_body"))
+    {
+        inspectorBody->SetScrollTop(m_pendingInspectorScrollTop);
+        inspectorBody->SetScrollLeft(m_pendingInspectorScrollLeft);
+    }
+
+    m_pendingInspectorScrollRestore = false;
+}
+
+void SceneEditorController::applyPendingConsoleScrollRestore()
+{
+    if (!m_pendingConsoleScrollRestore || m_consoleSelectionElement == nullptr)
+        return;
+
+    float targetScrollTop = m_pendingConsoleScrollTop;
+    if (m_pendingConsoleStickToBottom)
+        targetScrollTop = std::max(0.0f, m_consoleSelectionElement->GetScrollHeight() - m_consoleSelectionElement->GetClientHeight());
+
+    m_consoleSelectionElement->SetScrollTop(targetScrollTop);
+    m_consoleSelectionElement->SetScrollLeft(m_pendingConsoleScrollLeft);
+    syncConsoleScrollPresentation();
+
+    m_pendingConsoleScrollRestore = false;
+    m_pendingConsoleStickToBottom = false;
+}
+
+void SceneEditorController::syncConsoleScrollPresentation()
+{
+    if (m_consoleOutputElement == nullptr || m_consoleSelectionElement == nullptr)
+        return;
+
+    const float selectionVerticalRange = std::max(0.0f, m_consoleSelectionElement->GetScrollHeight() - m_consoleSelectionElement->GetClientHeight());
+    const float outputVerticalRange = std::max(0.0f, m_consoleOutputElement->GetScrollHeight() - m_consoleOutputElement->GetClientHeight());
+    const float selectionHorizontalRange = std::max(0.0f, m_consoleSelectionElement->GetScrollWidth() - m_consoleSelectionElement->GetClientWidth());
+    const float outputHorizontalRange = std::max(0.0f, m_consoleOutputElement->GetScrollWidth() - m_consoleOutputElement->GetClientWidth());
+
+    if (m_consoleOutputSpacerElement != nullptr)
+    {
+        const float currentSpacerHeight = m_consoleOutputSpacerElement->GetOffsetHeight();
+        const float targetSpacerHeight = std::max(0.0f, currentSpacerHeight + (selectionVerticalRange - outputVerticalRange));
+        const float currentSpacerWidth = m_consoleOutputSpacerElement->GetOffsetWidth();
+        const float targetSpacerWidth = std::max(0.0f, currentSpacerWidth + (selectionHorizontalRange - outputHorizontalRange));
+
+        bool spacerChanged = false;
+        if (std::fabs(targetSpacerHeight - currentSpacerHeight) > 0.5f)
+        {
+            m_consoleOutputSpacerElement->SetProperty("height", std::to_string(static_cast<int>(std::lround(targetSpacerHeight))) + "px");
+            spacerChanged = true;
+        }
+        if (std::fabs(targetSpacerWidth - currentSpacerWidth) > 0.5f)
+        {
+            m_consoleOutputSpacerElement->SetProperty("width", std::to_string(static_cast<int>(std::lround(targetSpacerWidth))) + "px");
+            spacerChanged = true;
+        }
+        if (spacerChanged)
+            return;
+    }
+
+    const float targetOutputScrollTop = m_consoleSelectionElement->GetScrollTop();
+    const float targetOutputScrollLeft = m_consoleSelectionElement->GetScrollLeft();
+
+    if (std::fabs(m_consoleOutputElement->GetScrollTop() - targetOutputScrollTop) > 0.5f)
+        m_consoleOutputElement->SetScrollTop(targetOutputScrollTop);
+    if (std::fabs(m_consoleOutputElement->GetScrollLeft() - targetOutputScrollLeft) > 0.5f)
+        m_consoleOutputElement->SetScrollLeft(targetOutputScrollLeft);
 }
 
 UiRect SceneEditorController::getViewportRect() const
@@ -1445,6 +1566,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String clearConsoleElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_console_clear"; });
+    const Rml::String consoleSelectionElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_console_selection"; });
     const Rml::String fileMenuButtonElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_menu_file_button"; });
@@ -1535,6 +1659,21 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String deleteInspectorComponentElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_inspector_component_delete"; });
+
+    if (!consoleSelectionElementId.empty())
+    {
+        if (eventId == Rml::EventId::Textinput)
+        {
+            event.StopPropagation();
+            return;
+        }
+
+        if (isConsoleSelectionMutationKey(event))
+        {
+            event.StopPropagation();
+            return;
+        }
+    }
 
     if (m_sceneSavePromptOpen)
     {
@@ -2317,9 +2456,11 @@ void SceneEditorController::attachListeners()
     m_document->AddEventListener(Rml::EventId::Dragover, this);
     m_document->AddEventListener(Rml::EventId::Dragdrop, this);
     m_document->AddEventListener(Rml::EventId::Dragend, this);
+    m_document->AddEventListener(Rml::EventId::Keydown, this, true);
     m_document->AddEventListener(Rml::EventId::Mousedown, this);
     m_document->AddEventListener(Rml::EventId::Mousemove, this);
     m_document->AddEventListener(Rml::EventId::Mouseup, this);
+    m_document->AddEventListener(Rml::EventId::Textinput, this, true);
 }
 
 void SceneEditorController::detachListeners()
@@ -2335,9 +2476,11 @@ void SceneEditorController::detachListeners()
     m_document->RemoveEventListener(Rml::EventId::Dragover, this);
     m_document->RemoveEventListener(Rml::EventId::Dragdrop, this);
     m_document->RemoveEventListener(Rml::EventId::Dragend, this);
+    m_document->RemoveEventListener(Rml::EventId::Keydown, this, true);
     m_document->RemoveEventListener(Rml::EventId::Mousedown, this);
     m_document->RemoveEventListener(Rml::EventId::Mousemove, this);
     m_document->RemoveEventListener(Rml::EventId::Mouseup, this);
+    m_document->RemoveEventListener(Rml::EventId::Textinput, this, true);
 }
 
 void SceneEditorController::applyLayout()
@@ -2820,6 +2963,8 @@ bool SceneEditorController::rebuildSceneRenderPipelines()
     if (m_scene == nullptr)
         return false;
 
+    m_bottomPanelTab = BottomPanelTab::Console;
+
     if (!prepareGeneratedGameplaySource())
     {
         requestHierarchyRefresh();
@@ -2838,6 +2983,19 @@ bool SceneEditorController::rebuildSceneRenderPipelines()
     }
 
     appendConsoleSystemMessage("[render] Render pipeline assets rebuilt.", "console_line_success");
+
+    std::vector<std::string> graphLines;
+    if (!m_scene->describeRenderPipelineGraph(graphLines))
+    {
+        appendConsoleSystemMessage("[render] Failed to describe SRP graph after rebuild.", "console_line_warning");
+        requestHierarchyRefresh();
+        return true;
+    }
+
+    appendConsoleSystemMessage("[render] SRP graph perceived by engine:", "console_line_info");
+    for (const std::string& line : graphLines)
+        appendConsoleSystemMessage("[render] " + line, "console_line_neutral");
+
     requestHierarchyRefresh();
     return true;
 }
@@ -3595,8 +3753,12 @@ void SceneEditorController::appendConsoleLine(const std::string& line, const std
 {
     const std::string lineClass = classifyConsoleLine(line, sourceClass);
     m_consoleLines.push_back(renderConsoleLineMarkup(line, lineClass));
+    m_consoleRawLines.push_back(line);
     if (m_consoleLines.size() > MaxConsoleLines)
+    {
         m_consoleLines.erase(m_consoleLines.begin(), m_consoleLines.begin() + static_cast<long>(m_consoleLines.size() - MaxConsoleLines));
+        m_consoleRawLines.erase(m_consoleRawLines.begin(), m_consoleRawLines.begin() + static_cast<long>(m_consoleRawLines.size() - MaxConsoleLines));
+    }
     m_consoleRefreshPending = true;
 }
 
@@ -3608,6 +3770,7 @@ void SceneEditorController::appendConsoleSystemMessage(const std::string& messag
 void SceneEditorController::clearConsole()
 {
     m_consoleLines.clear();
+    m_consoleRawLines.clear();
     m_consolePartialLine.clear();
     m_consoleRefreshPending = true;
 }
@@ -3927,7 +4090,7 @@ void SceneEditorController::beginPendingSceneAction(PendingSceneAction action, c
 
     m_pendingSceneAction = action;
     m_pendingSceneTargetPath = targetPath;
-    executePendingSceneAction();
+    m_executePendingSceneActionOnUpdate = true;
 }
 
 bool SceneEditorController::executePendingSceneAction()

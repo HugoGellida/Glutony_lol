@@ -127,6 +127,24 @@ std::string trimCopy(const std::string& value)
     return value.substr(start, end - start);
 }
 
+std::string escapeTextAreaValue(const std::string& value)
+{
+    std::string escaped;
+    escaped.reserve(value.size());
+    for (const char character : value)
+    {
+        switch (character)
+        {
+        case '&': escaped += "&amp;"; break;
+        case '<': escaped += "&lt;"; break;
+        case '"': escaped += "&quot;"; break;
+        case '\'': escaped += "&apos;"; break;
+        default: escaped.push_back(character); break;
+        }
+    }
+    return escaped;
+}
+
 std::string formatFloat(float value)
 {
     std::ostringstream stream;
@@ -198,6 +216,7 @@ const std::vector<component_meta::EnumOption>& renderTargetFormatOptions()
         {"rg", "rg"},
         {"rgb", "rgb"},
         {"rgba", "rgba"},
+        {"rgba16f", "rgba16f"},
     };
     return options;
 }
@@ -396,6 +415,9 @@ void SceneEditorController::refreshPresentation()
     m_bottomBrowserFilesPane = m_document->GetElementById("scene_asset_browser_files_pane");
     m_bottomBrowserSplitter = m_document->GetElementById("scene_asset_browser_splitter");
     m_bottomBrowserTreePane = m_document->GetElementById("scene_asset_browser_tree_pane");
+    m_consoleOutputElement = m_document->GetElementById("scene_console_output");
+    m_consoleOutputSpacerElement = m_document->GetElementById("scene_console_output_spacer");
+    m_consoleSelectionElement = m_document->GetElementById("scene_console_selection");
 }
 
 void SceneEditorController::refreshHierarchyPresentation()
@@ -434,16 +456,15 @@ void SceneEditorController::refreshInspectorPresentation(bool preserveScroll)
         }
     }
 
-    m_rightPanel->SetInnerRML(buildInspectorMarkup());
+    const std::string nextMarkup = buildInspectorMarkup();
+    if (m_rightPanel->GetInnerRML() == nextMarkup)
+        return;
 
-    if (preserveScroll && m_document != nullptr)
-    {
-        if (Rml::Element* inspectorBody = m_document->GetElementById("scene_inspector_panel_body"))
-        {
-            inspectorBody->SetScrollTop(previousScrollTop);
-            inspectorBody->SetScrollLeft(previousScrollLeft);
-        }
-    }
+    m_rightPanel->SetInnerRML(nextMarkup);
+
+    m_pendingInspectorScrollRestore = preserveScroll;
+    m_pendingInspectorScrollTop = previousScrollTop;
+    m_pendingInspectorScrollLeft = previousScrollLeft;
 }
 
 void SceneEditorController::refreshInspectorOverlayPresentation()
@@ -464,6 +485,10 @@ void SceneEditorController::refreshBottomPanelPresentation(bool preserveScroll)
     float previousFilesScrollLeft = 0.0f;
     float previousTreeScrollTop = 0.0f;
     float previousTreeScrollLeft = 0.0f;
+    float previousConsoleScrollTop = 0.0f;
+    float previousConsoleScrollLeft = 0.0f;
+    bool restoreConsoleScroll = false;
+    bool stickConsoleToBottom = false;
 
     if (preserveScroll)
     {
@@ -478,15 +503,31 @@ void SceneEditorController::refreshBottomPanelPresentation(bool preserveScroll)
             previousTreeScrollTop = m_bottomBrowserTreePane->GetScrollTop();
             previousTreeScrollLeft = m_bottomBrowserTreePane->GetScrollLeft();
         }
+
+        if (m_consoleSelectionElement != nullptr)
+        {
+            previousConsoleScrollTop = m_consoleSelectionElement->GetScrollTop();
+            previousConsoleScrollLeft = m_consoleSelectionElement->GetScrollLeft();
+            restoreConsoleScroll = true;
+            stickConsoleToBottom =
+                (m_consoleSelectionElement->GetScrollHeight() - (previousConsoleScrollTop + m_consoleSelectionElement->GetClientHeight())) <= 4.0f;
+        }
     }
 
     m_bottomPanel->SetInnerRML(buildAssetBrowserMarkup());
     m_bottomBrowserFilesPane = m_document != nullptr ? m_document->GetElementById("scene_asset_browser_files_pane") : nullptr;
     m_bottomBrowserSplitter = m_document != nullptr ? m_document->GetElementById("scene_asset_browser_splitter") : nullptr;
     m_bottomBrowserTreePane = m_document != nullptr ? m_document->GetElementById("scene_asset_browser_tree_pane") : nullptr;
+    m_consoleOutputElement = m_document != nullptr ? m_document->GetElementById("scene_console_output") : nullptr;
+    m_consoleOutputSpacerElement = m_document != nullptr ? m_document->GetElementById("scene_console_output_spacer") : nullptr;
+    m_consoleSelectionElement = m_document != nullptr ? m_document->GetElementById("scene_console_selection") : nullptr;
 
     if (!preserveScroll)
+    {
+        m_pendingConsoleScrollRestore = false;
+        m_pendingConsoleStickToBottom = false;
         return;
+    }
 
     if (m_bottomBrowserFilesPane != nullptr)
     {
@@ -498,6 +539,19 @@ void SceneEditorController::refreshBottomPanelPresentation(bool preserveScroll)
     {
         m_bottomBrowserTreePane->SetScrollTop(previousTreeScrollTop);
         m_bottomBrowserTreePane->SetScrollLeft(previousTreeScrollLeft);
+    }
+
+    if (restoreConsoleScroll && m_consoleSelectionElement != nullptr)
+    {
+        m_pendingConsoleScrollRestore = true;
+        m_pendingConsoleStickToBottom = stickConsoleToBottom;
+        m_pendingConsoleScrollTop = previousConsoleScrollTop;
+        m_pendingConsoleScrollLeft = previousConsoleScrollLeft;
+    }
+    else
+    {
+        m_pendingConsoleScrollRestore = false;
+        m_pendingConsoleStickToBottom = false;
     }
 }
 
@@ -706,7 +760,11 @@ void SceneEditorController::refreshInspectorValuesPresentation()
     };
 
     if (Rml::Element* childrenValue = m_document->GetElementById("scene_inspector_children_value"))
-        childrenValue->SetInnerRML(std::to_string(selectedNode->children.size()));
+    {
+        const std::string nextChildrenValue = std::to_string(selectedNode->children.size());
+        if (childrenValue->GetInnerRML() != nextChildrenValue)
+            childrenValue->SetInnerRML(nextChildrenValue);
+    }
 
     if (selectedNode->gameObject == nullptr)
     {
@@ -1269,19 +1327,30 @@ std::string SceneEditorController::buildInspectorComponentContextMenuMarkup() co
 std::string SceneEditorController::buildConsoleMarkup() const
 {
     std::ostringstream stream;
-    stream << "<div class='console_workspace'><div class='console_output'>";
+    stream << "<div class='console_workspace'>";
 
-    if (m_consoleLines.empty())
+    if (m_consoleRawLines.empty())
     {
-        stream << "<div class='placeholder_block'><div class='placeholder_title'>Console</div><div class='placeholder_text'>Build output and player logs will appear here.</div></div>";
+        stream << "<div class='console_output'><div class='placeholder_block'><div class='placeholder_title'>Console</div><div class='placeholder_text'>Build output and player logs will appear here.</div></div></div>";
     }
     else
     {
-        for (const std::string& lineMarkup : m_consoleLines)
-            stream << "<div class='console_line'>" << lineMarkup << "</div>";
+        stream << "<div id='scene_console_output' class='console_output console_output_rich'>";
+        for (size_t index = 0; index < m_consoleLines.size(); ++index)
+            stream << "<div class='console_line'>" << m_consoleLines[index] << "</div>";
+        stream << "<div id='scene_console_output_spacer' class='console_output_spacer'></div>";
+        stream << "</div>";
+        stream << "<textarea id='scene_console_selection' class='console_output_text' wrap='nowrap'>";
+        for (size_t index = 0; index < m_consoleRawLines.size(); ++index)
+        {
+            if (index > 0)
+                stream << '\n';
+            stream << escapeTextAreaValue(m_consoleRawLines[index]);
+        }
+        stream << "</textarea>";
     }
 
-    stream << "</div></div>";
+    stream << "</div>";
     return stream.str();
 }
 

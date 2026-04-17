@@ -927,7 +927,7 @@ const char* kEditorLayoutDocument = R"RML(
             height: 100%;
             min-width: 0px;
             min-height: 0px;
-            padding: 10px 18px 10px 12px;
+            padding: 10px 18px 12px 12px;
             scrollbar-margin: 14px;
             overflow-y: auto;
             overflow-x: hidden;
@@ -935,7 +935,54 @@ const char* kEditorLayoutDocument = R"RML(
             box-sizing: border-box;
         }
 
-        .console_output scrollbarvertical {
+        .console_output_rich {
+            overflow-y: auto;
+            overflow-x: auto;
+            color: #d8e1e8;
+            font-size: 12px;
+            line-height: 16px;
+            font-family: LatoLatin;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .console_output_text {
+            display: block;
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            width: 100%;
+            height: 100%;
+            min-width: 0px;
+            min-height: 0px;
+            margin: 0px;
+            padding: 10px 18px 12px 12px;
+            border: 0px;
+            background-color: transparent;
+            color: rgba(0, 0, 0, 0);
+            caret-color: rgba(0, 0, 0, 0);
+            font-size: 12px;
+            line-height: 16px;
+            font-family: LatoLatin;
+            cursor: text;
+            box-sizing: border-box;
+            scrollbar-margin: 14px;
+            overflow-y: auto;
+            overflow-x: auto;
+            white-space: pre;
+            z-index: 2;
+        }
+
+        .console_output_text:focus-visible {
+            border: 0px;
+        }
+
+        .console_output_text selection {
+            background-color: #5f7e96;
+            color: #f8fbff;
+        }
+
+        .console_output_text scrollbarvertical {
             display: block;
             flex: 0 0 12px;
             width: 12px;
@@ -943,7 +990,7 @@ const char* kEditorLayoutDocument = R"RML(
             min-width: 12px;
         }
 
-        .console_output scrollbarvertical slidertrack {
+        .console_output_text scrollbarvertical slidertrack {
             display: block;
             width: 12px;
             max-width: 12px;
@@ -952,7 +999,7 @@ const char* kEditorLayoutDocument = R"RML(
             border-left: 1px #25323b;
         }
 
-        .console_output scrollbarvertical sliderbar {
+        .console_output_text scrollbarvertical sliderbar {
             display: block;
             width: 12px;
             max-width: 12px;
@@ -962,23 +1009,118 @@ const char* kEditorLayoutDocument = R"RML(
             background-color: #4a6273;
         }
 
-        .console_output scrollbarvertical sliderbar:hover {
+        .console_output_text scrollbarvertical sliderbar:hover {
             background-color: #6f8a9c;
+        }
+
+        .console_output_text scrollbarhorizontal {
+            display: block;
+            height: 12px;
+            max-height: 12px;
+            min-height: 12px;
+        }
+
+        .console_output_text scrollbarhorizontal slidertrack {
+            display: block;
+            height: 12px;
+            max-height: 12px;
+            min-height: 12px;
+            background-color: #141b21;
+            border-top: 1px #25323b;
+        }
+
+        .console_output_text scrollbarhorizontal sliderbar {
+            display: block;
+            height: 12px;
+            max-height: 12px;
+            min-height: 12px;
+            min-width: 28px;
+            margin-top: 1px;
+            background-color: #4a6273;
+        }
+
+        .console_output_text scrollbarhorizontal sliderbar:hover {
+            background-color: #6f8a9c;
+        }
+
+        .console_output_rich scrollbarvertical {
+            display: block;
+            flex: 0 0 12px;
+            width: 12px;
+            max-width: 12px;
+            min-width: 12px;
+        }
+
+        .console_output_rich scrollbarvertical slidertrack {
+            display: block;
+            width: 12px;
+            max-width: 12px;
+            min-width: 12px;
+            background-color: transparent;
+            border-left: 0px transparent;
+        }
+
+        .console_output_rich scrollbarvertical sliderbar {
+            display: block;
+            width: 12px;
+            max-width: 12px;
+            min-width: 12px;
+            min-height: 28px;
+            margin-left: 1px;
+            background-color: transparent;
+        }
+
+        .console_output_rich scrollbarvertical sliderbar:hover {
+            background-color: transparent;
+        }
+
+        .console_output_rich scrollbarhorizontal {
+            display: block;
+            height: 12px;
+            max-height: 12px;
+            min-height: 12px;
+        }
+
+        .console_output_rich scrollbarhorizontal slidertrack {
+            display: block;
+            height: 12px;
+            max-height: 12px;
+            min-height: 12px;
+            background-color: transparent;
+            border-top: 0px transparent;
+        }
+
+        .console_output_rich scrollbarhorizontal sliderbar {
+            display: block;
+            height: 12px;
+            max-height: 12px;
+            min-height: 12px;
+            min-width: 28px;
+            margin-top: 1px;
+            background-color: transparent;
+        }
+
+        .console_output_rich scrollbarhorizontal sliderbar:hover {
+            background-color: transparent;
         }
 
         .console_line {
             display: block;
-            margin-bottom: 4px;
-            padding: 2px 0px;
             font-size: 12px;
+            line-height: 16px;
             color: #d8e1e8;
-            white-space: pre-wrap;
-            word-break: break-word;
+            white-space: pre;
         }
 
         .console_line_segment {
             color: #d8e1e8;
-            white-space: pre-wrap;
+            white-space: pre;
+        }
+
+        .console_output_spacer {
+            display: block;
+            width: 1px;
+            height: 0px;
         }
 
         .console_line_bold {

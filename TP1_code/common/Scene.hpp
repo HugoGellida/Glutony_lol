@@ -440,7 +440,8 @@ public:
 
     void renderScene()
     {
-        m_renderPipeline.execute(m_camera, m_gameObjects, m_gameObjectCount, m_savedRenderTargetSettings, collectLightInputs());
+        const std::vector<render::SceneRenderTargetSettings> renderTargets = collectVisibleRenderTargetSettings();
+        m_renderPipeline.execute(m_camera, m_gameObjects, m_gameObjectCount, renderTargets, collectLightInputs());
     }
 
     void renderSceneWithSelectionHighlight()
@@ -873,6 +874,12 @@ public:
         if (valid)
             m_renderPipeline.invalidate();
         return valid;
+    }
+
+    bool describeRenderPipelineGraph(std::vector<std::string>& lines)
+    {
+        const std::vector<render::SceneRenderTargetSettings> renderTargets = collectVisibleRenderTargetSettings();
+        return m_renderPipeline.describeExecutionGraph(m_gameObjects, m_gameObjectCount, renderTargets, lines);
     }
 
     bool refreshMaterialAsset(const std::string& relativePath)

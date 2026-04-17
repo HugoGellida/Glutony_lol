@@ -69,12 +69,17 @@
         {
           "name": "_sourceTex",
           "type": "renderTarget",
-          "value": { "name": "hdr_color", "shared": true }
+          "value": { "name": "hdr_color", "shared": true, "grouped": false }
         }
       ],
       "target": { "name": "final", "shared": true },
       "clear": false,
-      "blend": false,
+      "blend": {
+        "enabled": true,
+        "op": "add",
+        "src": "one",
+        "dst": "oneMinusSrcAlpha"
+      },
       "depth": "preserve"
     }
   ]
