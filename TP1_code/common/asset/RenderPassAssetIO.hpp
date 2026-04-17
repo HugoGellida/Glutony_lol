@@ -62,6 +62,7 @@ struct RenderTargetAssetReference
 {
     std::string name;
     bool shared = false;
+    bool grouped = true;
     int width = 0;
     int height = 0;
     render::RenderTargetFormat format = render::RenderTargetFormat::Rgba;
@@ -78,7 +79,7 @@ enum class RenderPassIterator
 
 enum class RenderPassDrawMode
 {
-    Mesh,
+    Geometry,
     Fullscreen,
 };
 
@@ -110,7 +111,7 @@ struct RenderPassStepDefinition
 {
     std::string phaseName;
     std::string shaderPath;
-    RenderPassDrawMode drawMode = RenderPassDrawMode::Mesh;
+    RenderPassDrawMode drawMode = RenderPassDrawMode::Geometry;
     RenderPassIterator iterator = RenderPassIterator::None;
     std::string uniformFactoryPath;
     std::vector<RenderPassUniformDefinition> uniforms;
@@ -390,7 +391,9 @@ private:
         static bool parseDrawModeValue(const std::string& rawValue, RenderPassDrawMode& value)
         {
             if (rawValue == "mesh")
-                return value = RenderPassDrawMode::Mesh, true;
+                return value = RenderPassDrawMode::Geometry, true;
+            if (rawValue == "geometry")
+                return value = RenderPassDrawMode::Geometry, true;
             if (rawValue == "fullscreen")
                 return value = RenderPassDrawMode::Fullscreen, true;
             return false;
@@ -418,15 +421,20 @@ private:
                         return false;
                     hasName = true;
                 }
-                else if (key == "shared")
-                {
-                    if (!parseBool(value.shared))
-                        return false;
-                }
-                else if (key == "width")
-                {
-                    if (!parseInt(value.width))
-                        return false;
+                    else if (key == "shared")
+                    {
+                        if (!parseBool(value.shared))
+                            return false;
+                    }
+                    else if (key == "grouped")
+                    {
+                        if (!parseBool(value.grouped))
+                            return false;
+                    }
+                    else if (key == "width")
+                    {
+                        if (!parseInt(value.width))
+                            return false;
                     value.width = std::max(0, value.width);
                 }
                 else if (key == "height")
@@ -940,12 +948,14 @@ private:
 
     static const char* drawModeValue(RenderPassDrawMode value)
     {
-        return value == RenderPassDrawMode::Fullscreen ? "fullscreen" : "mesh";
+        return value == RenderPassDrawMode::Fullscreen ? "fullscreen" : "geometry";
     }
 
     static bool writeRenderTargetReference(std::ostream& output, const RenderTargetAssetReference& value)
     {
         output << "{ \"name\": \"" << value.name << "\", \"shared\": " << (value.shared ? "true" : "false");
+        if (!value.grouped)
+            output << ", \"grouped\": false";
         if (value.width > 0)
             output << ", \"width\": " << value.width;
         if (value.height > 0)

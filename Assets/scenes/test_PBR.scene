@@ -1,0 +1,71 @@
+SCENE_SNAPSHOT 4
+NEXT_GAMEOBJECT_ID 3
+PHYSICS 0
+SELECTED_ID -1
+SCENE_SCRIPT_ASSET ""
+DATA_ASSET ""
+DIRECTIONAL_LIGHT_ENABLED 1
+DIRECTIONAL_LIGHT_DIRECTION 0.4 -0.75 -0.5
+DIRECTIONAL_LIGHT_COLOR 1 1 1
+DIRECTIONAL_LIGHT_INTENSITY 1
+CAMERA_POSITION -3.39023 0.768623 0.286815
+CAMERA_ORIENTATION -21.9 272.8 360
+CAMERA_FOV 60
+CAMERA_ASPECT 1.10559
+CAMERA_NEAR 0.3
+CAMERA_FAR 1000
+MESH_ASSETS 4
+ASSET "built-in/mesh/cube_n.obj"
+ASSET "procedural/plane"
+ASSET "built-in/mesh/unit_sphere_n.off"
+ASSET "Assets/meshs/sphere.obj"
+SHADER_ASSETS 2
+ASSET "built-in/shaders/lit"
+ASSET "built-in/shaders/unlit"
+MATERIAL_ASSETS 5
+ASSET "built-in/materials/lit_default.mat"
+ASSET "built-in/materials/selection_highlight.mat"
+ASSET "built-in/materials/validation_lit_cool.mat"
+ASSET "Assets/materials/pillars_legacy_occlusion.mat"
+ASSET "built-in/materials/lit_PBR.mat"
+RENDER_TARGETS 2
+RENDER_TARGET "light_occlusion" 0 0 float ""
+RENDER_TARGET "shadow_gbuffer" 0 0 float ""
+GAME_OBJECTS 2
+BEGIN_GAME_OBJECT
+ID 1
+NAME "GameObject"
+PARENT_ID -1
+POSITION 0 -5 0
+ROTATION 0 0 0
+SCALE 20 0.1 20
+MESH_ASSET "built-in/mesh/cube_n.obj"
+MATERIAL_ASSET "built-in/materials/lit_default.mat"
+COMPONENTS 1
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "built-in/mesh/cube_n.obj"
+FIELD "material_asset" STRING "built-in/materials/lit_default.mat"
+END_COMPONENT
+END_GAME_OBJECT
+BEGIN_GAME_OBJECT
+ID 2
+NAME "GameObject"
+PARENT_ID -1
+POSITION 0 0 0
+ROTATION 0 0 0
+SCALE 1 1 1
+MESH_ASSET "Assets/meshs/sphere.obj"
+MATERIAL_ASSET "built-in/materials/lit_PBR.mat"
+COMPONENTS 1
+BEGIN_COMPONENT
+TYPE "render.mesh_renderer"
+VERSION 1
+FIELDS 2
+FIELD "mesh_asset" STRING "Assets/meshs/sphere.obj"
+FIELD "material_asset" STRING "built-in/materials/lit_PBR.mat"
+END_COMPONENT
+END_GAME_OBJECT
+END_SCENE

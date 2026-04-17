@@ -5,7 +5,7 @@
       "shader": "built-in/shaders/lit_PBR_base",
       "iterator": "none",
       "uniforms": [],
-      "target": { "name": "final", "shared": true },
+      "target": { "name": "hdr_color", "shared": true, "grouped": false, "format": "rgba16f" },
       "clear": false,
       "blend": false,
       "depth": "preserve"
@@ -50,7 +50,7 @@
           "value": { "name": "light_occlusion", "shared": true }
         }
       ],
-      "target": { "name": "final", "shared": true },
+      "target": { "name": "hdr_color", "shared": true, "format": "rgba16f" },
       "clear": false,
       "blend": {
         "enabled": true,
@@ -58,6 +58,23 @@
         "src": "one",
         "dst": "one"
       },
+      "depth": "preserve"
+    },
+    {
+      "phase": "built-in/render_phase/post_lighting.render_phase",
+      "shader": "built-in/shaders/lit_PBR_present",
+      "draw": "fullscreen",
+      "iterator": "none",
+      "uniforms": [
+        {
+          "name": "_sourceTex",
+          "type": "renderTarget",
+          "value": { "name": "hdr_color", "shared": true }
+        }
+      ],
+      "target": { "name": "final", "shared": true },
+      "clear": false,
+      "blend": false,
       "depth": "preserve"
     }
   ]

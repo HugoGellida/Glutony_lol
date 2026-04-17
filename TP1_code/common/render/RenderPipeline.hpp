@@ -86,6 +86,8 @@ private:
     struct Batch
     {
         std::string phaseAssetPath;
+        std::string sourceRenderPassPath;
+        size_t sourcePassIndex = 0;
         std::string signature;
         asset::RenderPassStepDefinition pass;
         asset::RenderPassIterator iterator = asset::RenderPassIterator::None;
@@ -764,6 +766,55 @@ private:
         return true;
     }
 
+    static bool validateFullscreenPass(
+        const asset::RenderPassStepDefinition& pass,
+        const std::string& renderPassPath,
+        size_t passIndex,
+        std::vector<std::string>* issues)
+    {
+        if (pass.drawMode != asset::RenderPassDrawMode::Fullscreen)
+            return true;
+
+        bool valid = true;
+        if (pass.iterator != asset::RenderPassIterator::None)
+        {
+            appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " declares a fullscreen pass with a non-none iterator.");
+            valid = false;
+        }
+
+        if (!pass.uniformFactoryPath.empty())
+        {
+            appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " declares a fullscreen pass with a uniform factory.");
+            valid = false;
+        }
+
+        const std::string targetName = normalizeRenderTargetName(pass.target.name);
+        for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
+        {
+            if (uniform.kind != asset::RenderPassUniformKind::RenderTarget)
+                continue;
+
+            const std::string referencedTargetName = normalizeRenderTargetName(uniform.renderTargetValue.name);
+            if (referencedTargetName.empty())
+                continue;
+
+            if (isFinalRenderTargetName(referencedTargetName))
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " declares a fullscreen pass that samples the final render target.");
+                valid = false;
+                continue;
+            }
+
+            if (!targetName.empty() && referencedTargetName == targetName)
+            {
+                appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " declares a fullscreen pass that reads and writes the same render target.");
+                valid = false;
+            }
+        }
+
+        return valid;
+    }
+
     static bool validateUniformFactory(
         Shader& shader,
         const asset::UniformFactoryAssetDefinition& factory,
@@ -858,13 +909,28 @@ private:
         return nullptr;
     }
 
-    static std::string renderPassBatchSignature(const asset::RenderPassStepDefinition& pass)
+    static std::string renderPassBatchSignature(
+        const asset::RenderPassStepDefinition& pass,
+        const std::string& rawRenderPassPath,
+        size_t passIndex)
     {
+        const std::string normalizedRenderPassPath = asset::AssetManager::normalizeRelativePath(rawRenderPassPath);
+        if (pass.drawMode == asset::RenderPassDrawMode::Fullscreen)
+        {
+            std::ostringstream fullscreenStream;
+            fullscreenStream << "__fullscreen__|"
+                             << normalizedRenderPassPath << '|'
+                             << passIndex;
+            return fullscreenStream.str();
+        }
+
         std::ostringstream stream;
         stream << pass.phaseName << '|'
+               << static_cast<int>(pass.drawMode) << '|'
                << asset::AssetManager::normalizeRelativePath(pass.shaderPath) << '|'
                << pass.target.name << '|'
                << (pass.target.shared ? '1' : '0') << '|'
+               << (pass.target.grouped ? '1' : '0') << '|'
              << (pass.target.bakeable ? '1' : '0') << '|'
              << static_cast<int>(pass.target.bakeCombine) << '|'
                << (pass.clearColor ? '1' : '0') << '|'
@@ -922,6 +988,7 @@ private:
             case asset::RenderPassUniformKind::RenderTarget:
                 stream << uniform.renderTargetValue.name << ':'
                        << (uniform.renderTargetValue.shared ? '1' : '0') << ':'
+                       << (uniform.renderTargetValue.grouped ? '1' : '0') << ':'
                        << (uniform.renderTargetValue.bakeable ? '1' : '0') << ':'
                        << static_cast<int>(uniform.renderTargetValue.bakeCombine);
                 break;
@@ -1387,6 +1454,60 @@ private:
         return true;
     }
 
+    bool executeFullscreenBatch(
+        const Camera& camera,
+        const Batch& batch,
+        const std::function<GLuint(const asset::RenderTargetAssetReference&)>& resolveRenderTargetTexture)
+    {
+        Shader* shader = asset::AssetManager::instance().loadShader(batch.pass.shaderPath);
+        if (shader == nullptr)
+            return false;
+
+        dataStruct::Material material(shader);
+        material.setRuntimePreviewSyncEnabled(false);
+        material.setRuntimeDefinitionHeader(asset::MaterialAssetKind::Unlit, batch.pass.shaderPath, batch.sourceRenderPassPath);
+        for (const asset::RenderPassUniformDefinition& uniform : batch.pass.uniforms)
+            applyPassUniformDefinition(material, uniform, resolveRenderTargetTexture);
+
+        GLint previousProgram = 0;
+        glGetIntegerv(GL_CURRENT_PROGRAM, &previousProgram);
+        GLint previousVao = 0;
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &previousVao);
+        GLint previousActiveTexture = 0;
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &previousActiveTexture);
+        const GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
+        const GLboolean depthEnabled = glIsEnabled(GL_DEPTH_TEST);
+        GLboolean previousDepthMask = GL_TRUE;
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &previousDepthMask);
+
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+
+        Transform fullscreenTransform;
+        material.bind(camera, fullscreenTransform);
+        glBindVertexArray(fullscreenTriangleVao());
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(static_cast<GLenum>(previousActiveTexture));
+        glBindVertexArray(static_cast<GLuint>(previousVao));
+        glUseProgram(static_cast<GLuint>(previousProgram));
+        glDepthMask(previousDepthMask);
+
+        if (cullEnabled)
+            glEnable(GL_CULL_FACE);
+        else
+            glDisable(GL_CULL_FACE);
+
+        if (depthEnabled)
+            glEnable(GL_DEPTH_TEST);
+        else
+            glDisable(GL_DEPTH_TEST);
+
+        return true;
+    }
+
     static void configureBlendState(const asset::RenderBlendStateDefinition& blend)
     {
         if (!blend.enabled)
@@ -1507,8 +1628,9 @@ private:
                 continue;
             }
 
-            for (const asset::RenderPassStepDefinition& pass : renderPass->passes)
+            for (size_t passIndex = 0; passIndex < renderPass->passes.size(); ++passIndex)
             {
+                const asset::RenderPassStepDefinition& pass = renderPass->passes[passIndex];
                 mergeRenderTargetMetadata(m_renderTargetMetadata, pass.target);
                 for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
                 {
@@ -1522,12 +1644,14 @@ private:
                 if (phases.find(renderPhaseKey(pass.phaseName)) == phases.end())
                     continue;
 
-                const std::string signature = renderPassBatchSignature(pass);
+                const std::string signature = renderPassBatchSignature(pass, renderPassPath, passIndex);
                 auto batchIt = batchIndexBySignature.find(signature);
                 if (batchIt == batchIndexBySignature.end())
                 {
                     Batch batch;
                     batch.phaseAssetPath = renderPhaseKey(pass.phaseName);
+                    batch.sourceRenderPassPath = renderPassPath;
+                    batch.sourcePassIndex = passIndex;
                     batch.signature = signature;
                     batch.pass = pass;
                     batch.iterator = pass.iterator;
@@ -1762,6 +1886,12 @@ public:
                     valid = false;
             }
 
+            if (!validateFullscreenPass(pass, renderPassPath, passIndex, issues))
+                valid = false;
+
+            if (pass.drawMode == asset::RenderPassDrawMode::Fullscreen)
+                continue;
+
             if (pass.iterator != asset::RenderPassIterator::None && pass.uniformFactoryPath.empty())
             {
                 appendIssue(issues, renderPassPath + " pass #" + std::to_string(passIndex) + " declares an iterator but no uniform factory.");
@@ -1855,31 +1985,33 @@ private:
         const auto renderBatch = [&](const Batch& batch, int currentIteration, int iterationCount) {
             const std::string normalizedTargetName = normalizeRenderTargetName(batch.pass.target.name);
             const bool writesFinalTarget = normalizedTargetName.empty() || isFinalRenderTargetName(normalizedTargetName);
-            std::string targetGroupSuffix;
-            if (!queryBatchTargetGroupSuffix(camera, batch, currentIteration, iterationCount, false, targetGroupSuffix))
+            std::string resolvedTargetGroupSuffix;
+            if (!queryBatchTargetGroupSuffix(camera, batch, currentIteration, iterationCount, false, resolvedTargetGroupSuffix))
             {
                 fatalError = true;
                 return;
             }
 
-            std::string bakedTargetGroupSuffix;
-            if (!queryBatchTargetGroupSuffix(camera, batch, currentIteration, iterationCount, true, bakedTargetGroupSuffix))
+            std::string resolvedBakedTargetGroupSuffix;
+            if (!queryBatchTargetGroupSuffix(camera, batch, currentIteration, iterationCount, true, resolvedBakedTargetGroupSuffix))
             {
                 fatalError = true;
                 return;
             }
+            const std::string outputTargetGroupSuffix = batch.pass.target.grouped ? resolvedTargetGroupSuffix : std::string();
+            const std::string outputBakedTargetGroupSuffix = batch.pass.target.grouped ? resolvedBakedTargetGroupSuffix : std::string();
             const std::string groupedTargetLogicalKey = writesFinalTarget
                 ? std::string()
-                : appendTargetGroupSuffix(batch.targetLogicalKey, targetGroupSuffix);
+                : appendTargetGroupSuffix(batch.targetLogicalKey, outputTargetGroupSuffix);
             const std::string groupedTargetInstanceKey = writesFinalTarget
                 ? std::string()
-                : resolveBatchTargetInstanceKey(batch, targetGroupSuffix);
+                : resolveBatchTargetInstanceKey(batch, outputTargetGroupSuffix);
 
             const SceneRenderTargetSettings* targetSettings = writesFinalTarget ? nullptr : findRenderTargetSettings(renderTargets, normalizedTargetName);
             const RenderTargetMetadata* targetMetadata = writesFinalTarget ? nullptr : findRenderTargetMetadata(normalizedTargetName);
             std::string bakedTargetAssetPath =
                 options.allowBakedInputs && targetMetadata != nullptr && targetMetadata->bakeable
-                    ? resolveBakedTextureAssetPath(targetSettings, bakedTargetGroupSuffix)
+                    ? resolveBakedTextureAssetPath(targetSettings, outputBakedTargetGroupSuffix)
                     : std::string();
             if (!bakedAssetPathMatchesMetadata(bakedTargetAssetPath, targetMetadata))
                 bakedTargetAssetPath.clear();
@@ -1928,14 +2060,16 @@ private:
                 if (referencedTargetName.empty() || isFinalRenderTargetName(referencedTargetName))
                     return 0;
 
+                const std::string referenceTargetGroupSuffix = reference.grouped ? resolvedTargetGroupSuffix : std::string();
+                const std::string referenceBakedTargetGroupSuffix = reference.grouped ? resolvedBakedTargetGroupSuffix : std::string();
                 GLuint dynamicTextureId = 0;
                 int dynamicWidth = 0;
                 int dynamicHeight = 0;
                 RenderTargetFormat dynamicFormat = RenderTargetFormat::Rgba;
 
                 const std::string logicalKey = renderTargetLogicalKey(reference);
-                auto producedIt = producedRenderTargetInstances.find(appendTargetGroupSuffix(logicalKey, targetGroupSuffix));
-                if (producedIt == producedRenderTargetInstances.end() && !targetGroupSuffix.empty())
+                auto producedIt = producedRenderTargetInstances.find(appendTargetGroupSuffix(logicalKey, referenceTargetGroupSuffix));
+                if (producedIt == producedRenderTargetInstances.end() && !referenceTargetGroupSuffix.empty())
                     producedIt = producedRenderTargetInstances.find(logicalKey);
                 if (producedIt != producedRenderTargetInstances.end())
                 {
@@ -1954,7 +2088,7 @@ private:
                 const SceneRenderTargetSettings* referencedSettings = findRenderTargetSettings(renderTargets, referencedTargetName);
                 if (options.allowBakedInputs && referencedMetadata != nullptr && referencedMetadata->bakeable)
                 {
-                    const std::string bakedAssetPath = resolveBakedTextureAssetPath(referencedSettings, bakedTargetGroupSuffix);
+                    const std::string bakedAssetPath = resolveBakedTextureAssetPath(referencedSettings, referenceBakedTargetGroupSuffix);
                     if (bakedAssetPathMatchesMetadata(bakedAssetPath, referencedMetadata))
                     {
                         Texture2D* texture = resolveCachedTextureAsset(bakedAssetPath);
@@ -1965,7 +2099,7 @@ private:
 
                 if (dynamicTextureId != 0 && bakedTextureId != 0 && referencedMetadata != nullptr && referencedMetadata->bakeable)
                 {
-                    const std::string compositeKey = referencedTargetName + bakedTargetGroupSuffix;
+                    const std::string compositeKey = referencedTargetName + referenceBakedTargetGroupSuffix;
                     liveCompositeTargetKeys.insert(compositeKey);
                     const GLuint compositeTextureId = composeBakedAndDynamicTexture(
                         compositeKey,
@@ -1986,13 +2120,21 @@ private:
                 return 0;
             };
 
-            for (const DrawItem& item : batch.items)
+            if (batch.pass.drawMode == asset::RenderPassDrawMode::Fullscreen)
             {
-                if (!shouldRenderItem(item, dynamicOnlyForBatch))
-                    continue;
-
-                if (executeDrawItem(camera, batch, item, resolveRenderTargetTexture, nullptr, currentIteration, iterationCount))
+                if (executeFullscreenBatch(camera, batch, resolveRenderTargetTexture))
                     renderedAnything = true;
+            }
+            else
+            {
+                for (const DrawItem& item : batch.items)
+                {
+                    if (!shouldRenderItem(item, dynamicOnlyForBatch))
+                        continue;
+
+                    if (executeDrawItem(camera, batch, item, resolveRenderTargetTexture, nullptr, currentIteration, iterationCount))
+                        renderedAnything = true;
+                }
             }
 
             if (!groupedTargetInstanceKey.empty())
@@ -2005,7 +2147,7 @@ private:
                 {
                     BakedRenderTargetResult result;
                     result.targetName = normalizedTargetName;
-                    result.targetGroupSuffix = bakedTargetGroupSuffix;
+                    result.targetGroupSuffix = outputBakedTargetGroupSuffix;
                     result.bakeCombine = batch.pass.target.bakeCombine;
                     result.format = resourceIt->second.format();
                     result.width = resourceIt->second.width();

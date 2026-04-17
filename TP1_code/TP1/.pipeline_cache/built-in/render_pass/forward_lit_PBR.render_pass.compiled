@@ -16,3 +16,6 @@ built-in/shaders/lit_PBR_light/vertex.glsl
 built-in/shaders/lit_PBR_light/fragment.glsl
 built-in/uniform_factory/light_pass_PBR.uniform_factory
 built-in/uniform_factory/light_pass_PBR.cpp
+built-in/render_phase/post_lighting.render_phase
+built-in/shaders/lit_PBR_present/vertex.glsl
+built-in/shaders/lit_PBR_present/fragment.glsl
