@@ -24,8 +24,10 @@ namespace component
         GLuint m_EBO = 0;
         GLuint m_NORMALS = 0;
         GLuint m_UVS = 0;
+        GLuint m_TANGENTS = 0;
         bool m_hasNorm = false;
         bool m_hasUVS = false;
+        bool m_hasTangents = false;
         bool invertCull = false;
         bool m_wireframe = false;
 
@@ -55,6 +57,12 @@ namespace component
                 m_UVS = 0;
             }
 
+            if (m_TANGENTS != 0)
+            {
+                glDeleteBuffers(1, &m_TANGENTS);
+                m_TANGENTS = 0;
+            }
+
             if (m_VAO != 0)
             {
                 glDeleteVertexArrays(1, &m_VAO);
@@ -63,6 +71,7 @@ namespace component
 
             m_hasNorm = false;
             m_hasUVS = false;
+            m_hasTangents = false;
             m_onGPU = false;
         }
 
@@ -160,6 +169,9 @@ namespace component
             if (m_onGPU)
                 releaseGpuResources();
 
+            if (m_mesh -> hasNormals() && m_mesh -> hasUVs())
+                m_mesh -> computeTangents();
+
             glGenVertexArrays(1, &m_VAO);
             glBindVertexArray(m_VAO);
 
@@ -192,6 +204,13 @@ namespace component
                 glBufferData(GL_ARRAY_BUFFER, m_mesh -> verticesCount() * 2 * sizeof(float), m_mesh -> uvs(), GL_STATIC_DRAW);
             }
 
+            if (m_mesh -> hasTangents())
+            {
+                glGenBuffers(1, &m_TANGENTS);
+                glBindBuffer(GL_ARRAY_BUFFER, m_TANGENTS);
+                glBufferData(GL_ARRAY_BUFFER, m_mesh -> verticesCount() * 3 * sizeof(float), m_mesh -> tangents(), GL_STATIC_DRAW);
+            }
+
             // attach to VAO;
             int attributeIndex = 0;
 
@@ -222,8 +241,14 @@ namespace component
                 glBindBuffer(GL_ARRAY_BUFFER, m_UVS);
                 glVertexAttribPointer(attributeIndex, 2, GL_FLOAT, GL_FALSE, 0, (void *)0);
                 glEnableVertexAttribArray(attributeIndex);
-
-                // UV T B
+            }
+            if (m_mesh -> hasTangents())
+            {
+                m_hasTangents = true;
+                attributeIndex = 4;
+                glBindBuffer(GL_ARRAY_BUFFER, m_TANGENTS);
+                glVertexAttribPointer(attributeIndex, 3, GL_FLOAT, GL_FALSE, 0, (void *)0);
+                glEnableVertexAttribArray(attributeIndex);
             }
             if (m_mesh -> hasColors())
             {

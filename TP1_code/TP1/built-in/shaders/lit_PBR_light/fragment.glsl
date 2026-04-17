@@ -5,11 +5,14 @@ in vec4 _clipPosition;
 in vec2 _uvs;
 in vec3 _colors;
 in vec3 _worldPos;
+in mat3 _TBN;
 uniform sampler2D _albedoMap;
 uniform sampler2D _metallicMap;
 uniform sampler2D _roughnessMap;
+uniform sampler2D _normalMap;
 uniform bool _metallicMap_present = false;
 uniform bool _roughnessMap_present = false;
+uniform bool _normalMap_present = false;
 uniform float _metallicValue = 0.0;
 uniform float _roughnessValue = 0.5;
 
@@ -39,6 +42,17 @@ float sampleMetallic()
 float sampleRoughness()
 {
         return _roughnessMap_present ? texture(_roughnessMap, _uvs).r : _roughnessValue;
+}
+
+vec3 sampleSurfaceNormal()
+{
+        vec3 geometricNormal = normalize(_normals);
+        if (!_normalMap_present)
+                return geometricNormal;
+
+        vec3 tangentNormal = texture(_normalMap, _uvs).xyz * 2.0 - 1.0;
+        mat3 tbn = mat3(normalize(_TBN[0]), normalize(_TBN[1]), normalize(_TBN[2]));
+        return normalize(tbn * normalize(tangentNormal));
 }
 
 float DistributionGGX(vec3 N, vec3 H, float roughness)
@@ -81,7 +95,7 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0)
 }
 
 void main(){
-        vec3 normal = normalize(_normals);
+        vec3 normal = sampleSurfaceNormal();
         vec3 albedo = sampleAlbedoLinear();
         float metallic = clamp(sampleMetallic(), 0.0, 1.0);
         float roughness = clamp(sampleRoughness(), 0.04, 1.0);
