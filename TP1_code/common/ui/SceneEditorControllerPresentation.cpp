@@ -38,10 +38,13 @@ std::string buildSceneEditorMenuMarkup(bool isFileMenuOpen, bool isEditMenuOpen,
     fileMenu.setDropdownDomIdOverride("scene_menu_file_dropdown");
     fileMenu.setExpanded(isFileMenuOpen);
 
+    UI::MenuItem newScene(0, 0, "New Scene");
+    newScene.setDomIdOverride("scene_menu_new_scene");
     UI::MenuItem saveAs(0, 0, "Save Scene As");
     saveAs.setDomIdOverride("scene_menu_save_as");
     UI::MenuItem loadSave(0, 0, "Load Save");
     loadSave.setDomIdOverride("scene_menu_load_save");
+    fileMenu.addChild(&newScene);
     fileMenu.addChild(&saveAs);
     fileMenu.addChild(&loadSave);
 
@@ -900,6 +903,7 @@ std::string SceneEditorController::buildHierarchyContextMenuMarkup() const
 
     std::ostringstream stream;
     stream << "<div class='hierarchy_context_menu' style='left: " << m_hierarchyContextMenuX << "px; top: " << m_hierarchyContextMenuY << "px;'>";
+    stream << "<div id='scene_hierarchy_rename' class='hierarchy_context_item'>Rename</div>";
     stream << "<div id='scene_hierarchy_delete' class='hierarchy_context_item danger'>Delete</div>";
     stream << "</div>";
     return stream.str();
@@ -908,14 +912,32 @@ std::string SceneEditorController::buildHierarchyContextMenuMarkup() const
 std::string SceneEditorController::buildHierarchyNodeMarkup(const UiGOHierarchyNode& node, int depth) const
 {
     const bool isSelected = node.id == m_hierarchyModel.selectedNodeId();
+    const bool isRenaming = node.id == m_hierarchyRenameNodeId && node.gameObject != nullptr;
+    const bool dropInside = m_dropTargetNodeId == node.id && m_dropMode == HierarchyDropMode::Inside;
+    const bool draggingNode = m_dragPayloadKind == DragPayloadKind::Node && m_draggedHierarchyNodeId == node.id;
 
     std::ostringstream stream;
     stream << "<div class='hierarchy_node depth_" << depth << "'>";
     stream << "<div id='" << UI::SceneEditorDomIdCodec::makeHierarchyNodeElementId(node.id) << "' class='hierarchy_row scene_hierarchy_row";
     if (isSelected)
         stream << " selected";
+    if (dropInside)
+        stream << " drop_active";
+    if (draggingNode)
+        stream << " dragging";
     stream << "'>";
-    stream << "<div class='hierarchy_label'>" << escapeRmlText(node.label) << "</div>";
+    stream << "<div class='hierarchy_label'>";
+    if (isRenaming)
+    {
+        stream << "<input id='scene_hierarchy_rename_input' class='hierarchy_rename_input' type='text' value='" << escapeRmlText(node.label) << "' autofocus='autofocus' />";
+    }
+    else
+    {
+        stream << escapeRmlText(node.label);
+    }
+    stream << "</div>";
+    if (isSelected)
+        stream << buildSelectedHierarchyGizmoBadge();
     stream << "<div class='hierarchy_meta'>&lt;" << escapeRmlText(node.tagName) << "&gt;</div>";
     stream << "</div>";
 
@@ -928,6 +950,48 @@ std::string SceneEditorController::buildHierarchyNodeMarkup(const UiGOHierarchyN
     }
 
     stream << "</div>";
+    return stream.str();
+}
+
+std::string SceneEditorController::buildSelectedHierarchyGizmoBadge() const
+{
+    const editor_gizmo::ActiveTarget activeTarget = normalizeActiveGizmoTarget();
+    if (activeTarget.isNone() || m_scene == nullptr)
+        return std::string();
+
+    const GameObject* selectedGameObject = m_scene->getSelectedGameObject();
+    if (selectedGameObject == nullptr || activeTarget.gameObjectId != selectedGameObject->getId())
+        return std::string();
+
+    std::string label;
+    if (activeTarget.kind == editor_gizmo::TargetKind::Transform)
+    {
+        switch (activeTarget.transformMode)
+        {
+        case editor_gizmo::TransformGizmoMode::Rotate:
+            label = "Transform: Rotate";
+            break;
+        case editor_gizmo::TransformGizmoMode::Scale:
+            label = "Transform: Scale";
+            break;
+        case editor_gizmo::TransformGizmoMode::Move:
+        default:
+            label = "Transform: Move";
+            break;
+        }
+    }
+    else if (activeTarget.kind == editor_gizmo::TargetKind::Component)
+    {
+        const component::Component* component = selectedGameObject->getComponentAt(activeTarget.componentIndex);
+        const component_meta::ComponentDescriptor* descriptor = component != nullptr ? component->getComponentDescriptor() : nullptr;
+        label = descriptor != nullptr ? descriptor->displayName : std::string("Component");
+    }
+
+    if (label.empty())
+        return std::string();
+
+    std::ostringstream stream;
+    stream << "<div class='hierarchy_gizmo_badge'>" << escapeRmlText(label) << "</div>";
     return stream.str();
 }
 

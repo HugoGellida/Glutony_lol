@@ -710,9 +710,12 @@ public:
             for (const asset::RenderPassStepDefinition& pass : renderPass->passes)
             {
                 appendTargetIfMissing(pass.target);
+                if (pass.hasDepthSource)
+                    appendTargetIfMissing(pass.depthSource);
                 for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
                 {
-                    if (uniform.kind == asset::RenderPassUniformKind::RenderTarget)
+                    if (uniform.kind == asset::RenderPassUniformKind::RenderTarget ||
+                        uniform.kind == asset::RenderPassUniformKind::RenderTargetDepth)
                         appendTargetIfMissing(uniform.renderTargetValue);
                 }
             }

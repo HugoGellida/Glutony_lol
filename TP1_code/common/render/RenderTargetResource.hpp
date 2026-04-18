@@ -15,6 +15,7 @@ private:
     GLuint m_framebuffer = 0;
     GLuint m_colorTexture = 0;
     GLuint m_depthTexture = 0;
+    GLuint m_boundDepthAttachment = 0;
     int m_width = 0;
     int m_height = 0;
     RenderTargetFormat m_format = RenderTargetFormat::Rgba;
@@ -75,6 +76,7 @@ private:
         m_framebuffer = other.m_framebuffer;
         m_colorTexture = other.m_colorTexture;
         m_depthTexture = other.m_depthTexture;
+        m_boundDepthAttachment = other.m_boundDepthAttachment;
         m_width = other.m_width;
         m_height = other.m_height;
         m_format = other.m_format;
@@ -82,8 +84,22 @@ private:
         other.m_framebuffer = 0;
         other.m_colorTexture = 0;
         other.m_depthTexture = 0;
+        other.m_boundDepthAttachment = 0;
         other.m_width = 0;
         other.m_height = 0;
+    }
+
+    void bindInternal(GLuint depthAttachment)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
+        glViewport(0, 0, m_width, m_height);
+
+        const GLuint resolvedDepthAttachment = depthAttachment != 0 ? depthAttachment : m_depthTexture;
+        if (m_boundDepthAttachment != resolvedDepthAttachment)
+        {
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, resolvedDepthAttachment, 0);
+            m_boundDepthAttachment = resolvedDepthAttachment;
+        }
     }
 
 public:
@@ -149,13 +165,18 @@ public:
         m_width = width;
         m_height = height;
         m_format = format;
+        m_boundDepthAttachment = m_depthTexture;
         return true;
     }
 
     void bind() const
     {
-        glBindFramebuffer(GL_FRAMEBUFFER, m_framebuffer);
-        glViewport(0, 0, m_width, m_height);
+        const_cast<RenderTargetResource*>(this)->bindInternal(m_depthTexture);
+    }
+
+    void bindWithDepthOverride(GLuint depthTextureId) const
+    {
+        const_cast<RenderTargetResource*>(this)->bindInternal(depthTextureId);
     }
 
     GLuint colorTextureId() const
@@ -230,6 +251,7 @@ public:
 
         m_depthTexture = 0;
         m_colorTexture = 0;
+        m_boundDepthAttachment = 0;
         m_framebuffer = 0;
         m_width = 0;
         m_height = 0;

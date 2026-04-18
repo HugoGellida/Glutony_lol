@@ -413,13 +413,17 @@ private:
         std::vector<std::string> inputs;
         for (const asset::RenderPassUniformDefinition& uniform : batch.pass.uniforms)
         {
-            if (uniform.kind != asset::RenderPassUniformKind::RenderTarget)
+            if (uniform.kind != asset::RenderPassUniformKind::RenderTarget &&
+                uniform.kind != asset::RenderPassUniformKind::RenderTargetDepth)
                 continue;
             inputs.push_back(describeRenderTargetReference(uniform.renderTargetValue, renderTargets));
         }
 
         const std::string output = describeRenderTargetReference(batch.pass.target, renderTargets);
-        return (inputs.empty() ? std::string("-") : joinStrings(inputs, ", ")) + " -> " + output;
+        std::string flow = (inputs.empty() ? std::string("-") : joinStrings(inputs, ", ")) + " -> " + output;
+        if (batch.pass.hasDepthSource)
+            flow += " depth<- " + describeRenderTargetReference(batch.pass.depthSource, renderTargets);
+        return flow;
     }
 
     static std::string describeSceneRenderTargetSettings(const SceneRenderTargetSettings& settings)
@@ -816,6 +820,7 @@ private:
             return descriptor.glType == GL_FLOAT_MAT4;
         case asset::RenderPassUniformKind::Texture:
         case asset::RenderPassUniformKind::RenderTarget:
+        case asset::RenderPassUniformKind::RenderTargetDepth:
             return descriptor.glType == GL_SAMPLER_2D;
         }
 
@@ -892,7 +897,8 @@ private:
         const std::string targetName = normalizeRenderTargetName(pass.target.name);
         for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
         {
-            if (uniform.kind != asset::RenderPassUniformKind::RenderTarget)
+            if (uniform.kind != asset::RenderPassUniformKind::RenderTarget &&
+                uniform.kind != asset::RenderPassUniformKind::RenderTargetDepth)
                 continue;
 
             const std::string referencedTargetName = normalizeRenderTargetName(uniform.renderTargetValue.name);
@@ -1052,6 +1058,16 @@ private:
                    << static_cast<int>(pass.blend.a.dst);
         }
 
+        stream << '|'
+               << (pass.hasDepthSource ? '1' : '0');
+        if (pass.hasDepthSource)
+        {
+            stream << ':'
+                   << pass.depthSource.name << ':'
+                   << (pass.depthSource.shared ? '1' : '0') << ':'
+                   << (pass.depthSource.grouped ? '1' : '0');
+        }
+
         for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
         {
             stream << '|'
@@ -1087,6 +1103,7 @@ private:
                 stream << uniform.assetPath;
                 break;
             case asset::RenderPassUniformKind::RenderTarget:
+            case asset::RenderPassUniformKind::RenderTargetDepth:
                 stream << uniform.renderTargetValue.name << ':'
                        << (uniform.renderTargetValue.shared ? '1' : '0') << ':'
                        << (uniform.renderTargetValue.grouped ? '1' : '0') << ':'
@@ -1215,7 +1232,7 @@ private:
     void applyPassUniformDefinition(
         dataStruct::Material& material,
         const asset::RenderPassUniformDefinition& uniform,
-        const std::function<GLuint(const asset::RenderTargetAssetReference&)>& resolveRenderTargetTexture)
+        const std::function<GLuint(const asset::RenderTargetAssetReference&, bool)>& resolveRenderTargetTexture)
     {
         switch (uniform.kind)
         {
@@ -1260,12 +1277,30 @@ private:
         }
         case asset::RenderPassUniformKind::RenderTarget:
         {
-            const GLuint textureId = resolveRenderTargetTexture(uniform.renderTargetValue);
+            const GLuint textureId = resolveRenderTargetTexture(uniform.renderTargetValue, false);
+            if (textureId != 0)
+                material.addExternalTexture(uniform.name, textureId);
+            break;
+        }
+        case asset::RenderPassUniformKind::RenderTargetDepth:
+        {
+            const GLuint textureId = resolveRenderTargetTexture(uniform.renderTargetValue, true);
             if (textureId != 0)
                 material.addExternalTexture(uniform.name, textureId);
             break;
         }
         }
+    }
+
+    static bool passUsesRenderTargetDepth(const asset::RenderPassStepDefinition& pass)
+    {
+        for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
+        {
+            if (uniform.kind == asset::RenderPassUniformKind::RenderTargetDepth)
+                return true;
+        }
+
+        return false;
     }
 
     static void applyLightInput(dataStruct::Material& material, const LightInput& light)
@@ -1501,7 +1536,7 @@ private:
         const Camera& camera,
         const Batch& batch,
         const DrawItem& item,
-        const std::function<GLuint(const asset::RenderTargetAssetReference&)>& resolveRenderTargetTexture,
+        const std::function<GLuint(const asset::RenderTargetAssetReference&, bool)>& resolveRenderTargetTexture,
         const LightInput* light,
         int currentIteration,
         int iterationCount)
@@ -1558,7 +1593,7 @@ private:
     bool executeFullscreenBatch(
         const Camera& camera,
         const Batch& batch,
-        const std::function<GLuint(const asset::RenderTargetAssetReference&)>& resolveRenderTargetTexture)
+        const std::function<GLuint(const asset::RenderTargetAssetReference&, bool)>& resolveRenderTargetTexture)
     {
         Shader* shader = asset::AssetManager::instance().loadShader(batch.pass.shaderPath);
         if (shader == nullptr)
@@ -1576,6 +1611,8 @@ private:
         glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &previousVao);
         GLint previousActiveTexture = 0;
         glGetIntegerv(GL_ACTIVE_TEXTURE, &previousActiveTexture);
+        GLint previousDepthFunc = GL_LESS;
+        glGetIntegerv(GL_DEPTH_FUNC, &previousDepthFunc);
         const GLboolean cullEnabled = glIsEnabled(GL_CULL_FACE);
         const GLboolean depthEnabled = glIsEnabled(GL_DEPTH_TEST);
         const GLboolean scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
@@ -1589,7 +1626,8 @@ private:
         for (const asset::RenderPassUniformDefinition& uniform : batch.pass.uniforms)
         {
             if (uniform.kind == asset::RenderPassUniformKind::Texture ||
-                uniform.kind == asset::RenderPassUniformKind::RenderTarget)
+                uniform.kind == asset::RenderPassUniformKind::RenderTarget ||
+                uniform.kind == asset::RenderPassUniformKind::RenderTargetDepth)
             {
                 ++textureUnitCount;
             }
@@ -1606,8 +1644,17 @@ private:
         glDisable(GL_SCISSOR_TEST);
         glDisable(GL_STENCIL_TEST);
         glDisable(GL_CULL_FACE);
-        glDisable(GL_DEPTH_TEST);
-        glDepthMask(GL_FALSE);
+        if (passUsesRenderTargetDepth(batch.pass))
+        {
+            glEnable(GL_DEPTH_TEST);
+            glDepthFunc(GL_LEQUAL);
+            glDepthMask(GL_TRUE);
+        }
+        else
+        {
+            glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
+        }
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
         Transform fullscreenTransform;
@@ -1624,6 +1671,7 @@ private:
         glBindVertexArray(static_cast<GLuint>(previousVao));
         glUseProgram(static_cast<GLuint>(previousProgram));
         glDepthMask(previousDepthMask);
+        glDepthFunc(static_cast<GLenum>(previousDepthFunc));
         glPolygonMode(GL_FRONT_AND_BACK, static_cast<GLenum>(previousPolygonMode[0]));
 
         if (cullEnabled)
@@ -1773,9 +1821,12 @@ private:
             {
                 const asset::RenderPassStepDefinition& pass = renderPass->passes[passIndex];
                 mergeRenderTargetMetadata(m_renderTargetMetadata, pass.target);
+                if (pass.hasDepthSource)
+                    mergeRenderTargetMetadata(m_renderTargetMetadata, pass.depthSource);
                 for (const asset::RenderPassUniformDefinition& uniform : pass.uniforms)
                 {
-                    if (uniform.kind == asset::RenderPassUniformKind::RenderTarget)
+                    if (uniform.kind == asset::RenderPassUniformKind::RenderTarget ||
+                        uniform.kind == asset::RenderPassUniformKind::RenderTargetDepth)
                         mergeRenderTargetMetadata(m_renderTargetMetadata, uniform.renderTargetValue);
                 }
 
@@ -1922,7 +1973,15 @@ private:
         return true;
     }
 
-    bool bindBatchTarget(const Batch& batch, const std::string& targetInstanceKey, const std::vector<SceneRenderTargetSettings>& renderTargets, const GLint viewport[4], const GLint finalFramebuffer)
+    bool bindBatchTarget(
+        const Batch& batch,
+        const std::string& targetInstanceKey,
+        const std::vector<SceneRenderTargetSettings>& renderTargets,
+        const GLint viewport[4],
+        const GLint finalFramebuffer,
+        GLuint depthOverrideTextureId = 0,
+        int depthOverrideWidth = 0,
+        int depthOverrideHeight = 0)
     {
         const std::string normalizedTargetName = normalizeRenderTargetName(batch.pass.target.name);
         if (normalizedTargetName.empty() || isFinalRenderTargetName(normalizedTargetName))
@@ -1950,7 +2009,21 @@ private:
             return false;
         }
 
-        resource.bind();
+        if (depthOverrideTextureId != 0)
+        {
+            if ((depthOverrideWidth > 0 && depthOverrideWidth != resource.width()) ||
+                (depthOverrideHeight > 0 && depthOverrideHeight != resource.height()))
+            {
+                std::cerr << "[render] Depth source size mismatch for target: " << normalizedTargetName << std::endl;
+                return false;
+            }
+
+            resource.bindWithDepthOverride(depthOverrideTextureId);
+        }
+        else
+        {
+            resource.bind();
+        }
         return true;
     }
 
@@ -2174,7 +2247,50 @@ private:
             if (!batchHasDrawableItems)
                 return;
 
-            if (!bindBatchTarget(batch, groupedTargetInstanceKey, renderTargets, initialViewport, initialFramebuffer))
+            const auto findProducedRenderTargetResource = [&](const asset::RenderTargetAssetReference& reference) -> const RenderTargetResource* {
+                const std::string referencedTargetName = normalizeRenderTargetName(reference.name);
+                if (referencedTargetName.empty() || isFinalRenderTargetName(referencedTargetName))
+                    return nullptr;
+
+                const std::string referenceTargetGroupSuffix = reference.grouped ? resolvedTargetGroupSuffix : std::string();
+                const std::string logicalKey = renderTargetLogicalKey(reference);
+                auto producedIt = producedRenderTargetInstances.find(appendTargetGroupSuffix(logicalKey, referenceTargetGroupSuffix));
+                if (producedIt == producedRenderTargetInstances.end() && !referenceTargetGroupSuffix.empty())
+                    producedIt = producedRenderTargetInstances.find(logicalKey);
+                if (producedIt == producedRenderTargetInstances.end())
+                    return nullptr;
+
+                const auto resourceIt = m_renderTargets.find(producedIt->second);
+                if (resourceIt == m_renderTargets.end())
+                    return nullptr;
+
+                return &resourceIt->second;
+            };
+
+            GLuint depthOverrideTextureId = 0;
+            int depthOverrideWidth = 0;
+            int depthOverrideHeight = 0;
+            const bool usesExternalDepthSource = batch.pass.hasDepthSource && !writesFinalTarget;
+            if (usesExternalDepthSource)
+            {
+                const RenderTargetResource* depthResource = findProducedRenderTargetResource(batch.pass.depthSource);
+                if (depthResource == nullptr)
+                    return;
+
+                depthOverrideTextureId = depthResource->depthTextureId();
+                depthOverrideWidth = depthResource->width();
+                depthOverrideHeight = depthResource->height();
+            }
+
+            if (!bindBatchTarget(
+                    batch,
+                    groupedTargetInstanceKey,
+                    renderTargets,
+                    initialViewport,
+                    initialFramebuffer,
+                    depthOverrideTextureId,
+                    depthOverrideWidth,
+                    depthOverrideHeight))
                 return;
 
             if (!groupedTargetInstanceKey.empty())
@@ -2183,10 +2299,10 @@ private:
             const std::string targetUseKey = writesFinalTarget ? std::string("__final__") : groupedTargetInstanceKey;
             GLbitfield clearMask = 0;
             if (initializedRenderTargets.insert(targetUseKey).second)
-                clearMask |= GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT;
+                clearMask |= GL_COLOR_BUFFER_BIT | (usesExternalDepthSource ? 0 : GL_DEPTH_BUFFER_BIT);
             if (batch.pass.clearColor)
                 clearMask |= GL_COLOR_BUFFER_BIT;
-            if (batch.pass.depthAction == asset::RenderDepthAction::Clear)
+            if (!usesExternalDepthSource && batch.pass.depthAction == asset::RenderDepthAction::Clear)
                 clearMask |= GL_DEPTH_BUFFER_BIT;
             if (clearMask != 0)
             {
@@ -2196,33 +2312,27 @@ private:
 
             configureBlendState(batch.pass.blend);
 
-            const auto resolveRenderTargetTexture = [&](const asset::RenderTargetAssetReference& reference) -> GLuint {
+            const auto resolveRenderTargetTexture = [&](const asset::RenderTargetAssetReference& reference, bool depthTexture) -> GLuint {
                 const std::string referencedTargetName = normalizeRenderTargetName(reference.name);
                 if (referencedTargetName.empty() || isFinalRenderTargetName(referencedTargetName))
                     return 0;
 
-                const std::string referenceTargetGroupSuffix = reference.grouped ? resolvedTargetGroupSuffix : std::string();
                 const std::string referenceBakedTargetGroupSuffix = reference.grouped ? resolvedBakedTargetGroupSuffix : std::string();
                 GLuint dynamicTextureId = 0;
                 int dynamicWidth = 0;
                 int dynamicHeight = 0;
                 RenderTargetFormat dynamicFormat = RenderTargetFormat::Rgba;
 
-                const std::string logicalKey = renderTargetLogicalKey(reference);
-                auto producedIt = producedRenderTargetInstances.find(appendTargetGroupSuffix(logicalKey, referenceTargetGroupSuffix));
-                if (producedIt == producedRenderTargetInstances.end() && !referenceTargetGroupSuffix.empty())
-                    producedIt = producedRenderTargetInstances.find(logicalKey);
-                if (producedIt != producedRenderTargetInstances.end())
+                if (const RenderTargetResource* resource = findProducedRenderTargetResource(reference))
                 {
-                    const auto resourceIt = m_renderTargets.find(producedIt->second);
-                    if (resourceIt != m_renderTargets.end())
-                    {
-                        dynamicTextureId = resourceIt->second.colorTextureId();
-                        dynamicWidth = resourceIt->second.width();
-                        dynamicHeight = resourceIt->second.height();
-                        dynamicFormat = resourceIt->second.format();
-                    }
+                    dynamicTextureId = depthTexture ? resource->depthTextureId() : resource->colorTextureId();
+                    dynamicWidth = resource->width();
+                    dynamicHeight = resource->height();
+                    dynamicFormat = resource->format();
                 }
+
+                if (depthTexture)
+                    return dynamicTextureId;
 
                 GLuint bakedTextureId = 0;
                 const RenderTargetMetadata* referencedMetadata = findRenderTargetMetadata(referencedTargetName);

@@ -515,7 +515,7 @@ const char* kEditorLayoutDocument = R"RML(
         }
 
         .scene_hierarchy_row {
-            drag: none;
+            drag: clone;
         }
 
         .hierarchy_row:hover {
@@ -544,12 +544,37 @@ const char* kEditorLayoutDocument = R"RML(
             white-space: normal;
         }
 
+        .hierarchy_rename_input {
+            display: block;
+            width: 100%;
+            margin: 0px;
+            padding: 5px 7px;
+            background-color: #141b21;
+            border: 1px solid #5f7b90;
+            box-sizing: border-box;
+            color: #eef5fa;
+            font-size: 13px;
+        }
+
         .hierarchy_meta {
             display: block;
             margin-top: 3px;
             font-size: 11px;
             color: #8ea0b0;
             text-transform: uppercase;
+            white-space: normal;
+        }
+
+        .hierarchy_gizmo_badge {
+            display: inline-block;
+            margin-top: 5px;
+            padding: 2px 7px;
+            border: 1px solid #5f7b90;
+            border-radius: 999px;
+            background: rgba(96, 136, 165, 0.16);
+            color: #dbe8f1;
+            font-size: 11px;
+            text-transform: none;
             white-space: normal;
         }
 

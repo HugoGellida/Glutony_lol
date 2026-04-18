@@ -4,6 +4,8 @@
 #include "SceneEditorController.hpp"
 #include "UiBuilderController.hpp"
 
+#include <common/editor_gizmo/Gizmo.hpp>
+
 EditorUiDispatcher::EditorUiDispatcher()
     : m_sceneEditor(std::make_unique<SceneEditorController>())
     , m_uiBuilder(std::make_unique<UiBuilderController>())
@@ -104,6 +106,26 @@ bool EditorUiDispatcher::isExternalPreviewActive() const
     if (const EditorUiModeController* controller = activeController())
         return controller->isExternalPreviewActive();
     return false;
+}
+
+editor_gizmo::ActiveTarget EditorUiDispatcher::activeViewportGizmoTarget() const
+{
+    if (m_mode != editor_ui::EditorMode::SceneEditor || m_sceneEditor == nullptr)
+        return editor_gizmo::ActiveTarget::none();
+
+    return m_sceneEditor->activeViewportGizmoTarget();
+}
+
+void EditorUiDispatcher::applyViewportSelection(GameObject* gameObject)
+{
+    if (m_mode == editor_ui::EditorMode::SceneEditor && m_sceneEditor != nullptr)
+        m_sceneEditor->applyViewportSelection(gameObject);
+}
+
+void EditorUiDispatcher::notifyViewportGameObjectEdited(int gameObjectId)
+{
+    if (m_mode == editor_ui::EditorMode::SceneEditor && m_sceneEditor != nullptr)
+        m_sceneEditor->notifyViewportGameObjectEdited(gameObjectId);
 }
 
 void EditorUiDispatcher::ProcessEvent(Rml::Event& event)

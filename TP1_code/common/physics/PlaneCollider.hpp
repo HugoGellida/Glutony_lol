@@ -129,5 +129,10 @@ namespace physics
         {
             return &componentDescriptor();
         }
+
+        bool supportsEditorGizmos() const override
+        {
+            return true;
+        }
     };
 }

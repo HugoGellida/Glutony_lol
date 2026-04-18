@@ -261,6 +261,7 @@ set(GLUTONY_RUNTIME_SOURCES
 )
 
 set(GLUTONY_EDITOR_SUPPORT_SOURCES
+    common/editor_gizmo/Gizmo.cpp
     common/UI/SceneEditorAssetBrowserModel.cpp
     common/UI/SceneEditorHierarchyModel.cpp
     common/UI/SceneEditorLayoutManager.cpp

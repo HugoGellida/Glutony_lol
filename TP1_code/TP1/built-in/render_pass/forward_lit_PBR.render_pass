@@ -2,10 +2,21 @@
   "passes": [
     {
       "phase": "built-in/render_phase/geometry.render_phase",
+      "shader": "built-in/shaders/camera_depth",
+      "iterator": "none",
+      "uniforms": [],
+      "target": { "name": "scene_depth", "shared": true, "format": "float" },
+      "clear": false,
+      "blend": false,
+      "depth": "preserve"
+    },
+    {
+      "phase": "built-in/render_phase/geometry.render_phase",
       "shader": "built-in/shaders/lit_PBR_base",
       "iterator": "none",
       "uniforms": [],
       "target": { "name": "hdr_color", "shared": true, "grouped": false, "format": "rgba16f" },
+      "depthSource": { "name": "scene_depth", "shared": true, "grouped": false },
       "clear": false,
       "blend": false,
       "depth": "preserve"
@@ -34,9 +45,10 @@
         }
       ],
       "target": { "name": "light_occlusion", "shared": true, "format": "float" },
+      "depthSource": { "name": "scene_depth", "shared": true, "grouped": false },
       "clear": true,
       "blend": false,
-      "depth": "clear"
+      "depth": "preserve"
     },
     {
       "phase": "built-in/render_phase/lighting.render_phase",
@@ -51,6 +63,7 @@
         }
       ],
       "target": { "name": "hdr_color", "shared": true, "grouped": false, "format": "rgba16f" },
+      "depthSource": { "name": "scene_depth", "shared": true, "grouped": false },
       "clear": false,
       "blend": {
         "enabled": true,
@@ -70,6 +83,11 @@
           "name": "_sourceTex",
           "type": "renderTarget",
           "value": { "name": "hdr_color", "shared": true, "grouped": false }
+        },
+        {
+          "name": "_sourceDepthTex",
+          "type": "renderTargetDepth",
+          "value": { "name": "scene_depth", "shared": true, "grouped": false }
         }
       ],
       "target": { "name": "final", "shared": true },
