@@ -5,9 +5,15 @@
 #include "EditorUiCommon.hpp"
 
 class EditorUiModeController;
+class GameObject;
 class Scene;
 class SceneEditorController;
 class UiBuilderController;
+
+namespace editor_gizmo
+{
+    struct ActiveTarget;
+}
 
 class EditorUiDispatcher
 {
@@ -30,6 +36,9 @@ public:
     bool isViewportHovered(double mouseX, double mouseY) const;
     bool isDragging() const;
     bool isExternalPreviewActive() const;
+    editor_gizmo::ActiveTarget activeViewportGizmoTarget() const;
+    void applyViewportSelection(GameObject* gameObject);
+    void notifyViewportGameObjectEdited(int gameObjectId);
 
     void ProcessEvent(Rml::Event& event);
 

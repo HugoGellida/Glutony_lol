@@ -34,6 +34,7 @@ using namespace glm;
 #include <common/meshRenderer/simpleMeshrenderer.hpp>
 #include <common/Scene.hpp>
 #include <common/scene/SceneSerialization.hpp>
+#include <common/editor_gizmo/Gizmo.hpp>
 #include <common/ui/EditorUi.hpp>
 #include <common/ui/SceneViewportOverlay.hpp>
 
@@ -808,6 +809,9 @@ void setup_glfw_callbacks(GLFWwindow* glfwWindow)
         if (g_rmlContext)
             uiHandled = RmlGLFW::ProcessMouseButtonCallback(g_rmlContext, button, action, mods);
 
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE && g_editorModeEnabled)
+            g_sceneViewportOverlay.endPointerInteraction();
+
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
         {
             double clickWindowX = 0.0;
@@ -824,15 +828,27 @@ void setup_glfw_callbacks(GLFWwindow* glfwWindow)
 
             if (shouldDispatchToScene)
             {
-                if (g_editorModeEnabled && g_editorUi.isExternalPreviewActive())
+                if (g_editorModeEnabled)
                 {
-                    if (!g_remotePreviewInputCapture)
+                    const bool externalPreviewActive = g_editorUi.isExternalPreviewActive();
+                    const bool sceneCameraControlsActive =
+                        scene != nullptr && (scene->isFpsControlEnabled() || scene->isOrbitModeEnabled());
+                    const bool gizmoInteractionEnabled =
+                        scene != nullptr &&
+                        !sceneCameraControlsActive &&
+                        (!externalPreviewActive || !g_remotePreviewInputCapture);
+
+                    if (gizmoInteractionEnabled &&
+                        g_sceneViewportOverlay.beginPointerInteraction(callbackWindow, clickPosition.x, clickPosition.y, true))
                     {
-                        const UiRect viewportRect = g_editorUi.getViewportRect();
-                        writeRemotePreviewClick(clickPosition.x - viewportRect.x, clickPosition.y - viewportRect.y);
+                        g_sceneClickPending = false;
+                        return;
                     }
+
+                    if (externalPreviewActive && g_remotePreviewInputCapture)
+                        return;
                 }
-                else
+
                 {
                     g_sceneClickPending = true;
                     g_sceneClickX = clickPosition.x;
@@ -1080,18 +1096,36 @@ int main( void )
 
             const bool viewportHovered = viewportRect.isValid() && g_editorUi.isViewportHovered(cursorPosition.x, cursorPosition.y);
             const bool sceneInputEnabled =
-                (viewportHovered && !g_editorUi.isDragging()) ||
+                (viewportHovered && !g_editorUi.isDragging() && !g_sceneViewportOverlay.isDraggingGizmo()) ||
                 scene->isFpsControlEnabled() ||
                 scene->isOrbitModeEnabled() ||
                 g_sceneClickPending;
             const bool renderExternalPreview = externalPreviewActive && g_remotePreviewTexture.isReady();
             const bool viewportFramebufferReady = viewportRect.isValid() && g_viewportFramebuffer.ensureSize(viewportRect.width, viewportRect.height);
             const bool useViewportFramebuffer = !externalPreviewActive && viewportFramebufferReady && static_cast<bool>(g_viewportTexturePresenter);
+            const bool sceneCameraControlsActive = scene->isFpsControlEnabled() || scene->isOrbitModeEnabled();
+            const bool gizmoInteractionEnabled =
+                viewportRect.isValid() &&
+                !sceneCameraControlsActive &&
+                (!externalPreviewActive || !g_remotePreviewInputCapture);
 
             if (viewportRect.isValid())
                 g_sceneViewportOverlay.setViewportRect(viewportRect);
             else
                 g_sceneViewportOverlay.setViewportRect({});
+
+            g_sceneViewportOverlay.setScene(scene);
+            g_sceneViewportOverlay.setActiveTarget(g_editorUi.activeViewportGizmoTarget());
+            g_sceneViewportOverlay.setInteractionEnabled(gizmoInteractionEnabled);
+            g_sceneViewportOverlay.update(deltaTime);
+
+            if (g_sceneViewportOverlay.isDraggingGizmo() &&
+                g_sceneViewportOverlay.updatePointerInteraction(window, cursorPosition.x, cursorPosition.y, true))
+            {
+                const editor_gizmo::ActiveTarget activeTarget = g_editorUi.activeViewportGizmoTarget();
+                if (!activeTarget.isNone())
+                    g_editorUi.notifyViewportGameObjectEdited(activeTarget.gameObjectId);
+            }
 
             if (externalPreviewActive && viewportRect.isValid() &&
                 (viewportRect.width != g_remotePreviewRequestedWidth || viewportRect.height != g_remotePreviewRequestedHeight))
@@ -1102,8 +1136,13 @@ int main( void )
             if (viewportRect.isValid() && !externalPreviewActive)
                 scene->updateCamSettings((float)viewportRect.width / (float)std::max(viewportRect.height, 1));
 
-            if (!externalPreviewActive && g_sceneClickPending && !scene->isFpsControlEnabled() && viewportRect.isValid())
-                scene->setSelectedGameObject(g_sceneViewportOverlay.pickGameObject(*scene, window, g_sceneClickX, g_sceneClickY, true));
+            if (g_sceneClickPending && viewportRect.isValid() &&
+                !(externalPreviewActive && g_remotePreviewInputCapture) &&
+                !scene->isFpsControlEnabled())
+            {
+                GameObject* pickedGameObject = g_sceneViewportOverlay.pickGameObject(*scene, window, g_sceneClickX, g_sceneClickY, true);
+                g_editorUi.applyViewportSelection(pickedGameObject);
+            }
 
             if (!externalPreviewActive)
             {
@@ -1116,8 +1155,6 @@ int main( void )
                     viewportRect.centerY()
                 );
             }
-
-            g_sceneViewportOverlay.update(deltaTime);
 
             g_sceneClickPending = false;
 
@@ -1181,6 +1218,17 @@ int main( void )
                 glScissor(viewportRect.x, glViewportY, viewportRect.width, viewportRect.height);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
                 scene->renderSceneWithSelectionHighlight();
+                glDisable(GL_SCISSOR_TEST);
+                glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
+            }
+
+            if (viewportRect.isValid())
+            {
+                const int glViewportY = g_windowFramebufferHeight - viewportRect.y - viewportRect.height;
+                glEnable(GL_SCISSOR_TEST);
+                glViewport(viewportRect.x, glViewportY, viewportRect.width, viewportRect.height);
+                glScissor(viewportRect.x, glViewportY, viewportRect.width, viewportRect.height);
+                g_sceneViewportOverlay.render();
                 glDisable(GL_SCISSOR_TEST);
                 glViewport(0, 0, g_windowFramebufferWidth, g_windowFramebufferHeight);
             }

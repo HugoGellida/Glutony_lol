@@ -553,6 +553,19 @@ const char* kEditorLayoutDocument = R"RML(
             white-space: normal;
         }
 
+        .hierarchy_gizmo_badge {
+            display: inline-block;
+            margin-top: 5px;
+            padding: 2px 7px;
+            border: 1px solid #5f7b90;
+            border-radius: 999px;
+            background: rgba(96, 136, 165, 0.16);
+            color: #dbe8f1;
+            font-size: 11px;
+            text-transform: none;
+            white-space: normal;
+        }
+
         .hierarchy_drop_zone {
             height: 8px;
             margin: 2px 0px;

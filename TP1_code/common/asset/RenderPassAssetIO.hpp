@@ -92,6 +92,7 @@ enum class RenderPassUniformKind
     Mat4,
     Texture,
     RenderTarget,
+    RenderTargetDepth,
 };
 
 struct RenderPassUniformDefinition
@@ -116,6 +117,8 @@ struct RenderPassStepDefinition
     std::string uniformFactoryPath;
     std::vector<RenderPassUniformDefinition> uniforms;
     RenderTargetAssetReference target;
+    bool hasDepthSource = false;
+    RenderTargetAssetReference depthSource;
     bool clearColor = false;
     RenderBlendStateDefinition blend;
     RenderDepthAction depthAction = RenderDepthAction::Preserve;
@@ -376,6 +379,8 @@ private:
                 return value = RenderPassUniformKind::Texture, true;
             if (rawValue == "renderTarget" || rawValue == "render_target")
                 return value = RenderPassUniformKind::RenderTarget, true;
+            if (rawValue == "renderTargetDepth" || rawValue == "render_target_depth")
+                return value = RenderPassUniformKind::RenderTargetDepth, true;
             return false;
         }
 
@@ -661,6 +666,7 @@ private:
                             return false;
                         break;
                     case RenderPassUniformKind::RenderTarget:
+                    case RenderPassUniformKind::RenderTargetDepth:
                         if (!parseRenderTargetReference(value.renderTargetValue))
                             return false;
                         break;
@@ -762,6 +768,12 @@ private:
                     if (!parseRenderTargetReference(value.target))
                         return false;
                     hasTarget = true;
+                }
+                else if (key == "depthSource" || key == "depth_source")
+                {
+                    if (!parseRenderTargetReference(value.depthSource))
+                        return false;
+                    value.hasDepthSource = true;
                 }
                 else if (key == "clear" || key == "clearColor")
                 {
@@ -936,6 +948,8 @@ private:
             return "texture";
         case RenderPassUniformKind::RenderTarget:
             return "renderTarget";
+        case RenderPassUniformKind::RenderTargetDepth:
+            return "renderTargetDepth";
         }
 
         return "float";
@@ -1043,6 +1057,7 @@ public:
                     output << "\"" << uniform.assetPath << "\"";
                     break;
                 case RenderPassUniformKind::RenderTarget:
+                case RenderPassUniformKind::RenderTargetDepth:
                     if (!writeRenderTargetReference(output, uniform.renderTargetValue))
                         return false;
                     break;
@@ -1057,6 +1072,13 @@ public:
             if (!writeRenderTargetReference(output, pass.target))
                 return false;
             output << ",\n";
+            if (pass.hasDepthSource)
+            {
+                output << "      \"depthSource\": ";
+                if (!writeRenderTargetReference(output, pass.depthSource))
+                    return false;
+                output << ",\n";
+            }
             output << "      \"clear\": " << (pass.clearColor ? "true" : "false") << ",\n";
             output << "      \"blend\": ";
             if (!pass.blend.enabled)

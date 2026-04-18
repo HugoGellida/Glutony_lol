@@ -916,6 +916,8 @@ std::string SceneEditorController::buildHierarchyNodeMarkup(const UiGOHierarchyN
         stream << " selected";
     stream << "'>";
     stream << "<div class='hierarchy_label'>" << escapeRmlText(node.label) << "</div>";
+    if (isSelected)
+        stream << buildSelectedHierarchyGizmoBadge();
     stream << "<div class='hierarchy_meta'>&lt;" << escapeRmlText(node.tagName) << "&gt;</div>";
     stream << "</div>";
 
@@ -928,6 +930,48 @@ std::string SceneEditorController::buildHierarchyNodeMarkup(const UiGOHierarchyN
     }
 
     stream << "</div>";
+    return stream.str();
+}
+
+std::string SceneEditorController::buildSelectedHierarchyGizmoBadge() const
+{
+    const editor_gizmo::ActiveTarget activeTarget = normalizeActiveGizmoTarget();
+    if (activeTarget.isNone() || m_scene == nullptr)
+        return std::string();
+
+    const GameObject* selectedGameObject = m_scene->getSelectedGameObject();
+    if (selectedGameObject == nullptr || activeTarget.gameObjectId != selectedGameObject->getId())
+        return std::string();
+
+    std::string label;
+    if (activeTarget.kind == editor_gizmo::TargetKind::Transform)
+    {
+        switch (activeTarget.transformMode)
+        {
+        case editor_gizmo::TransformGizmoMode::Rotate:
+            label = "Transform: Rotate";
+            break;
+        case editor_gizmo::TransformGizmoMode::Scale:
+            label = "Transform: Scale";
+            break;
+        case editor_gizmo::TransformGizmoMode::Move:
+        default:
+            label = "Transform: Move";
+            break;
+        }
+    }
+    else if (activeTarget.kind == editor_gizmo::TargetKind::Component)
+    {
+        const component::Component* component = selectedGameObject->getComponentAt(activeTarget.componentIndex);
+        const component_meta::ComponentDescriptor* descriptor = component != nullptr ? component->getComponentDescriptor() : nullptr;
+        label = descriptor != nullptr ? descriptor->displayName : std::string("Component");
+    }
+
+    if (label.empty())
+        return std::string();
+
+    std::ostringstream stream;
+    stream << "<div class='hierarchy_gizmo_badge'>" << escapeRmlText(label) << "</div>";
     return stream.str();
 }
 

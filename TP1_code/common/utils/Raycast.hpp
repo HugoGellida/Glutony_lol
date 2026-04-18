@@ -114,4 +114,37 @@ namespace Raycast
     {
         return raycastAABB(transform.applyToAABB(aabb), ray, t);
     }
+
+    inline bool raycastPlane(const Ray& ray, const glm::vec3& planePoint, const glm::vec3& planeNormal, glm::vec3* hitPoint, float* t)
+    {
+        const glm::vec3 normalizedNormal = glm::normalize(planeNormal);
+        const float denominator = glm::dot(normalizedNormal, ray.d);
+        if (std::abs(denominator) < 1e-6f)
+            return false;
+
+        const float distance = glm::dot(planePoint - ray.o, normalizedNormal) / denominator;
+        if (distance < 0.0f)
+            return false;
+
+        if (t != nullptr)
+            *t = distance;
+
+        if (hitPoint != nullptr)
+            *hitPoint = ray.o + ray.d * distance;
+
+        return true;
+    }
+
+    inline bool raycastOBB(const glm::vec3& center, const glm::mat3& orientation, const glm::vec3& halfExtents, const Ray& ray, float* t)
+    {
+        const glm::mat3 inverseOrientation = glm::transpose(orientation);
+        Ray localRay;
+        localRay.o = inverseOrientation * (ray.o - center);
+        localRay.d = inverseOrientation * ray.d;
+
+        physics::AABB localBounds;
+        localBounds.min = -halfExtents;
+        localBounds.max = halfExtents;
+        return raycastAABB(localBounds, localRay, t);
+    }
 }

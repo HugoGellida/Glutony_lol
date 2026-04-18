@@ -2,6 +2,16 @@
   "passes": [
     {
       "phase": "built-in/render_phase/geometry.render_phase",
+      "shader": "built-in/shaders/camera_depth",
+      "iterator": "none",
+      "uniforms": [],
+      "target": { "name": "scene_depth", "shared": true, "format": "float" },
+      "clear": false,
+      "blend": false,
+      "depth": "preserve"
+    },
+    {
+      "phase": "built-in/render_phase/geometry.render_phase",
       "shader": "built-in/shaders/unlit",
       "iterator": "none",
       "uniforms": [],

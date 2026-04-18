@@ -1,6 +1,10 @@
 #pragma once
 
 class GameObject;
+namespace editor_gizmo
+{
+    class Collector;
+}
 
 namespace component_meta
 {
@@ -31,6 +35,13 @@ namespace component
         virtual const component_meta::ComponentDescriptor* getComponentDescriptor() const
         {
             return nullptr;
+        }
+        virtual bool supportsEditorGizmos() const
+        {
+            return false;
+        }
+        virtual void collectEditorGizmos(editor_gizmo::Collector&) const
+        {
         }
         virtual ~Component(){}
     };

@@ -2,6 +2,8 @@
 
 #include "EditorUiDispatcher.hpp"
 
+#include <common/editor_gizmo/Gizmo.hpp>
+
 EditorUiController::EditorUiController()
     : m_dispatcher(std::make_unique<EditorUiDispatcher>())
 {
@@ -79,6 +81,23 @@ bool EditorUiController::isDragging() const
 bool EditorUiController::isExternalPreviewActive() const
 {
     return m_dispatcher != nullptr && m_dispatcher->isExternalPreviewActive();
+}
+
+editor_gizmo::ActiveTarget EditorUiController::activeViewportGizmoTarget() const
+{
+    return m_dispatcher != nullptr ? m_dispatcher->activeViewportGizmoTarget() : editor_gizmo::ActiveTarget::none();
+}
+
+void EditorUiController::applyViewportSelection(GameObject* gameObject)
+{
+    if (m_dispatcher != nullptr)
+        m_dispatcher->applyViewportSelection(gameObject);
+}
+
+void EditorUiController::notifyViewportGameObjectEdited(int gameObjectId)
+{
+    if (m_dispatcher != nullptr)
+        m_dispatcher->notifyViewportGameObjectEdited(gameObjectId);
 }
 
 void EditorUiController::ProcessEvent(Rml::Event& event)

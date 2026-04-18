@@ -1328,6 +1328,8 @@ void SceneEditorController::deactivate()
     m_pendingConsoleStickToBottom = false;
     m_pendingConsoleScrollTop = 0.0f;
     m_pendingConsoleScrollLeft = 0.0f;
+    m_activeGizmoTarget = editor_gizmo::ActiveTarget::none();
+    m_transformGizmoMode = editor_gizmo::TransformGizmoMode::Move;
     m_assetBrowserModel.clear();
     m_hierarchyModel.clear();
     m_layoutManager.clear();
@@ -1350,25 +1352,16 @@ void SceneEditorController::sync(Scene& scene)
     m_scene = &scene;
     const UiGOHierarchyNode previousHierarchy = m_hierarchyModel.root();
     const int previousSelectedHierarchyNodeId = m_hierarchyModel.selectedNodeId();
+    const editor_gizmo::ActiveTarget previousActiveGizmoTarget = m_activeGizmoTarget;
 
     m_hierarchyModel.rebuildFromScene(scene);
-
-    if (const GameObject* selectedGameObject = scene.getSelectedGameObject())
-    {
-        if (const UiGOHierarchyNode* selectedNode = m_hierarchyModel.findNodeByGameObject(selectedGameObject))
-            m_hierarchyModel.setSelectedNodeId(selectedNode->id);
-    }
-    else
-    {
-        m_hierarchyModel.setSelectedNodeId(m_hierarchyModel.root().id);
-    }
-
-    if (m_hierarchyModel.findNodeById(m_hierarchyModel.selectedNodeId()) == nullptr)
-        m_hierarchyModel.setSelectedNodeId(m_hierarchyModel.root().id);
+    refreshHierarchySelectionFromSceneSelection();
+    m_activeGizmoTarget = normalizeActiveGizmoTarget();
 
     const bool hierarchyChanged = !UI::SceneEditorHierarchyModel::nodesEqual(previousHierarchy, m_hierarchyModel.root());
     const bool selectionChanged = previousSelectedHierarchyNodeId != m_hierarchyModel.selectedNodeId();
-    if (hierarchyChanged)
+    const bool gizmoChanged = previousActiveGizmoTarget != m_activeGizmoTarget;
+    if (hierarchyChanged || gizmoChanged)
         requestHierarchyRefresh();
     else if (selectionChanged)
         requestSelectionRefresh();
@@ -1529,6 +1522,41 @@ bool SceneEditorController::isDragging() const
 bool SceneEditorController::isExternalPreviewActive() const
 {
     return m_activeProcessKind != ActiveProcessKind::None || m_pendingLaunchAction != PendingLaunchAction::None;
+}
+
+editor_gizmo::ActiveTarget SceneEditorController::activeViewportGizmoTarget() const
+{
+    return normalizeActiveGizmoTarget();
+}
+
+void SceneEditorController::applyViewportSelection(GameObject* gameObject)
+{
+    if (m_scene == nullptr)
+        return;
+
+    if (m_scene->getSelectedGameObject() == gameObject)
+    {
+        refreshHierarchySelectionFromSceneSelection();
+        return;
+    }
+
+    selectGameObjectInternal(gameObject, true);
+}
+
+void SceneEditorController::notifyViewportGameObjectEdited(int gameObjectId)
+{
+    if (m_scene == nullptr || gameObjectId <= 0)
+        return;
+
+    if (m_scene->getGameObjectById(gameObjectId) == nullptr)
+        return;
+
+    markSceneDirty(false);
+    queueRuntimeGameObjectSync(gameObjectId);
+
+    const GameObject* selectedGameObject = m_scene->getSelectedGameObject();
+    if (selectedGameObject != nullptr && selectedGameObject->getId() == gameObjectId && shouldRefreshInspectorPresentation())
+        refreshInspectorValuesPresentation();
 }
 
 void SceneEditorController::ProcessEvent(Rml::Event& event)
@@ -2145,19 +2173,21 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             if (hierarchyNode != nullptr && m_scene != nullptr)
             {
                 GameObject* clickedGameObject = const_cast<GameObject*>(hierarchyNode->gameObject);
-                m_scene->toggleSelectedGameObject(clickedGameObject);
-                if (m_activeProcessKind == ActiveProcessKind::Player)
-                    m_pendingRuntimeSelectionId = m_scene->getSelectedGameObject() != nullptr ? std::optional<int>(m_scene->getSelectedGameObject()->getId()) : std::optional<int>(-1);
-                m_hierarchyModel.setSelectedNodeId((clickedGameObject != nullptr && m_scene->getSelectedGameObject() == clickedGameObject)
-                    ? *hierarchyNodeId
-                    : m_hierarchyModel.root().id);
+                if (clickedGameObject != nullptr && m_scene->getSelectedGameObject() == clickedGameObject)
+                {
+                    refreshHierarchySelectionFromSceneSelection();
+                    cycleSelectedHierarchyGizmoTarget();
+                }
+                else
+                {
+                    selectGameObjectInternal(clickedGameObject, true);
+                }
             }
             else
             {
                 m_hierarchyModel.setSelectedNodeId(*hierarchyNodeId);
+                requestSelectionRefresh();
             }
-
-            requestHierarchyRefresh();
             event.StopPropagation();
             return;
         }
@@ -2341,9 +2371,14 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
                 const UiGOHierarchyNode* hierarchyNode = m_hierarchyModel.findNodeById(*hierarchyNodeId);
                 if (hierarchyNode != nullptr && m_scene != nullptr)
                 {
-                    m_scene->setSelectedGameObject(const_cast<GameObject*>(hierarchyNode->gameObject));
-                    if (m_activeProcessKind == ActiveProcessKind::Player)
-                        m_pendingRuntimeSelectionId = hierarchyNode->gameObject != nullptr ? std::optional<int>(hierarchyNode->gameObject->getId()) : std::optional<int>(-1);
+                    GameObject* clickedGameObject = const_cast<GameObject*>(hierarchyNode->gameObject);
+                    if (m_scene->getSelectedGameObject() != clickedGameObject)
+                        selectGameObjectInternal(clickedGameObject, true);
+                    else
+                        refreshHierarchySelectionFromSceneSelection();
+                }
+                else
+                {
                     m_hierarchyModel.setSelectedNodeId(*hierarchyNodeId);
                 }
 
@@ -2807,6 +2842,183 @@ void SceneEditorController::toggleInspectorGroup(const std::string& groupId)
 bool SceneEditorController::isInspectorGroupCollapsed(const std::string& groupId) const
 {
     return m_collapsedInspectorGroups.count(groupId) > 0;
+}
+
+std::vector<editor_gizmo::ActiveTarget> SceneEditorController::collectSelectableGizmoTargetsForSelectedGameObject() const
+{
+    std::vector<editor_gizmo::ActiveTarget> targets;
+    if (m_scene == nullptr)
+        return targets;
+
+    const GameObject* selectedGameObject = m_scene->getSelectedGameObject();
+    if (selectedGameObject == nullptr)
+        return targets;
+
+    targets.push_back(editor_gizmo::ActiveTarget::transform(selectedGameObject->getId(), editor_gizmo::TransformGizmoMode::Move));
+    targets.push_back(editor_gizmo::ActiveTarget::transform(selectedGameObject->getId(), editor_gizmo::TransformGizmoMode::Rotate));
+
+    for (size_t componentIndex = 0; componentIndex < selectedGameObject->getComponentCount(); ++componentIndex)
+    {
+        const component::Component* component = selectedGameObject->getComponentAt(componentIndex);
+        if (component == nullptr || !component->supportsEditorGizmos())
+            continue;
+
+        targets.push_back(editor_gizmo::ActiveTarget::component(selectedGameObject->getId(), componentIndex));
+    }
+
+    return targets;
+}
+
+editor_gizmo::ActiveTarget SceneEditorController::normalizeActiveGizmoTarget() const
+{
+    if (m_scene == nullptr)
+        return editor_gizmo::ActiveTarget::none();
+
+    const GameObject* selectedGameObject = m_scene->getSelectedGameObject();
+    if (selectedGameObject == nullptr)
+        return editor_gizmo::ActiveTarget::none();
+
+    if (m_activeGizmoTarget.isNone() || m_activeGizmoTarget.gameObjectId != selectedGameObject->getId())
+        return editor_gizmo::ActiveTarget::none();
+
+    if (m_activeGizmoTarget.kind == editor_gizmo::TargetKind::Transform)
+        return editor_gizmo::ActiveTarget::transform(selectedGameObject->getId(), m_activeGizmoTarget.transformMode);
+
+    if (m_activeGizmoTarget.kind != editor_gizmo::TargetKind::Component)
+        return editor_gizmo::ActiveTarget::none();
+
+    if (m_activeGizmoTarget.componentIndex >= selectedGameObject->getComponentCount())
+        return editor_gizmo::ActiveTarget::none();
+
+    const component::Component* component = selectedGameObject->getComponentAt(m_activeGizmoTarget.componentIndex);
+    if (component == nullptr || !component->supportsEditorGizmos())
+        return editor_gizmo::ActiveTarget::none();
+
+    return editor_gizmo::ActiveTarget::component(selectedGameObject->getId(), m_activeGizmoTarget.componentIndex);
+}
+
+bool SceneEditorController::setActiveGizmoTarget(const editor_gizmo::ActiveTarget& target)
+{
+    if (target.kind == editor_gizmo::TargetKind::Transform)
+        m_transformGizmoMode = target.transformMode;
+
+    editor_gizmo::ActiveTarget nextTarget = editor_gizmo::ActiveTarget::none();
+    if (m_scene != nullptr)
+    {
+        const GameObject* selectedGameObject = m_scene->getSelectedGameObject();
+        if (selectedGameObject != nullptr)
+        {
+            if (target.kind == editor_gizmo::TargetKind::Transform && target.gameObjectId == selectedGameObject->getId())
+            {
+                nextTarget = editor_gizmo::ActiveTarget::transform(selectedGameObject->getId(), m_transformGizmoMode);
+            }
+            else if (target.kind == editor_gizmo::TargetKind::Component &&
+                     target.gameObjectId == selectedGameObject->getId() &&
+                     target.componentIndex < selectedGameObject->getComponentCount())
+            {
+                const component::Component* component = selectedGameObject->getComponentAt(target.componentIndex);
+                if (component != nullptr && component->supportsEditorGizmos())
+                    nextTarget = editor_gizmo::ActiveTarget::component(selectedGameObject->getId(), target.componentIndex);
+            }
+        }
+    }
+
+    if (m_activeGizmoTarget == nextTarget)
+        return false;
+
+    m_activeGizmoTarget = nextTarget;
+    requestHierarchyRefresh();
+    return true;
+}
+
+void SceneEditorController::resetActiveGizmoTarget()
+{
+    setActiveGizmoTarget(editor_gizmo::ActiveTarget::none());
+}
+
+bool SceneEditorController::cycleSelectedHierarchyGizmoTarget()
+{
+    const std::vector<editor_gizmo::ActiveTarget> targets = collectSelectableGizmoTargetsForSelectedGameObject();
+    const editor_gizmo::ActiveTarget currentTarget = normalizeActiveGizmoTarget();
+    if (currentTarget.isNone())
+    {
+        if (targets.empty())
+            return setActiveGizmoTarget(editor_gizmo::ActiveTarget::none());
+        return setActiveGizmoTarget(targets.front());
+    }
+
+    for (size_t targetIndex = 0; targetIndex < targets.size(); ++targetIndex)
+    {
+        if (targets[targetIndex] != currentTarget)
+            continue;
+
+        if (targetIndex + 1 < targets.size())
+            return setActiveGizmoTarget(targets[targetIndex + 1]);
+
+        return setActiveGizmoTarget(editor_gizmo::ActiveTarget::none());
+    }
+
+    return setActiveGizmoTarget(editor_gizmo::ActiveTarget::none());
+}
+
+bool SceneEditorController::selectGameObjectInternal(GameObject* gameObject, bool resetGizmoTarget)
+{
+    if (m_scene == nullptr)
+        return false;
+
+    const bool selectionChanged = m_scene->getSelectedGameObject() != gameObject;
+    if (selectionChanged)
+        m_scene->setSelectedGameObject(gameObject);
+
+    refreshHierarchySelectionFromSceneSelection();
+
+    if (selectionChanged && isExternalPreviewActive())
+        m_pendingRuntimeSelectionId = gameObject != nullptr ? std::optional<int>(gameObject->getId()) : std::optional<int>(-1);
+
+    bool gizmoChanged = false;
+    if (resetGizmoTarget)
+    {
+        if (!m_activeGizmoTarget.isNone())
+        {
+            m_activeGizmoTarget = editor_gizmo::ActiveTarget::none();
+            gizmoChanged = true;
+        }
+    }
+    else
+    {
+        const editor_gizmo::ActiveTarget normalizedTarget = normalizeActiveGizmoTarget();
+        if (normalizedTarget != m_activeGizmoTarget)
+        {
+            m_activeGizmoTarget = normalizedTarget;
+            gizmoChanged = true;
+        }
+    }
+
+        if (selectionChanged)
+            requestSelectionRefresh();
+        else if (gizmoChanged)
+            requestHierarchyRefresh();
+
+    return selectionChanged || gizmoChanged;
+}
+
+void SceneEditorController::refreshHierarchySelectionFromSceneSelection()
+{
+    if (m_scene == nullptr)
+    {
+        m_hierarchyModel.setSelectedNodeId(m_hierarchyModel.root().id);
+        return;
+    }
+
+    const GameObject* selectedGameObject = m_scene->getSelectedGameObject();
+    if (selectedGameObject == nullptr)
+    {
+        m_hierarchyModel.setSelectedNodeId(m_hierarchyModel.root().id);
+        return;
+    }
+
+    const UiGOHierarchyNode* selectedNode = m_hierarchyModel.findNodeByGameObject(selectedGameObject);
+    m_hierarchyModel.setSelectedNodeId(selectedNode != nullptr ? selectedNode->id : m_hierarchyModel.root().id);
 }
 
 void SceneEditorController::markSceneDirty(bool requestFullRuntimeSync)

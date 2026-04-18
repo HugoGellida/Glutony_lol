@@ -12,6 +12,7 @@
 #include <common/UI/SceneEditorHierarchyModel.hpp>
 #include <common/UI/SceneEditorLayoutManager.hpp>
 #include <common/UI/SceneEditorDomIdCodec.hpp>
+#include <common/editor_gizmo/Gizmo.hpp>
 #include <common/gameobject/component/ComponentSerialization.hpp>
 #include <common/scene/SceneSerialization.hpp>
 
@@ -43,6 +44,9 @@ public:
     bool isViewportHovered(double mouseX, double mouseY) const override;
     bool isDragging() const override;
     bool isExternalPreviewActive() const override;
+    editor_gizmo::ActiveTarget activeViewportGizmoTarget() const;
+    void applyViewportSelection(GameObject* gameObject);
+    void notifyViewportGameObjectEdited(int gameObjectId);
     void ProcessEvent(Rml::Event& event) override;
 
 private:
@@ -148,6 +152,7 @@ private:
     void applyPendingInspectorScrollRestore();
     std::string buildHierarchyMarkup() const;
     std::string buildHierarchyNodeMarkup(const UiGOHierarchyNode& node, int depth) const;
+    std::string buildSelectedHierarchyGizmoBadge() const;
     std::string buildHierarchyContextMenuMarkup() const;
     std::string buildInspectorMarkup() const;
     std::string buildInspectorOverlayMarkup() const;
@@ -204,6 +209,13 @@ private:
     bool applyDraggedAssetToMaterialAssetEditorField(const MaterialAssetEditorBinding& binding);
     void toggleInspectorGroup(const std::string& groupId);
     bool isInspectorGroupCollapsed(const std::string& groupId) const;
+    std::vector<editor_gizmo::ActiveTarget> collectSelectableGizmoTargetsForSelectedGameObject() const;
+    editor_gizmo::ActiveTarget normalizeActiveGizmoTarget() const;
+    bool setActiveGizmoTarget(const editor_gizmo::ActiveTarget& target);
+    void resetActiveGizmoTarget();
+    bool cycleSelectedHierarchyGizmoTarget();
+    bool selectGameObjectInternal(GameObject* gameObject, bool resetGizmoTarget);
+    void refreshHierarchySelectionFromSceneSelection();
     void toggleMaterialAssetEditor(const InspectorFieldBinding& binding);
     bool isMaterialAssetEditorCollapsed(const InspectorFieldBinding& binding) const;
     std::string buildMaterialAssetEditorMarkup(const InspectorFieldBinding& binding, const std::string& assetPath) const;
@@ -323,6 +335,8 @@ private:
     int m_inspectorComponentContextMenuNodeId = 0;
     size_t m_inspectorComponentContextMenuIndex = 0;
     std::unordered_set<std::string> m_collapsedInspectorGroups;
+    editor_gizmo::ActiveTarget m_activeGizmoTarget;
+    editor_gizmo::TransformGizmoMode m_transformGizmoMode = editor_gizmo::TransformGizmoMode::Move;
     std::vector<std::string> m_consoleLines;
     std::vector<std::string> m_consoleRawLines;
     int m_activeProcessPid = -1;
