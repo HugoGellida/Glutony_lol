@@ -3,6 +3,7 @@
 #include "EditorUiDocuments.hpp"
 
 #include <RmlUi/Core/Input.h>
+#include <RmlUi/Core/Elements/ElementFormControlInput.h>
 
 #include <common/UI/MenuBar.hpp>
 #include <common/UI/MenuEntry.hpp>
@@ -112,10 +113,13 @@ std::string buildSceneEditorMenuMarkup(bool isFileMenuOpen, bool isEditMenuOpen,
     fileMenu.setDropdownDomIdOverride("scene_menu_file_dropdown");
     fileMenu.setExpanded(isFileMenuOpen);
 
+    UI::MenuItem newScene(0, 0, "New Scene");
+    newScene.setDomIdOverride("scene_menu_new_scene");
     UI::MenuItem saveAs(0, 0, "Save Scene As");
     saveAs.setDomIdOverride("scene_menu_save_as");
     UI::MenuItem loadSave(0, 0, "Load Save");
     loadSave.setDomIdOverride("scene_menu_load_save");
+    fileMenu.addChild(&newScene);
     fileMenu.addChild(&saveAs);
     fileMenu.addChild(&loadSave);
 
@@ -345,6 +349,65 @@ std::string classifyConsoleLine(const std::string& line, const std::string& sour
     if (lowered.find("success") != std::string::npos || lowered.find("built target") != std::string::npos)
         return "console_line_success";
     return "console_line_neutral";
+}
+
+bool elementIsFocusedOrContainsFocus(Rml::Context* context, Rml::Element* element)
+{
+    if (context == nullptr || element == nullptr)
+        return false;
+
+    const Rml::Element* focusedElement = context->GetFocusElement();
+    for (const Rml::Element* current = focusedElement; current != nullptr; current = current->GetParentNode())
+    {
+        if (current == element)
+            return true;
+    }
+
+    return false;
+}
+
+bool isGameObjectDescendantOf(const GameObject* candidate, const GameObject* ancestor)
+{
+    if (candidate == nullptr || ancestor == nullptr)
+        return false;
+
+    for (const Transform* current = candidate->transform.getParent(); current != nullptr; current = current->getParent())
+    {
+        if (current->getGameObject() == ancestor)
+            return true;
+    }
+
+    return false;
+}
+
+bool canReparentGameObject(const GameObject* draggedGameObject, const GameObject* targetGameObject)
+{
+    if (draggedGameObject == nullptr || draggedGameObject == targetGameObject)
+        return false;
+
+    if (targetGameObject != nullptr && isGameObjectDescendantOf(targetGameObject, draggedGameObject))
+        return false;
+
+    if (targetGameObject == nullptr)
+        return draggedGameObject->transform.getParent() != nullptr;
+
+    return draggedGameObject->transform.getParent() != &targetGameObject->transform;
+}
+
+glm::vec3 localScaleForParentWorldScale(const glm::vec3& worldScale, const GameObject* parentGameObject)
+{
+    if (parentGameObject == nullptr)
+        return worldScale;
+
+    const glm::vec3 parentWorldScale = parentGameObject->transform.getWorldScale();
+    glm::vec3 localScale = worldScale;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        if (std::abs(parentWorldScale[axis]) > 1e-5f)
+            localScale[axis] = worldScale[axis] / parentWorldScale[axis];
+    }
+
+    return localScale;
 }
 
 std::string ansiClassFromCode(int code)
@@ -952,6 +1015,38 @@ Rml::Element* findAncestorElement(Rml::Element* targetElement, const std::functi
     return nullptr;
 }
 
+void freezeHierarchyRowWidthForDrag(Rml::Element* hierarchyRowElement)
+{
+    if (hierarchyRowElement == nullptr)
+        return;
+
+    const int rowWidth = static_cast<int>(std::lround(hierarchyRowElement->GetOffsetWidth()));
+    if (rowWidth <= 0)
+        return;
+
+    hierarchyRowElement->SetProperty("width", std::to_string(rowWidth) + "px");
+}
+
+void restoreHierarchyRowWidthAfterDrag(Rml::Element* hierarchyRowElement)
+{
+    if (hierarchyRowElement == nullptr)
+        return;
+
+    hierarchyRowElement->SetProperty("width", "100%");
+}
+
+void restoreDraggedHierarchyRowWidth(Rml::ElementDocument* document, int nodeId)
+{
+    if (document == nullptr || nodeId == 0)
+        return;
+
+    if (Rml::Element* hierarchyRowElement =
+            document->GetElementById(UI::SceneEditorDomIdCodec::makeHierarchyNodeElementId(nodeId).c_str()))
+    {
+        restoreHierarchyRowWidthAfterDrag(hierarchyRowElement);
+    }
+}
+
 std::string encodeElementToken(const std::string& value)
 {
     std::ostringstream stream;
@@ -1309,6 +1404,9 @@ void SceneEditorController::deactivate()
     m_scene = nullptr;
     m_dragTarget = DragTarget::None;
     m_dragPayloadKind = DragPayloadKind::None;
+    m_draggedHierarchyNodeId = 0;
+    m_dropTargetNodeId = 0;
+    m_dropMode = HierarchyDropMode::None;
     m_draggedAssetFileId.clear();
     m_draggedAssetRuntimePath.clear();
     m_isFileMenuOpen = false;
@@ -1330,6 +1428,8 @@ void SceneEditorController::deactivate()
     m_pendingConsoleScrollLeft = 0.0f;
     m_activeGizmoTarget = editor_gizmo::ActiveTarget::none();
     m_transformGizmoMode = editor_gizmo::TransformGizmoMode::Move;
+    m_hierarchyRenameNodeId = 0;
+    m_pendingHierarchyRenameFocus = false;
     m_assetBrowserModel.clear();
     m_hierarchyModel.clear();
     m_layoutManager.clear();
@@ -1356,6 +1456,11 @@ void SceneEditorController::sync(Scene& scene)
 
     m_hierarchyModel.rebuildFromScene(scene);
     refreshHierarchySelectionFromSceneSelection();
+    if (m_hierarchyRenameNodeId != 0 && m_hierarchyModel.findNodeById(m_hierarchyRenameNodeId) == nullptr)
+    {
+        m_hierarchyRenameNodeId = 0;
+        m_pendingHierarchyRenameFocus = false;
+    }
     m_activeGizmoTarget = normalizeActiveGizmoTarget();
 
     const bool hierarchyChanged = !UI::SceneEditorHierarchyModel::nodesEqual(previousHierarchy, m_hierarchyModel.root());
@@ -1417,6 +1522,7 @@ void SceneEditorController::update()
         refreshInspectorValuesPresentation();
     }
 
+    applyPendingHierarchyRenameFocus();
     updatePlaybackStatusPresentation();
     applyLayout();
     m_context->Update();
@@ -1603,6 +1709,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String editMenuButtonElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_menu_edit_button"; });
+    const Rml::String newSceneElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_menu_new_scene"; });
     const Rml::String saveSceneAsElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_menu_save_as"; });
@@ -1666,9 +1775,15 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
     const Rml::String addGameObjectElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_hierarchy_add"; });
+    const Rml::String renameHierarchyElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_hierarchy_rename"; });
     const Rml::String deleteHierarchyElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_hierarchy_delete"; });
+    const Rml::String hierarchyRenameInputElementId = ::findAncestorElementId(
+        targetElement,
+        [](const Rml::String& candidateId) { return candidateId == "scene_hierarchy_rename_input"; });
     const Rml::String promptSaveElementId = ::findAncestorElementId(
         targetElement,
         [](const Rml::String& candidateId) { return candidateId == "scene_dirty_prompt_save"; });
@@ -1745,8 +1860,35 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
         return;
     }
 
+    if (eventId == Rml::EventId::Keydown && !hierarchyRenameInputElementId.empty())
+    {
+        const auto keyIdentifier = static_cast<Rml::Input::KeyIdentifier>(event.GetParameter<int>("key_identifier", 0));
+        const Rml::ElementFormControl* formControl = dynamic_cast<const Rml::ElementFormControl*>(targetElement);
+        if (keyIdentifier == Rml::Input::KI_RETURN || keyIdentifier == Rml::Input::KI_NUMPADENTER)
+        {
+            commitHierarchyRename(formControl != nullptr ? formControl->GetValue().c_str() : std::string());
+            event.StopPropagation();
+            return;
+        }
+
+        if (keyIdentifier == Rml::Input::KI_ESCAPE)
+        {
+            cancelHierarchyRename();
+            event.StopPropagation();
+            return;
+        }
+    }
+
     if (eventId == Rml::EventId::Change || eventId == Rml::EventId::Blur)
     {
+        if (eventId == Rml::EventId::Blur && !hierarchyRenameInputElementId.empty())
+        {
+            const Rml::ElementFormControl* formControl = dynamic_cast<const Rml::ElementFormControl*>(targetElement);
+            commitHierarchyRename(formControl != nullptr ? formControl->GetValue().c_str() : std::string());
+            event.StopPropagation();
+            return;
+        }
+
         const std::optional<DataAssetEditorBinding> dataAssetField = parseDataAssetEditorFieldElementId(elementId);
         if (dataAssetField.has_value())
         {
@@ -1925,6 +2067,15 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
+        if (!newSceneElementId.empty())
+        {
+            closeHeaderMenus();
+            beginPendingSceneAction(PendingSceneAction::NewScene);
+            refreshPresentation();
+            event.StopPropagation();
+            return;
+        }
+
         if (!loadSceneElementId.empty())
         {
             closeHeaderMenus();
@@ -2065,6 +2216,13 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
+        if (!renameHierarchyElementId.empty())
+        {
+            beginHierarchyRename(m_hierarchyContextMenuNodeId);
+            event.StopPropagation();
+            return;
+        }
+
         if (::findAncestorElementId(targetElement, [](const Rml::String& candidateId) { return candidateId == "scene_asset_browser_refresh"; }) == "scene_asset_browser_refresh")
         {
             m_assetBrowserContextMenuOpen = false;
@@ -2166,6 +2324,12 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             return;
         }
 
+        if (!hierarchyRenameInputElementId.empty())
+        {
+            event.StopPropagation();
+            return;
+        }
+
         if (const std::optional<int> hierarchyNodeId = UI::SceneEditorDomIdCodec::parseHierarchyNodeId(hierarchyNodeElementId))
         {
             m_hierarchyContextMenuOpen = false;
@@ -2249,11 +2413,41 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Dragstart)
     {
+        if (const std::optional<int> hierarchyNodeId = UI::SceneEditorDomIdCodec::parseHierarchyNodeId(hierarchyNodeElementId))
+        {
+            if (*hierarchyNodeId != m_hierarchyModel.root().id && hierarchyRenameInputElementId.empty())
+            {
+                const UiGOHierarchyNode* hierarchyNode = m_hierarchyModel.findNodeById(*hierarchyNodeId);
+                GameObject* draggedGameObject = hierarchyNode != nullptr ? const_cast<GameObject*>(hierarchyNode->gameObject) : nullptr;
+                if (draggedGameObject != nullptr)
+                {
+                    freezeHierarchyRowWidthForDrag(::findAncestorElement(
+                        targetElement,
+                        [&](const Rml::Element& candidate) {
+                            return UI::SceneEditorDomIdCodec::parseHierarchyNodeId(candidate.GetId()).has_value();
+                        }));
+                    m_dragPayloadKind = DragPayloadKind::Node;
+                    m_draggedHierarchyNodeId = *hierarchyNodeId;
+                    m_dropTargetNodeId = 0;
+                    m_dropMode = HierarchyDropMode::None;
+                    m_draggedAssetFileId.clear();
+                    m_draggedAssetRuntimePath.clear();
+                    m_hierarchyContextMenuOpen = false;
+                    m_assetBrowserContextMenuOpen = false;
+                    event.StopPropagation();
+                    return;
+                }
+            }
+        }
+
         if (const std::optional<std::string> fileId = UI::SceneEditorDomIdCodec::parseAssetFileElementId(assetFileElementId))
         {
             if (const AssetBrowserFileEntry* file = m_assetBrowserModel.findFileById(*fileId))
             {
                 m_dragPayloadKind = file->dragPayloadKind;
+                m_draggedHierarchyNodeId = 0;
+                m_dropTargetNodeId = 0;
+                m_dropMode = HierarchyDropMode::None;
                 m_draggedAssetFileId = *fileId;
                 m_draggedAssetRuntimePath = file->runtimePath;
                 m_assetBrowserModel.setSelectedFileId(*fileId);
@@ -2265,6 +2459,14 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Dragover)
     {
+        auto updateHierarchyDropState = [&](int nextTargetNodeId, HierarchyDropMode nextDropMode) {
+            if (m_dropTargetNodeId == nextTargetNodeId && m_dropMode == nextDropMode)
+                return;
+
+            m_dropTargetNodeId = nextTargetNodeId;
+            m_dropMode = nextDropMode;
+        };
+
         const std::optional<InspectorFieldBinding> inspectorField = parseInspectorFieldElementId(inspectorFieldElementId);
         const std::optional<MaterialAssetEditorBinding> materialAssetField = parseMaterialAssetEditorFieldElementId(materialAssetFieldElementId);
 
@@ -2279,8 +2481,30 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
         if (!m_hoveredInspectorFieldId.empty())
         {
+            if (m_dragPayloadKind == DragPayloadKind::Node)
+                updateHierarchyDropState(0, HierarchyDropMode::None);
             event.StopPropagation();
             return;
+        }
+
+        if (m_dragPayloadKind == DragPayloadKind::Node)
+        {
+            if (const std::optional<int> hierarchyNodeId = UI::SceneEditorDomIdCodec::parseHierarchyNodeId(hierarchyNodeElementId))
+            {
+                const UiGOHierarchyNode* draggedNode = m_hierarchyModel.findNodeById(m_draggedHierarchyNodeId);
+                const UiGOHierarchyNode* targetNode = m_hierarchyModel.findNodeById(*hierarchyNodeId);
+                GameObject* draggedGameObject = draggedNode != nullptr ? const_cast<GameObject*>(draggedNode->gameObject) : nullptr;
+                GameObject* targetGameObject = targetNode != nullptr ? const_cast<GameObject*>(targetNode->gameObject) : nullptr;
+                if ((*hierarchyNodeId == m_hierarchyModel.root().id && canReparentGameObject(draggedGameObject, nullptr)) ||
+                    (*hierarchyNodeId != m_hierarchyModel.root().id && canReparentGameObject(draggedGameObject, targetGameObject)))
+                {
+                    updateHierarchyDropState(*hierarchyNodeId, HierarchyDropMode::Inside);
+                    event.StopPropagation();
+                    return;
+                }
+            }
+
+            updateHierarchyDropState(0, HierarchyDropMode::None);
         }
     }
 
@@ -2316,14 +2540,65 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
             event.StopPropagation();
             return;
         }
+
+        if (m_dragPayloadKind == DragPayloadKind::Node)
+        {
+            bool didApplyDrop = false;
+            if (const std::optional<int> hierarchyNodeId = UI::SceneEditorDomIdCodec::parseHierarchyNodeId(hierarchyNodeElementId))
+            {
+                const UiGOHierarchyNode* draggedNode = m_hierarchyModel.findNodeById(m_draggedHierarchyNodeId);
+                const UiGOHierarchyNode* targetNode = m_hierarchyModel.findNodeById(*hierarchyNodeId);
+                GameObject* draggedGameObject = draggedNode != nullptr ? const_cast<GameObject*>(draggedNode->gameObject) : nullptr;
+                GameObject* targetGameObject = targetNode != nullptr ? const_cast<GameObject*>(targetNode->gameObject) : nullptr;
+
+                if (draggedGameObject != nullptr &&
+                    ((*hierarchyNodeId == m_hierarchyModel.root().id && canReparentGameObject(draggedGameObject, nullptr)) ||
+                     (*hierarchyNodeId != m_hierarchyModel.root().id && canReparentGameObject(draggedGameObject, targetGameObject))))
+                {
+                    const glm::vec3 worldPosition = draggedGameObject->transform.getWorldPos(glm::vec3(0.0f, 0.0f, 0.0f));
+                    const glm::quat worldOrientation = draggedGameObject->transform.getWorldOrientation();
+                    const glm::vec3 worldScale = draggedGameObject->transform.getWorldScale();
+
+                    if (Transform* parentTransform = draggedGameObject->transform.getParent())
+                    {
+                        parentTransform->detachChild(&draggedGameObject->transform);
+                        draggedGameObject->transform.removeParent();
+                    }
+                    if (*hierarchyNodeId != m_hierarchyModel.root().id && targetGameObject != nullptr)
+                        draggedGameObject->setParent(targetGameObject);
+
+                    draggedGameObject->transform.setWorldPosition(worldPosition);
+                    draggedGameObject->transform.setWorldOrientation(worldOrientation);
+                    draggedGameObject->transform.setScale(localScaleForParentWorldScale(worldScale, targetGameObject));
+                    m_scene->setSelectedGameObject(draggedGameObject);
+                    markSceneDirty();
+                    sync(*m_scene);
+                    didApplyDrop = true;
+                }
+            }
+
+            restoreDraggedHierarchyRowWidth(m_document, m_draggedHierarchyNodeId);
+            m_dragPayloadKind = DragPayloadKind::None;
+            m_draggedHierarchyNodeId = 0;
+            m_dropTargetNodeId = 0;
+            m_dropMode = HierarchyDropMode::None;
+            requestHierarchyRefresh();
+            event.StopPropagation();
+            return;
+        }
     }
 
     if (eventId == Rml::EventId::Dragend)
     {
+        restoreDraggedHierarchyRowWidth(m_document, m_draggedHierarchyNodeId);
         m_dragPayloadKind = DragPayloadKind::None;
+        m_draggedHierarchyNodeId = 0;
+        m_dropTargetNodeId = 0;
+        m_dropMode = HierarchyDropMode::None;
         m_draggedAssetFileId.clear();
         m_draggedAssetRuntimePath.clear();
         m_hoveredInspectorFieldId.clear();
+        requestHierarchyRefresh();
         return;
     }
 
@@ -2364,7 +2639,7 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
                     static_cast<int>(std::lround(mouseX - m_leftPanel->GetAbsoluteLeft())),
                     static_cast<int>(std::lround(mouseY - m_leftPanel->GetAbsoluteTop())),
                     kContextMenuMinWidth,
-                    estimateSingleActionMenuHeight(1));
+                    estimateSingleActionMenuHeight(2));
                 m_hierarchyContextMenuX = position.x;
                 m_hierarchyContextMenuY = position.y;
 
@@ -2856,6 +3131,7 @@ std::vector<editor_gizmo::ActiveTarget> SceneEditorController::collectSelectable
 
     targets.push_back(editor_gizmo::ActiveTarget::transform(selectedGameObject->getId(), editor_gizmo::TransformGizmoMode::Move));
     targets.push_back(editor_gizmo::ActiveTarget::transform(selectedGameObject->getId(), editor_gizmo::TransformGizmoMode::Rotate));
+    targets.push_back(editor_gizmo::ActiveTarget::transform(selectedGameObject->getId(), editor_gizmo::TransformGizmoMode::Scale));
 
     for (size_t componentIndex = 0; componentIndex < selectedGameObject->getComponentCount(); ++componentIndex)
     {
@@ -3019,6 +3295,104 @@ void SceneEditorController::refreshHierarchySelectionFromSceneSelection()
 
     const UiGOHierarchyNode* selectedNode = m_hierarchyModel.findNodeByGameObject(selectedGameObject);
     m_hierarchyModel.setSelectedNodeId(selectedNode != nullptr ? selectedNode->id : m_hierarchyModel.root().id);
+}
+
+void SceneEditorController::beginHierarchyRename(int nodeId)
+{
+    m_hierarchyContextMenuOpen = false;
+
+    if (nodeId == m_hierarchyModel.root().id)
+    {
+        requestHierarchyRefresh();
+        return;
+    }
+
+    const UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(nodeId);
+    if (node == nullptr || node->gameObject == nullptr)
+    {
+        requestHierarchyRefresh();
+        return;
+    }
+
+    m_hierarchyRenameNodeId = nodeId;
+    m_pendingHierarchyRenameFocus = true;
+    requestHierarchyRefresh();
+}
+
+bool SceneEditorController::commitHierarchyRename(const std::string& nextName)
+{
+    const int renamedNodeId = m_hierarchyRenameNodeId;
+    m_hierarchyRenameNodeId = 0;
+    m_pendingHierarchyRenameFocus = false;
+
+    if (renamedNodeId == 0)
+        return false;
+
+    if (m_scene == nullptr)
+    {
+        requestHierarchyRefresh();
+        return false;
+    }
+
+    const UiGOHierarchyNode* node = m_hierarchyModel.findNodeById(renamedNodeId);
+    GameObject* gameObject = node != nullptr ? const_cast<GameObject*>(node->gameObject) : nullptr;
+    if (gameObject == nullptr)
+    {
+        requestHierarchyRefresh();
+        return false;
+    }
+
+    const std::string trimmedName = trimCopy(nextName);
+    if (trimmedName.empty())
+    {
+        requestHierarchyRefresh();
+        return false;
+    }
+
+    if (gameObject->getName() == trimmedName)
+    {
+        requestHierarchyRefresh();
+        return true;
+    }
+
+    gameObject->setName(trimmedName);
+    markSceneDirty(false);
+    sync(*m_scene);
+    return true;
+}
+
+void SceneEditorController::cancelHierarchyRename()
+{
+    if (m_hierarchyRenameNodeId == 0 && !m_pendingHierarchyRenameFocus)
+        return;
+
+    m_hierarchyRenameNodeId = 0;
+    m_pendingHierarchyRenameFocus = false;
+    requestHierarchyRefresh();
+}
+
+void SceneEditorController::applyPendingHierarchyRenameFocus()
+{
+    if (!m_pendingHierarchyRenameFocus || m_document == nullptr)
+        return;
+
+    Rml::Element* inputElement = m_document->GetElementById("scene_hierarchy_rename_input");
+    if (inputElement == nullptr)
+        return;
+
+    if (elementIsFocusedOrContainsFocus(m_context, inputElement))
+    {
+        m_pendingHierarchyRenameFocus = false;
+        return;
+    }
+
+    if (!inputElement->Focus())
+        return;
+
+    if (Rml::ElementFormControlInput* input = dynamic_cast<Rml::ElementFormControlInput*>(inputElement))
+        input->Select();
+
+    m_pendingHierarchyRenameFocus = false;
 }
 
 void SceneEditorController::markSceneDirty(bool requestFullRuntimeSync)
@@ -4249,6 +4623,26 @@ bool SceneEditorController::saveScene()
     return true;
 }
 
+bool SceneEditorController::newScene()
+{
+    if (m_scene == nullptr)
+        return false;
+
+    stopExternalProcess(false);
+    m_scene->setPhysicsSimulationEnabled(false);
+    m_playbackState = PlaybackState::Stopped;
+    m_runtimeSceneSnapshot.reset();
+
+    if (!scene_serialization::applySceneSnapshot(*m_scene, scene_serialization::SceneSnapshot{}))
+        return false;
+
+    m_currentSceneFilePath.clear();
+    clearSceneDirty();
+    sync(*m_scene);
+    requestHierarchyRefresh();
+    return true;
+}
+
 bool SceneEditorController::loadSceneFromFilePath(const std::string& filePath)
 {
     if (m_scene == nullptr)
@@ -4314,6 +4708,8 @@ bool SceneEditorController::executePendingSceneAction()
 
     switch (action)
     {
+    case PendingSceneAction::NewScene:
+        return newScene();
     case PendingSceneAction::LoadFromDialog:
         return loadSceneFromDialog();
     case PendingSceneAction::OpenFile:

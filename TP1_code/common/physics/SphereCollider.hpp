@@ -93,6 +93,11 @@ namespace physics
             return &componentDescriptor();
         }
 
+        bool supportsEditorGizmos() const override
+        {
+            return true;
+        }
+
         const AABB computeAABB(const Transform * world) override
         {
             const glm::vec3 center = getWorldCenter(*world);

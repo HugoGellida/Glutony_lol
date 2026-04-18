@@ -360,6 +360,8 @@ void SceneViewportOverlay::rebuildActiveGizmos()
             m_collector.emplace<editor_gizmo::TransformMoveGizmo>(*gameObject);
         else if (m_activeTarget.transformMode == editor_gizmo::TransformGizmoMode::Rotate)
             m_collector.emplace<editor_gizmo::TransformRotateGizmo>(*gameObject);
+        else if (m_activeTarget.transformMode == editor_gizmo::TransformGizmoMode::Scale)
+            m_collector.emplace<editor_gizmo::TransformScaleGizmo>(*gameObject);
         return;
     }
 
@@ -370,7 +372,10 @@ void SceneViewportOverlay::rebuildActiveGizmos()
     if (component == nullptr || !component->supportsEditorGizmos())
         return;
 
+    const size_t gizmoCountBefore = m_collector.gizmos().size();
     component->collectEditorGizmos(m_collector);
+    if (m_collector.gizmos().size() == gizmoCountBefore)
+        editor_gizmo::collectBuiltInComponentGizmos(*component, m_collector);
 }
 
 void SceneViewportOverlay::cancelInteraction()

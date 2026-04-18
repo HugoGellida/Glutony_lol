@@ -515,7 +515,7 @@ const char* kEditorLayoutDocument = R"RML(
         }
 
         .scene_hierarchy_row {
-            drag: none;
+            drag: clone;
         }
 
         .hierarchy_row:hover {
@@ -542,6 +542,18 @@ const char* kEditorLayoutDocument = R"RML(
             color: #dde5eb;
             font-size: 13px;
             white-space: normal;
+        }
+
+        .hierarchy_rename_input {
+            display: block;
+            width: 100%;
+            margin: 0px;
+            padding: 5px 7px;
+            background-color: #141b21;
+            border: 1px solid #5f7b90;
+            box-sizing: border-box;
+            color: #eef5fa;
+            font-size: 13px;
         }
 
         .hierarchy_meta {

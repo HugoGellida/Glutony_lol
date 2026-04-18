@@ -60,6 +60,7 @@ private:
     enum class PendingSceneAction
     {
         None,
+        NewScene,
         LoadFromDialog,
         OpenFile,
     };
@@ -216,6 +217,10 @@ private:
     bool cycleSelectedHierarchyGizmoTarget();
     bool selectGameObjectInternal(GameObject* gameObject, bool resetGizmoTarget);
     void refreshHierarchySelectionFromSceneSelection();
+    void beginHierarchyRename(int nodeId);
+    bool commitHierarchyRename(const std::string& nextName);
+    void cancelHierarchyRename();
+    void applyPendingHierarchyRenameFocus();
     void toggleMaterialAssetEditor(const InspectorFieldBinding& binding);
     bool isMaterialAssetEditorCollapsed(const InspectorFieldBinding& binding) const;
     std::string buildMaterialAssetEditorMarkup(const InspectorFieldBinding& binding, const std::string& assetPath) const;
@@ -234,6 +239,7 @@ private:
     void clearSceneDirty();
     bool saveScene();
     bool saveSceneAs();
+    bool newScene();
     bool loadSceneFromFilePath(const std::string& filePath);
     bool loadSceneFromDialog();
     void beginPendingSceneAction(PendingSceneAction action, const std::string& targetPath = "");
@@ -318,6 +324,9 @@ private:
     std::string m_consolePartialLine;
     DragTarget m_dragTarget = DragTarget::None;
     DragPayloadKind m_dragPayloadKind = DragPayloadKind::None;
+    int m_draggedHierarchyNodeId = 0;
+    int m_dropTargetNodeId = 0;
+    HierarchyDropMode m_dropMode = HierarchyDropMode::None;
     std::string m_draggedAssetFileId;
     std::string m_draggedAssetRuntimePath;
     std::string m_hoveredInspectorFieldId;
@@ -328,6 +337,8 @@ private:
     int m_hierarchyContextMenuX = 0;
     int m_hierarchyContextMenuY = 0;
     int m_hierarchyContextMenuNodeId = 0;
+    int m_hierarchyRenameNodeId = 0;
+    bool m_pendingHierarchyRenameFocus = false;
     int m_addComponentMenuX = 0;
     int m_addComponentMenuY = 0;
     int m_inspectorComponentContextMenuX = 0;
