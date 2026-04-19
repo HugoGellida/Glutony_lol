@@ -2590,6 +2590,9 @@ void SceneEditorController::ProcessEvent(Rml::Event& event)
 
     if (eventId == Rml::EventId::Dragend)
     {
+        if (m_dragPayloadKind == DragPayloadKind::None)
+            return;
+
         restoreDraggedHierarchyRowWidth(m_document, m_draggedHierarchyNodeId);
         m_dragPayloadKind = DragPayloadKind::None;
         m_draggedHierarchyNodeId = 0;
