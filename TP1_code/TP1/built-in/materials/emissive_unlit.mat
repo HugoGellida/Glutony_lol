@@ -1,0 +1,9 @@
+{
+  "type": "unlit",
+  "shader": "built-in/shaders/emissive_unlit",
+  "renderPass": "built-in/render_pass/forward_unlit.render_pass",
+  "uniforms": [
+    { "name": "_emissiveColor", "type": "vec3", "value": [1.000, 1.000, 1.000] },
+    { "name": "_emissiveIntensity", "type": "float", "value": 1.000 }
+  ]
+}
