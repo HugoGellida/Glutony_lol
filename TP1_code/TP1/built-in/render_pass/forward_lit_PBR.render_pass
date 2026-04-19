@@ -46,8 +46,13 @@
       ],
       "target": { "name": "light_occlusion", "shared": true, "format": "float" },
       "depthSource": { "name": "scene_depth", "shared": true, "grouped": false },
-      "clear": true,
-      "blend": false,
+      "clear": false,
+      "blend": {
+        "enabled": true,
+        "op": "add",
+        "src": "one",
+        "dst": "one"
+      },
       "depth": "preserve"
     },
     {
