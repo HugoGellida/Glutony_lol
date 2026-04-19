@@ -35,14 +35,10 @@ class Scene
 private:
     GameObject ** m_gameObjects = nullptr;
     size_t m_gameObjectCapacity = 0;
-    size_t m_meshsCount=0;
-    component::Mesh ** m_meshs=nullptr;
+    component::Mesh* m_proceduralPlaneMesh = nullptr;
     
     size_t m_gameObjectCount = 0;
     int m_nextGameObjectId = 1;
-    dataStruct::Material * m_materials;
-    Shader * m_shaders;
-    Shader * m_selectionHighlightShader = nullptr;
     dataStruct::UnlitMaterial* m_selectionHighlightMaterial = nullptr;
     PhysicsSystem ph;
 
@@ -136,17 +132,26 @@ private:
         const std::string assetPath = proceduralPlaneAssetPath();
         m_sceneAssetRegistry.registerAsset(asset::AssetType::Mesh, assetPath);
 
-        if (m_meshs != nullptr && m_meshsCount > 1 && m_meshs[1] != nullptr)
-            return m_meshs[1];
+        if (m_proceduralPlaneMesh != nullptr)
+            return m_proceduralPlaneMesh;
 
         component::Mesh* plane = new Plane(glm::vec3(0, 0, 0), 10, 2);
         plane->setAssetPath(assetPath);
         plane->ownerCount++;
+        m_proceduralPlaneMesh = plane;
+        return m_proceduralPlaneMesh;
+    }
 
-        if (m_meshs != nullptr && m_meshsCount > 1)
-            m_meshs[1] = plane;
+    dataStruct::UnlitMaterial* ensureSelectionHighlightMaterial()
+    {
+        if (m_selectionHighlightMaterial != nullptr)
+            return m_selectionHighlightMaterial;
 
-        return plane;
+        m_selectionHighlightMaterial = dynamic_cast<dataStruct::UnlitMaterial*>(
+            useMaterialAsset("built-in/materials/selection_highlight.mat"));
+        if (m_selectionHighlightMaterial != nullptr)
+            m_selectionHighlightMaterial->setRuntimePreviewSyncEnabled(false);
+        return m_selectionHighlightMaterial;
     }
 
     void renderGameObject(GameObject* gameObject)
@@ -164,7 +169,7 @@ private:
 
     void renderSelectedHighlight()
     {
-        if (m_selectedGameObject == nullptr || m_selectionHighlightMaterial == nullptr)
+        if (m_selectedGameObject == nullptr || ensureSelectionHighlightMaterial() == nullptr)
             return;
 
         MeshRenderer* meshRenderer = m_selectedGameObject->getComponent<MeshRenderer>();
@@ -277,19 +282,6 @@ public:
         (void)physics::PlaneCollider::componentDescriptor();
         (void)physics::BoxCollider::componentDescriptor();
 
-        m_shaders = useShaderAsset("built-in/shaders/lit");
-
-        m_meshs = new component::Mesh*[3];
-        m_meshsCount = 3;
-        m_meshs[0] = useMeshAsset("built-in/mesh/cube_n.obj");
-        m_meshs[1] = useProceduralPlaneAsset();
-        m_meshs[2] = useMeshAsset("built-in/mesh/unit_sphere_n.off");
-
-        this->m_materials = useMaterialAsset("built-in/materials/lit_default.mat");
-        m_selectionHighlightShader = useShaderAsset("built-in/shaders/unlit");
-        m_selectionHighlightMaterial = dynamic_cast<dataStruct::UnlitMaterial*>(useMaterialAsset("built-in/materials/selection_highlight.mat"));
-        if (m_selectionHighlightMaterial != nullptr)
-            m_selectionHighlightMaterial->setRuntimePreviewSyncEnabled(false);
         m_camera = Camera();
 
         m_inputProcessor.registerKey(GLFW_KEY_W, inputProcessor::KeyState::HOLD);
@@ -902,10 +894,12 @@ public:
         if (!asset::AssetManager::instance().reloadMaterial(normalizedPath, material) || material == nullptr)
             return false;
 
-        if (normalizedPath == asset::AssetManager::normalizeRelativePath("built-in/materials/lit_default.mat"))
-            m_materials = material;
         if (normalizedPath == asset::AssetManager::normalizeRelativePath("built-in/materials/selection_highlight.mat"))
+        {
             m_selectionHighlightMaterial = dynamic_cast<dataStruct::UnlitMaterial*>(material);
+            if (m_selectionHighlightMaterial != nullptr)
+                m_selectionHighlightMaterial->setRuntimePreviewSyncEnabled(false);
+        }
 
         for (size_t index = 0; index < m_gameObjectCount; ++index)
         {
@@ -977,15 +971,14 @@ public:
     ~Scene()
     {
         destroyAllGameObjects();
-        if (m_meshs != nullptr && m_meshsCount > 1 && m_meshs[1] != nullptr)
+        if (m_proceduralPlaneMesh != nullptr)
         {
-            if (m_meshs[1]->ownerCount > 0)
-                m_meshs[1]->ownerCount--;
-            if (m_meshs[1]->ownerCount == 0)
-                delete m_meshs[1];
-            m_meshs[1] = nullptr;
+            if (m_proceduralPlaneMesh->ownerCount > 0)
+                m_proceduralPlaneMesh->ownerCount--;
+            if (m_proceduralPlaneMesh->ownerCount == 0)
+                delete m_proceduralPlaneMesh;
+            m_proceduralPlaneMesh = nullptr;
         }
         delete[] m_gameObjects;
-        delete[] m_meshs;
     }
 };
