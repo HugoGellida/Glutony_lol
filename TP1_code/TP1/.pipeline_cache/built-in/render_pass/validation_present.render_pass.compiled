@@ -1,5 +1,0 @@
-built-in/render_pass/validation_present.render_pass
-built-in/render_pass/validation_present.render_pass
-built-in/render_phase/validation_composite.render_phase
-built-in/shaders/validation_present/vertex.glsl
-built-in/shaders/validation_present/fragment.glsl

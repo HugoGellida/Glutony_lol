@@ -5,8 +5,8 @@
             "name": "Debug",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceRoot}/TP1_code/build/TP1",
-            "cwd": "${workspaceRoot}/TP1_code/build/",
+            "program": "${workspaceRoot}/Glutony/build/Editor",
+            "cwd": "${workspaceRoot}/Glutony/build/",
             "setupCommands": [
                 {
                     "text": "set debuginfod enabled off"

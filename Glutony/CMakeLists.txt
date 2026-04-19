@@ -177,7 +177,7 @@ if(NOT _glutony_generated_scene_scripts_sanitized STREQUAL _glutony_generated_sc
 endif()
 
 file(GLOB GLUTONY_BUILTIN_UNIFORM_FACTORY_ASSET_FILES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in/uniform_factory/*.uniform_factory"
+    "${CMAKE_CURRENT_SOURCE_DIR}/scr/built-in/uniform_factory/*.uniform_factory"
 )
 
 set(_glutony_builtin_uniform_factory_include_paths "")
@@ -393,18 +393,18 @@ endfunction()
 if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
     add_custom_target(glutony_sync_editor_runtime_assets
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/img"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scr/img"
                 "${CMAKE_CURRENT_BINARY_DIR}/img"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/vertex_shader.glsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scr/vertex_shader.glsl"
                 "${CMAKE_CURRENT_BINARY_DIR}/vertex_shader.glsl"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/fragment_shader.glsl"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scr/fragment_shader.glsl"
                 "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
         COMMAND ${CMAKE_COMMAND} -E make_directory
                 "${CMAKE_CURRENT_BINARY_DIR}/Assets"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/TP1/built-in"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scr/built-in"
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in"
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "${CMAKE_CURRENT_BINARY_DIR}/built-in/fonts"
@@ -421,7 +421,7 @@ if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/lit_default.material.json"
                 "${CMAKE_CURRENT_BINARY_DIR}/built-in/materials/selection_highlight.material.json"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/TP1/.pipeline_cache"
+            "${CMAKE_CURRENT_SOURCE_DIR}/scr/.pipeline_cache"
             "${CMAKE_CURRENT_BINARY_DIR}/.pipeline_cache"
         COMMENT "Synchronizing editor runtime assets into the build directory"
     )
@@ -429,15 +429,15 @@ endif()
 
 # Editor
 add_executable(Editor
-    TP1/Editor.cpp
-    TP1/vertex_shader.glsl
-    TP1/fragment_shader.glsl
+    scr/Editor.cpp
+    scr/vertex_shader.glsl
+    scr/fragment_shader.glsl
 )
 
 add_executable(runtime_game EXCLUDE_FROM_ALL
-    TP1/player_main.cpp
-    TP1/vertex_shader.glsl
-    TP1/fragment_shader.glsl
+    scr/player_main.cpp
+    scr/vertex_shader.glsl
+    scr/fragment_shader.glsl
 )
 
 if(ENABLE_LSAN)

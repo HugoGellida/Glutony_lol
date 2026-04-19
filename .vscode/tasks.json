@@ -3,7 +3,7 @@
 		{
 			"label": "build",
 			"type": "shell",
-			"command": "cmake --build ${workspaceFolder}/TP1_code/build --parallel 4"
+			"command": "cmake --build ${workspaceFolder}/Glutony/build --parallel 4"
 		},
 		{
 			"label": "noop-check",
@@ -17,7 +17,7 @@
 			"command": "cmake",
 			"args": [
 				"--build",
-				"${workspaceFolder}/TP1_code/build",
+				"${workspaceFolder}/Glutony/build",
 				"--target",
 				"runtime_game",
 				"--parallel",

@@ -46,22 +46,22 @@
         "typeinfo": "cpp",
         "fstream": "cpp"
     },
-    "cmake.buildDirectory": "${workspaceFolder}/TP1_code/build",
-    "cmake.sourceDirectory": "${workspaceFolder}/TP1_code",
+    "cmake.buildDirectory": "${workspaceFolder}/Glutony/build",
+    "cmake.sourceDirectory": "${workspaceFolder}/Glutony",
     "cmake.configureArgs": [
         "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
     ],
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
-    "C_Cpp.default.compileCommands": "${workspaceFolder}/TP1_code/build/compile_commands.json",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/Glutony/build/compile_commands.json",
     "C_Cpp.default.compilerPath": "/usr/bin/g++",
     "C_Cpp.default.includePath": [
-        "${workspaceFolder}/TP1_code/**",
-        "${workspaceFolder}/TP1_code/external/glfw-3.1.2/include",
-        "${workspaceFolder}/TP1_code/external/glm-0.9.7.1",
-        "${workspaceFolder}/TP1_code/external/glew-1.13.0/include",
-        "${workspaceFolder}/TP1_code/external/stb_image",
-        "${workspaceFolder}/TP1_code/external/RmlUi/Include",
-        "${workspaceFolder}/TP1_code/external/RmlUi/Backends",
-        "${workspaceFolder}/TP1_code/build/external/glfw-3.1.2/src"
+        "${workspaceFolder}/Glutony/**",
+        "${workspaceFolder}/Glutony/external/glfw-3.1.2/include",
+        "${workspaceFolder}/Glutony/external/glm-0.9.7.1",
+        "${workspaceFolder}/Glutony/external/glew-1.13.0/include",
+        "${workspaceFolder}/Glutony/external/stb_image",
+        "${workspaceFolder}/Glutony/external/RmlUi/Include",
+        "${workspaceFolder}/Glutony/external/RmlUi/Backends",
+        "${workspaceFolder}/Glutony/build/external/glfw-3.1.2/src"
     ]
 }

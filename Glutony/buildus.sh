@@ -1,6 +1,6 @@
-rm -rf ./TP1_code/build/*
+rm -rf ./Glutony/build/*
 
-cmake -S ./TP1_code -B ./TP1_code/build \
+cmake -S ./Glutony -B ./Glutony/build \
 	-DCMAKE_BUILD_TYPE=Debug \
 	-DGLFW_BUILD_EXAMPLES=OFF \
 	-DGLFW_BUILD_TESTS=OFF \
