@@ -19,6 +19,7 @@ set(CMAKE_SUPPRESS_DEVELOPER_WARNINGS 1 CACHE BOOL "Suppress developer warnings 
 set(OpenGL_GL_PREFERENCE LEGACY)
 
 find_package(OpenGL REQUIRED)
+find_package(Threads REQUIRED)
 
 if(CMAKE_BINARY_DIR STREQUAL CMAKE_SOURCE_DIR)
     message(FATAL_ERROR "Please select another Build Directory !")
@@ -255,6 +256,7 @@ set(GLUTONY_RUNTIME_SOURCES
     common/gameobject/component/MeshRenderer.cpp
     common/gameobject/component/PointLight.cpp
     common/gameobject/component/ScriptComponent.cpp
+    common/asset/TextureAssetRuntime.cpp
     common/physics/PhysicEngine.cpp
     common/physics/RigidBody.cpp
     common/stb_image_impl.cpp
@@ -339,6 +341,7 @@ target_link_libraries(engine_core
         ${OPENGL_LIBRARY}
         glfw
         GLEW_1130
+        Threads::Threads
 )
 
 add_library(editor_support STATIC

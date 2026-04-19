@@ -13,6 +13,15 @@ namespace component
     private:
         void updateAABB() const
         {
+            if (m_vertices == nullptr || m_vStride == 0)
+            {
+                m_AABB = physics::AABB();
+                m_AABB.min = glm::vec3(0.0f);
+                m_AABB.max = glm::vec3(0.0f);
+                m_boundsDirty = false;
+                return;
+            }
+
             physics::AABB res = physics::AABB();
             res.min = glm::vec3(MAXFLOAT, MAXFLOAT, MAXFLOAT);
             res.max = glm::vec3(-MAXFLOAT, -MAXFLOAT, -MAXFLOAT);
@@ -415,6 +424,11 @@ namespace component
         bool isOnGPU()
         {
             return m_onGPU;
+        }
+
+        void markUploadedToGpu()
+        {
+            m_onGPU = true;
         }
 
         physics::AABB getAABB() const

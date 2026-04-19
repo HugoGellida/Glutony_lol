@@ -3,7 +3,6 @@
 #include <GL/glew.h>
 
 #include "../asset/AssetManager.hpp"
-#include "../asset/TextureAssetIO.hpp"
 #include "../gameobject/GameObject.hpp"
 #include "../gameobject/component/MeshRenderer.hpp"
 #include "../shader/Material.hpp"
@@ -47,12 +46,6 @@ private:
         Transform* transform = nullptr;
         std::string materialAssetPath;
         dataStruct::Material* fallbackMaterial = nullptr;
-    };
-
-    struct CachedTextureAsset
-    {
-        Texture2D texture;
-        std::filesystem::file_time_type writeTime = std::filesystem::file_time_type::min();
     };
 
 public:
@@ -101,7 +94,6 @@ private:
     std::unordered_map<std::string, RenderTargetResource> m_renderTargets;
     std::unordered_map<std::string, RenderTargetResource> m_compositedRenderTargets;
     std::unordered_map<std::string, RenderTargetMetadata> m_renderTargetMetadata;
-    std::unordered_map<std::string, CachedTextureAsset> m_cachedTextureAssets;
     std::unordered_map<std::string, std::filesystem::file_time_type> m_trackedAssetWriteTimes;
     std::size_t m_structureHash = 0;
     bool m_compiled = false;
@@ -478,49 +470,13 @@ private:
         return extension != ".rttex";
     }
 
-    Texture2D* resolveCachedTextureAsset(const std::string& assetPath)
+    GLuint resolveTextureAssetIdIfReady(const std::string& assetPath)
     {
         const std::string normalizedAssetPath = asset::AssetManager::normalizeRelativePath(assetPath);
         if (normalizedAssetPath.empty())
-            return nullptr;
+            return 0;
 
-        const std::filesystem::file_time_type writeTime = safeLastWriteTime(normalizedAssetPath);
-        auto it = m_cachedTextureAssets.find(normalizedAssetPath);
-        if (it != m_cachedTextureAssets.end() && it->second.writeTime == writeTime)
-            return it->second.texture.isEmpty() ? nullptr : &it->second.texture;
-
-        CachedTextureAsset cached;
-        const std::string extension = lowercaseCopy(std::filesystem::path(normalizedAssetPath).extension().string());
-        if (extension == ".rttex")
-        {
-            int width = 0;
-            int height = 0;
-            std::vector<float> pixels;
-            if (!asset::TextureAssetIO::loadRFloatTexture(asset::AssetManager::runtimePath(normalizedAssetPath), width, height, pixels))
-                return nullptr;
-
-            GLuint textureId = 0;
-            glGenTextures(1, &textureId);
-            glBindTexture(GL_TEXTURE_2D, textureId);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, width, height, 0, GL_RED, GL_FLOAT, pixels.data());
-            glBindTexture(GL_TEXTURE_2D, 0);
-            cached.texture = Texture2D(textureId, 0, true);
-        }
-        else
-        {
-            const std::string runtimeTexturePath = asset::AssetManager::instance().resolveTextureRuntimePath(normalizedAssetPath, false);
-            if (runtimeTexturePath.empty())
-                return nullptr;
-            cached.texture = Texture2D(runtimeTexturePath, 0);
-        }
-
-        cached.writeTime = writeTime;
-        it = m_cachedTextureAssets.insert_or_assign(normalizedAssetPath, std::move(cached)).first;
-        return it->second.texture.isEmpty() ? nullptr : &it->second.texture;
+        return asset::AssetManager::instance().resolveTextureAssetTextureId(normalizedAssetPath, false);
     }
 
     static GLint bakeCombineUniformValue(RenderTargetBakeCombineOp op)
@@ -1205,22 +1161,11 @@ private:
             bool hasTexture = false;
             if (!uniform.textureAssetPath.empty())
             {
-                // Temporary pass materials are rebuilt frequently, so reuse cached GPU textures
-                // instead of constructing a new Texture2D from disk every draw.
-                Texture2D* cachedTexture = resolveCachedTextureAsset(uniform.textureAssetPath);
-                if (cachedTexture != nullptr && !cachedTexture->isEmpty())
+                if (!asset::AssetManager::instance().resolveTextureRuntimePath(uniform.textureAssetPath, false).empty())
                 {
-                    material.addExternalTexture(uniform.name, cachedTexture->textureId());
+                    asset::AssetManager::instance().requestTextureAssetPrefetch(uniform.textureAssetPath);
+                    material.addTextureAsset(uniform.name, uniform.textureAssetPath);
                     hasTexture = true;
-                }
-                else
-                {
-                    const std::string resolvedTexturePath = asset::AssetManager::instance().resolveTextureRuntimePath(uniform.textureAssetPath);
-                    if (!resolvedTexturePath.empty())
-                    {
-                        material.addTextureAsset(uniform.name, uniform.textureAssetPath, resolvedTexturePath);
-                        hasTexture = true;
-                    }
                 }
             }
             material.addBoolUniform(uniform.name + "_present", hasTexture);
@@ -1256,20 +1201,11 @@ private:
             bool hasTexture = false;
             if (!uniform.assetPath.empty())
             {
-                Texture2D* cachedTexture = resolveCachedTextureAsset(uniform.assetPath);
-                if (cachedTexture != nullptr && !cachedTexture->isEmpty())
+                if (!asset::AssetManager::instance().resolveTextureRuntimePath(uniform.assetPath, false).empty())
                 {
-                    material.addExternalTexture(uniform.name, cachedTexture->textureId());
+                    asset::AssetManager::instance().requestTextureAssetPrefetch(uniform.assetPath);
+                    material.addTextureAsset(uniform.name, uniform.assetPath);
                     hasTexture = true;
-                }
-                else
-                {
-                    const std::string resolvedTexturePath = asset::AssetManager::instance().resolveTextureRuntimePath(uniform.assetPath);
-                    if (!resolvedTexturePath.empty())
-                    {
-                        material.addTextureAsset(uniform.name, uniform.assetPath, resolvedTexturePath);
-                        hasTexture = true;
-                    }
                 }
             }
             material.addBoolUniform(uniform.name + "_present", hasTexture);
@@ -2038,7 +1974,6 @@ public:
         m_renderTargets.clear();
         m_compositedRenderTargets.clear();
         m_renderTargetMetadata.clear();
-        m_cachedTextureAssets.clear();
         m_trackedAssetWriteTimes.clear();
     }
 
@@ -2230,7 +2165,7 @@ private:
             if (!bakedAssetPathMatchesMetadata(bakedTargetAssetPath, targetMetadata))
                 bakedTargetAssetPath.clear();
             const bool hasResolvedBakedTargetTexture =
-                !bakedTargetAssetPath.empty() && resolveCachedTextureAsset(bakedTargetAssetPath) != nullptr;
+                !bakedTargetAssetPath.empty() && resolveTextureAssetIdIfReady(bakedTargetAssetPath) != 0;
             const bool dynamicOnlyForBatch =
                 options.dynamicOnlyOnBakeableTargets && targetMetadata != nullptr && targetMetadata->bakeable && hasResolvedBakedTargetTexture;
 
@@ -2341,11 +2276,7 @@ private:
                 {
                     const std::string bakedAssetPath = resolveBakedTextureAssetPath(referencedSettings, referenceBakedTargetGroupSuffix);
                     if (bakedAssetPathMatchesMetadata(bakedAssetPath, referencedMetadata))
-                    {
-                        Texture2D* texture = resolveCachedTextureAsset(bakedAssetPath);
-                        if (texture != nullptr)
-                            bakedTextureId = texture->textureId();
-                    }
+                        bakedTextureId = resolveTextureAssetIdIfReady(bakedAssetPath);
                 }
 
                 if (dynamicTextureId != 0 && bakedTextureId != 0 && referencedMetadata != nullptr && referencedMetadata->bakeable)
@@ -2418,8 +2349,15 @@ private:
             glDisable(GL_BLEND);
         };
 
-        for (size_t batchIndex = 0; batchIndex < m_batches.size();)
+        // Light-iterated passes can be separated by batches from other pipelines while still
+        // belonging to the same logical iteration chain (shadow depth -> occlusion -> lighting).
+        std::vector<bool> handledBatches(m_batches.size(), false);
+
+        for (size_t batchIndex = 0; batchIndex < m_batches.size(); ++batchIndex)
         {
+            if (handledBatches[batchIndex])
+                continue;
+
             const Batch& batch = m_batches[batchIndex];
             const std::string iterationGroupKey = batchIterationGroupKey(batch);
             if (iterationGroupKey.empty())
@@ -2430,13 +2368,23 @@ private:
                     m_failed = true;
                     return false;
                 }
-                ++batchIndex;
+                handledBatches[batchIndex] = true;
                 continue;
             }
 
-            size_t batchGroupEnd = batchIndex + 1;
-            while (batchGroupEnd < m_batches.size() && batchIterationGroupKey(m_batches[batchGroupEnd]) == iterationGroupKey)
-                ++batchGroupEnd;
+            std::vector<size_t> groupedBatchIndices;
+            groupedBatchIndices.push_back(batchIndex);
+            handledBatches[batchIndex] = true;
+            for (size_t candidateIndex = batchIndex + 1; candidateIndex < m_batches.size(); ++candidateIndex)
+            {
+                if (handledBatches[candidateIndex])
+                    continue;
+                if (batchIterationGroupKey(m_batches[candidateIndex]) != iterationGroupKey)
+                    continue;
+
+                groupedBatchIndices.push_back(candidateIndex);
+                handledBatches[candidateIndex] = true;
+            }
 
             int iterationCount = 0;
             if (!queryBatchIterationCount(camera, batch, iterationCount))
@@ -2447,7 +2395,7 @@ private:
 
             for (int currentIteration = 0; currentIteration < iterationCount; ++currentIteration)
             {
-                for (size_t groupedBatchIndex = batchIndex; groupedBatchIndex < batchGroupEnd; ++groupedBatchIndex)
+                for (size_t groupedBatchIndex : groupedBatchIndices)
                 {
                     renderBatch(m_batches[groupedBatchIndex], currentIteration, iterationCount);
                     if (fatalError)
@@ -2457,8 +2405,6 @@ private:
                     }
                 }
             }
-
-            batchIndex = batchGroupEnd;
         }
 
         glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(initialFramebuffer));

@@ -169,6 +169,9 @@ namespace component
             if (m_onGPU)
                 releaseGpuResources();
 
+            if (m_mesh->verticesCount() == 0 || m_mesh->trianglesCount() == 0)
+                return;
+
             if (m_mesh -> hasNormals() && m_mesh -> hasUVs())
                 m_mesh -> computeTangents();
 
@@ -258,6 +261,7 @@ namespace component
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_EBO);
             
             m_onGPU = true;
+            m_mesh->markUploadedToGpu();
             
         }
         void render(Camera const & camera, Transform & transform)

@@ -1,0 +1,11 @@
+{
+  "source": "light_pass_PBR.cpp",
+  "entry": "pbr_light_factory::buildShadowMapUniforms",
+  "iterationEntry": "pbr_light_factory::iterationCount",
+  "groupEntry": "pbr_light_factory::logicalLightGroup",
+  "bakeGroupEntry": "pbr_light_factory::expandedLightBakeGroup",
+  "requiresLight": true,
+  "outputs": [
+    { "name": "LIGHT_MVP", "type": "mat4" }
+  ]
+}
