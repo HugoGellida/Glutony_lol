@@ -5,6 +5,7 @@
 #include "MaterialAssetIO.hpp"
 #include "RenderPassAssetIO.hpp"
 #include "RenderPhaseAssetIO.hpp"
+#include "TextureAssetIO.hpp"
 #include "UniformFactoryAssetIO.hpp"
 #include "SceneScriptAssetIO.hpp"
 #include "common/FileLoader.hpp"
@@ -13,10 +14,14 @@
 #include "common/shader/LitMaterial.hpp"
 #include "common/shader/Shader.hpp"
 #include "common/shader/UnlitMaterial.hpp"
+#include "external/stb_image/stb_image.h"
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
 #include <exception>
 #include <filesystem>
+#include <future>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -82,8 +87,58 @@ public:
 class AssetManager
 {
 private:
+    enum class AsyncJobState
+    {
+        Idle,
+        Queued,
+        Running,
+    };
+
+    enum class TextureCpuFormat
+    {
+        None,
+        Rgba8,
+        RFloat,
+    };
+
+    struct MeshAsyncState
+    {
+        AsyncJobState jobState = AsyncJobState::Idle;
+        std::filesystem::file_time_type requestedWriteTime = std::filesystem::file_time_type::min();
+        std::filesystem::file_time_type loadingWriteTime = std::filesystem::file_time_type::min();
+        std::future<std::unique_ptr<component::Mesh>> future;
+    };
+
+    struct TextureCpuPayload
+    {
+        TextureCpuFormat format = TextureCpuFormat::None;
+        int width = 0;
+        int height = 0;
+        std::vector<unsigned char> rgba8Pixels;
+        std::vector<float> rFloatPixels;
+        bool success = false;
+    };
+
+    struct TextureAsyncState
+    {
+        AsyncJobState jobState = AsyncJobState::Idle;
+        std::filesystem::file_time_type requestedWriteTime = std::filesystem::file_time_type::min();
+        std::filesystem::file_time_type loadingWriteTime = std::filesystem::file_time_type::min();
+        std::filesystem::file_time_type appliedWriteTime = std::filesystem::file_time_type::min();
+        std::future<TextureCpuPayload> future;
+        TextureCpuPayload pendingUpload;
+        bool hasPendingUpload = false;
+        GLuint textureId = 0;
+    };
+
+    static constexpr std::size_t MaxConcurrentMeshLoads = 2;
+    static constexpr std::size_t MaxConcurrentTextureLoads = 2;
+    static constexpr std::size_t MaxMeshCommitsPerFrame = 2;
+    static constexpr std::size_t MaxTextureUploadsPerFrame = 1;
+
     std::unordered_map<std::string, component::Mesh*> m_meshAssets;
     std::unordered_map<std::string, std::filesystem::file_time_type> m_meshWriteTimes;
+    std::unordered_map<std::string, MeshAsyncState> m_meshAsyncStates;
     std::unordered_map<std::string, std::unique_ptr<Shader>> m_shaderAssets;
     std::unordered_map<std::string, std::unique_ptr<dataStruct::Material>> m_materialAssets;
     std::unordered_map<std::string, RenderPhaseAssetDefinition> m_renderPhaseAssets;
@@ -93,8 +148,11 @@ private:
     std::unordered_map<std::string, SceneScriptAssetDefinition> m_sceneScriptAssets;
     std::unordered_map<std::string, ComponentScriptAssetDefinition> m_componentScriptAssets;
     std::unordered_map<std::string, std::string> m_materialShaderPaths;
+    std::unordered_map<std::string, TextureAsyncState> m_textureAsyncStates;
     std::unordered_set<std::string> m_pendingChangedShaderPaths;
     std::unordered_map<AssetType, std::vector<std::string>, AssetTypeHash> m_assetPaths;
+    GLuint m_fallbackColorTextureId = 0;
+    GLuint m_fallbackFloatTextureId = 0;
 
     AssetManager() = default;
 
@@ -153,10 +211,10 @@ private:
                 bool hasTexture = false;
                 if (!uniform.textureAssetPath.empty())
                 {
-                    const std::string resolvedTexturePath = resolveTextureRuntimePath(uniform.textureAssetPath);
-                    if (!resolvedTexturePath.empty())
+                    if (!resolveTextureRuntimePath(uniform.textureAssetPath).empty())
                     {
-                        material->addTextureAsset(uniform.name, uniform.textureAssetPath, resolvedTexturePath);
+                        requestTextureAssetPrefetch(uniform.textureAssetPath);
+                        material->addTextureAsset(uniform.name, uniform.textureAssetPath);
                         hasTexture = true;
                     }
                 }
@@ -230,6 +288,310 @@ private:
         existingMesh.replaceGeometryFrom(*reloadedMesh);
         existingMesh.setAssetPath(normalizedPath);
         return true;
+    }
+
+    static std::string lowercasePathExtension(const std::string& rawPath)
+    {
+        std::string extension = std::filesystem::path(normalizeRelativePath(rawPath)).extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char character) {
+            return static_cast<char>(std::tolower(character));
+        });
+        return extension;
+    }
+
+    std::size_t runningMeshLoadCount() const
+    {
+        std::size_t count = 0;
+        for (const auto& entry : m_meshAsyncStates)
+        {
+            if (entry.second.jobState == AsyncJobState::Running)
+                ++count;
+        }
+        return count;
+    }
+
+    std::size_t runningTextureLoadCount() const
+    {
+        std::size_t count = 0;
+        for (const auto& entry : m_textureAsyncStates)
+        {
+            if (entry.second.jobState == AsyncJobState::Running)
+                ++count;
+        }
+        return count;
+    }
+
+    void queueMeshLoad(const std::string& normalizedPath, const std::filesystem::file_time_type& writeTime)
+    {
+        MeshAsyncState& state = m_meshAsyncStates[normalizedPath];
+        state.requestedWriteTime = writeTime;
+        if (state.jobState != AsyncJobState::Running)
+            state.jobState = AsyncJobState::Queued;
+    }
+
+    void startQueuedMeshLoads()
+    {
+        std::size_t runningCount = runningMeshLoadCount();
+        for (auto& entry : m_meshAsyncStates)
+        {
+            if (runningCount >= MaxConcurrentMeshLoads)
+                break;
+
+            MeshAsyncState& state = entry.second;
+            if (state.jobState != AsyncJobState::Queued)
+                continue;
+
+            state.loadingWriteTime = state.requestedWriteTime;
+            state.future = std::async(std::launch::async, [this, normalizedPath = entry.first]() {
+                return loadMeshFromDisk(normalizedPath);
+            });
+            state.jobState = AsyncJobState::Running;
+            ++runningCount;
+        }
+    }
+
+    void finalizeCompletedMeshLoads()
+    {
+        std::size_t committedCount = 0;
+        for (auto& entry : m_meshAsyncStates)
+        {
+            if (committedCount >= MaxMeshCommitsPerFrame)
+                break;
+
+            MeshAsyncState& state = entry.second;
+            if (state.jobState != AsyncJobState::Running || !state.future.valid())
+                continue;
+
+            if (state.future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+                continue;
+
+            component::Mesh* existingMesh = nullptr;
+            const auto meshIt = m_meshAssets.find(entry.first);
+            if (meshIt != m_meshAssets.end())
+                existingMesh = meshIt->second;
+
+            std::unique_ptr<component::Mesh> loadedMesh = state.future.get();
+            m_meshWriteTimes[entry.first] = state.loadingWriteTime;
+            if (existingMesh != nullptr && loadedMesh != nullptr)
+            {
+                existingMesh->replaceGeometryFrom(*loadedMesh);
+                existingMesh->setAssetPath(entry.first);
+            }
+            else if (loadedMesh == nullptr && existingMesh != nullptr && existingMesh->verticesCount() != 0)
+                std::cerr << "Mesh reload failed for " << entry.first << ". Keeping previous valid mesh." << std::endl;
+
+            state.jobState = AsyncJobState::Idle;
+            if (state.requestedWriteTime != state.loadingWriteTime)
+                state.jobState = AsyncJobState::Queued;
+            ++committedCount;
+        }
+    }
+
+    TextureCpuPayload loadTexturePayloadFromDisk(const std::string& normalizedPath)
+    {
+        TextureCpuPayload payload;
+        const std::string diskPath = runtimePath(normalizedPath);
+        const std::string extension = lowercasePathExtension(normalizedPath);
+
+        if (extension == ".rttex")
+        {
+            if (!TextureAssetIO::loadRFloatTexture(diskPath, payload.width, payload.height, payload.rFloatPixels))
+                return payload;
+
+            payload.format = TextureCpuFormat::RFloat;
+            payload.success = payload.width > 0 && payload.height > 0 && !payload.rFloatPixels.empty();
+            return payload;
+        }
+
+        int channels = 0;
+        unsigned char* rawPixels = stbi_load(diskPath.c_str(), &payload.width, &payload.height, &channels, 4);
+        if (rawPixels == nullptr)
+            return payload;
+
+        payload.format = TextureCpuFormat::Rgba8;
+        const std::size_t byteCount = static_cast<std::size_t>(payload.width) * static_cast<std::size_t>(payload.height) * 4U;
+        payload.rgba8Pixels.assign(rawPixels, rawPixels + byteCount);
+        payload.success = payload.width > 0 && payload.height > 0 && !payload.rgba8Pixels.empty();
+        stbi_image_free(rawPixels);
+        return payload;
+    }
+
+    void queueTextureLoad(const std::string& normalizedPath, const std::filesystem::file_time_type& writeTime)
+    {
+        TextureAsyncState& state = m_textureAsyncStates[normalizedPath];
+        if (state.textureId != 0 && state.appliedWriteTime == writeTime)
+            return;
+
+        if (state.jobState == AsyncJobState::Running && state.loadingWriteTime == writeTime)
+        {
+            state.requestedWriteTime = writeTime;
+            return;
+        }
+
+        if (state.hasPendingUpload && state.loadingWriteTime == writeTime)
+        {
+            state.requestedWriteTime = writeTime;
+            return;
+        }
+
+        if (state.jobState == AsyncJobState::Idle && !state.hasPendingUpload && state.appliedWriteTime == writeTime)
+            return;
+
+        state.requestedWriteTime = writeTime;
+        if (state.jobState != AsyncJobState::Running)
+            state.jobState = AsyncJobState::Queued;
+    }
+
+    void startQueuedTextureLoads()
+    {
+        std::size_t runningCount = runningTextureLoadCount();
+        for (auto& entry : m_textureAsyncStates)
+        {
+            if (runningCount >= MaxConcurrentTextureLoads)
+                break;
+
+            TextureAsyncState& state = entry.second;
+            if (state.jobState != AsyncJobState::Queued)
+                continue;
+
+            state.loadingWriteTime = state.requestedWriteTime;
+            state.future = std::async(std::launch::async, [this, normalizedPath = entry.first]() {
+                return loadTexturePayloadFromDisk(normalizedPath);
+            });
+            state.jobState = AsyncJobState::Running;
+            ++runningCount;
+        }
+    }
+
+    GLuint ensureFallbackColorTexture()
+    {
+        if (m_fallbackColorTextureId != 0)
+            return m_fallbackColorTextureId;
+
+        const unsigned char pixels[4] = {255, 255, 255, 255};
+        glGenTextures(1, &m_fallbackColorTextureId);
+        glBindTexture(GL_TEXTURE_2D, m_fallbackColorTextureId);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        return m_fallbackColorTextureId;
+    }
+
+    GLuint ensureFallbackFloatTexture()
+    {
+        if (m_fallbackFloatTextureId != 0)
+            return m_fallbackFloatTextureId;
+
+        const float pixel = 0.0f;
+        glGenTextures(1, &m_fallbackFloatTextureId);
+        glBindTexture(GL_TEXTURE_2D, m_fallbackFloatTextureId);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, 1, 1, 0, GL_RED, GL_FLOAT, &pixel);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        return m_fallbackFloatTextureId;
+    }
+
+    GLuint uploadTexturePayload(const TextureCpuPayload& payload) const
+    {
+        if (!payload.success || payload.width <= 0 || payload.height <= 0)
+            return 0;
+
+        GLuint textureId = 0;
+        glGenTextures(1, &textureId);
+        glBindTexture(GL_TEXTURE_2D, textureId);
+        if (payload.format == TextureCpuFormat::RFloat)
+        {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                GL_R32F,
+                payload.width,
+                payload.height,
+                0,
+                GL_RED,
+                GL_FLOAT,
+                payload.rFloatPixels.data());
+        }
+        else
+        {
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                GL_RGBA,
+                payload.width,
+                payload.height,
+                0,
+                GL_RGBA,
+                GL_UNSIGNED_BYTE,
+                payload.rgba8Pixels.data());
+            glGenerateMipmap(GL_TEXTURE_2D);
+        }
+
+        glBindTexture(GL_TEXTURE_2D, 0);
+        return textureId;
+    }
+
+    void harvestCompletedTextureLoads()
+    {
+        for (auto& entry : m_textureAsyncStates)
+        {
+            TextureAsyncState& state = entry.second;
+            if (state.jobState != AsyncJobState::Running || !state.future.valid())
+                continue;
+
+            if (state.future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
+                continue;
+
+            state.pendingUpload = state.future.get();
+            state.hasPendingUpload = true;
+            state.jobState = AsyncJobState::Idle;
+            if (state.requestedWriteTime != state.loadingWriteTime)
+                state.jobState = AsyncJobState::Queued;
+        }
+    }
+
+    void uploadReadyTextures()
+    {
+        std::size_t uploadCount = 0;
+        for (auto& entry : m_textureAsyncStates)
+        {
+            if (uploadCount >= MaxTextureUploadsPerFrame)
+                break;
+
+            TextureAsyncState& state = entry.second;
+            if (!state.hasPendingUpload)
+                continue;
+
+            if (state.pendingUpload.success)
+            {
+                const GLuint newTextureId = uploadTexturePayload(state.pendingUpload);
+                if (newTextureId != 0)
+                {
+                    if (state.textureId != 0)
+                        glDeleteTextures(1, &state.textureId);
+                    state.textureId = newTextureId;
+                }
+            }
+
+            state.appliedWriteTime = state.loadingWriteTime;
+            state.pendingUpload = TextureCpuPayload();
+            state.hasPendingUpload = false;
+            ++uploadCount;
+        }
     }
 
 public:
@@ -327,6 +689,42 @@ public:
         return diskPath;
     }
 
+    void requestTextureAssetPrefetch(const std::string& relativePath)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (normalizedPath.empty() || !isTextureAssetPath(normalizedPath))
+            return;
+
+        registerGlobalAsset(AssetType::Texture, normalizedPath);
+        queueTextureLoad(normalizedPath, safeLastWriteTime(runtimePath(normalizedPath)));
+    }
+
+    GLuint resolveTextureAssetTextureId(const std::string& relativePath, bool allowFallback = true)
+    {
+        const std::string normalizedPath = normalizeRelativePath(relativePath);
+        if (normalizedPath.empty() || !isTextureAssetPath(normalizedPath))
+            return 0;
+
+        registerGlobalAsset(AssetType::Texture, normalizedPath);
+
+        auto it = m_textureAsyncStates.find(normalizedPath);
+        if (it == m_textureAsyncStates.end())
+        {
+            queueTextureLoad(normalizedPath, safeLastWriteTime(runtimePath(normalizedPath)));
+            it = m_textureAsyncStates.find(normalizedPath);
+        }
+
+        if (it != m_textureAsyncStates.end() && it->second.textureId != 0)
+            return it->second.textureId;
+
+        if (!allowFallback)
+            return 0;
+
+        return lowercasePathExtension(normalizedPath) == ".rttex"
+            ? ensureFallbackFloatTexture()
+            : ensureFallbackColorTexture();
+    }
+
     component::Mesh* loadMesh(const std::string& relativePath)
     {
         const std::string normalizedPath = normalizeRelativePath(relativePath);
@@ -336,14 +734,13 @@ public:
         if (it != m_meshAssets.end())
             return it->second;
 
-        std::unique_ptr<component::Mesh> mesh = loadMeshFromDisk(normalizedPath);
-        if (mesh == nullptr)
-            return nullptr;
-
-        component::Mesh* meshPtr = mesh.get();
+        std::unique_ptr<component::Mesh> placeholder = std::make_unique<component::Mesh>();
+        placeholder->setAssetPath(normalizedPath);
+        component::Mesh* meshPtr = placeholder.get();
         meshPtr->ownerCount++;
-        m_meshAssets[normalizedPath] = mesh.release();
-        m_meshWriteTimes[normalizedPath] = safeLastWriteTime(runtimePath(normalizedPath));
+        m_meshAssets[normalizedPath] = placeholder.release();
+        m_meshWriteTimes[normalizedPath] = std::filesystem::file_time_type::min();
+        queueMeshLoad(normalizedPath, safeLastWriteTime(runtimePath(normalizedPath)));
         return meshPtr;
     }
 
@@ -367,8 +764,29 @@ public:
             if (observedWriteTime->second == currentWriteTime)
                 continue;
 
-            reloadMeshAssetInPlace(entry.first, *mesh, currentWriteTime);
+            queueMeshLoad(entry.first, currentWriteTime);
         }
+    }
+
+    void refreshLoadedTextureAssetsIfSourcesChanged()
+    {
+        for (auto& entry : m_textureAsyncStates)
+        {
+            const std::filesystem::file_time_type currentWriteTime = safeLastWriteTime(runtimePath(entry.first));
+            if (entry.second.appliedWriteTime == currentWriteTime && entry.second.requestedWriteTime == currentWriteTime)
+                continue;
+
+            queueTextureLoad(entry.first, currentWriteTime);
+        }
+    }
+
+    void pumpAsyncLoads()
+    {
+        finalizeCompletedMeshLoads();
+        harvestCompletedTextureLoads();
+        uploadReadyTextures();
+        startQueuedMeshLoads();
+        startQueuedTextureLoads();
     }
 
     Shader* loadShader(const std::string& relativePath)

@@ -106,7 +106,7 @@ void main(){
         if (_lightType == 1)
         {
                 float lightDistance = length(_lightPos - _worldPos);
-                attenuation = 1.0 / max(lightDistance * lightDistance, 0.0001);
+                attenuation = 1.0 / max(1.0, lightDistance * lightDistance * 0.1);
         }
 
         vec3 H = normalize(V + L);

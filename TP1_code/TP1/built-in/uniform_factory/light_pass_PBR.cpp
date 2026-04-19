@@ -124,7 +124,7 @@ glm::mat4 buildLightProjectionView(const render::UniformFactoryExecutionContext&
         const glm::vec3 direction = pointLightFaceDirection(selection.faceIndex);
         const glm::vec3 up = pointLightFaceUp(selection.faceIndex);
         const glm::mat4 view = glm::lookAt(selection.light.position, selection.light.position + direction, up);
-        const glm::mat4 projection = glm::perspective(90.0f, 1.0f, kPointShadowNearPlane, kPointShadowFarPlane);
+        const glm::mat4 projection = glm::perspective(glm::radians(90.0f), 1.0f, kPointShadowNearPlane, kPointShadowFarPlane);
         return projection * view;
     }
 

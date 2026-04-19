@@ -1482,6 +1482,8 @@ void SceneEditorController::update()
     if (m_context == nullptr || m_document == nullptr)
         return;
 
+    asset::AssetManager::instance().pumpAsyncLoads();
+
     if (m_executePendingSceneActionOnUpdate)
     {
         m_executePendingSceneActionOnUpdate = false;

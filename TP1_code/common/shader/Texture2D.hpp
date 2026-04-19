@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "common/asset/TextureAssetRuntime.hpp"
 #include "external/stb_image/stb_image.h"
 
 #include <iostream>
@@ -14,11 +15,13 @@ private:
     bool m_on_GPU = false;
     bool m_empty = false;
     bool m_ownsGpuResource = false;
+    bool m_assetBacked = false;
     int m_width = 0;
     int m_height = 0;
     int m_nbChannels = 0;
     GLuint m_textureID = 0;
     std::vector<unsigned char> m_data;
+    std::string m_assetPath;
     GLuint m_slot = 0;
 
     void releaseOwnedGpuResource()
@@ -42,6 +45,8 @@ private:
         m_nbChannels = 0;
         m_textureID = 0;
         m_slot = 0;
+        m_assetBacked = false;
+        m_assetPath.clear();
         m_data.clear();
     }
 
@@ -55,6 +60,8 @@ private:
         m_nbChannels = other.m_nbChannels;
         m_textureID = other.m_textureID;
         m_data = std::move(other.m_data);
+        m_assetBacked = other.m_assetBacked;
+        m_assetPath = std::move(other.m_assetPath);
         m_slot = other.m_slot;
 
         other.resetToEmptyState();
@@ -99,10 +106,19 @@ public:
         m_slot = 0;
     }
 
+    static Texture2D fromAssetPath(const std::string& assetPath, const GLuint slot)
+    {
+        Texture2D texture;
+        texture.m_slot = slot;
+        texture.m_empty = assetPath.empty();
+        texture.m_assetBacked = !assetPath.empty();
+        texture.m_assetPath = assetPath;
+        return texture;
+    }
+
     void sync()
     {
-
-        if (m_empty || m_on_GPU)
+        if (m_empty || m_on_GPU || m_assetBacked)
             return;
         glGenTextures(1, &m_textureID);
         glBindTexture(GL_TEXTURE_2D, m_textureID);
@@ -145,6 +161,18 @@ public:
 
     void bind(const GLuint & progID, const char* name) const
     {
+        if (m_assetBacked)
+        {
+            const GLuint resolvedTextureId = asset::resolveTextureAssetTextureId(m_assetPath, true);
+            if (resolvedTextureId == 0)
+                return;
+
+            glActiveTexture(GL_TEXTURE0 + m_slot);
+            glUniform1i(glGetUniformLocation(progID, name), m_slot);
+            glBindTexture(GL_TEXTURE_2D, resolvedTextureId);
+            return;
+        }
+
         if (m_empty)
             return;
         glActiveTexture(GL_TEXTURE0 + m_slot);
@@ -154,11 +182,14 @@ public:
 
     bool isEmpty() const
     {
-        return m_empty;
+        return m_assetBacked ? m_assetPath.empty() : m_empty;
     }
 
     GLuint textureId() const
     {
+        if (m_assetBacked)
+            return asset::resolveTextureAssetTextureId(m_assetPath, false);
+
         return m_textureID;
     }
 

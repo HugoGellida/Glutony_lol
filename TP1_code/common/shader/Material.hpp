@@ -141,6 +141,21 @@ namespace dataStruct
             else
                 textures.push_back(std::move(uniform));
         }
+
+        void assignTextureAssetUniform(const std::string& uniformLocation, const std::string& textureAssetPath)
+        {
+            if (textureAssetPath.empty())
+                return;
+
+            bool updated = false;
+            const size_t textureSlot = textureSlotForLocation(uniformLocation, updated);
+            UniformTex2D uniform(uniformLocation, Texture2D::fromAssetPath(textureAssetPath, static_cast<GLuint>(textureSlot)));
+
+            if (updated)
+                textures[textureSlot] = std::move(uniform);
+            else
+                textures.push_back(std::move(uniform));
+        }
     protected:
 
         uint m_uni1f_stride = 0;
@@ -197,12 +212,12 @@ namespace dataStruct
             }
         }
 
-        void addTextureAsset(const std::string& uniformLocation, const std::string& textureAssetPath, const std::string& resolvedTexturePath)
+        void addTextureAsset(const std::string& uniformLocation, const std::string& textureAssetPath)
         {
-            assignTextureUniform(uniformLocation, resolvedTexturePath);
+            const std::string normalizedTexturePath = normalizeAssetPathValue(textureAssetPath);
+            assignTextureAssetUniform(uniformLocation, normalizedTexturePath);
 
             asset::MaterialUniformDefinition& uniform = getOrCreateRuntimeUniformDefinition(uniformLocation, asset::MaterialUniformKind::Texture);
-            const std::string normalizedTexturePath = normalizeAssetPathValue(textureAssetPath);
             if (uniform.textureAssetPath != normalizedTexturePath)
             {
                 uniform.textureAssetPath = normalizedTexturePath;
@@ -383,4 +398,3 @@ namespace dataStruct
         }
     };
 }
-

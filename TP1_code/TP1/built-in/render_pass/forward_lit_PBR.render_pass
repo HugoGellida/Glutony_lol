@@ -25,7 +25,7 @@
       "phase": "built-in/render_phase/light_shadow.render_phase",
       "shader": "built-in/shaders/shadow_depth",
       "iterator": "light",
-      "uniformFactory": "built-in/uniform_factory/light_shadow_map_ultra.uniform_factory",
+      "uniformFactory": "built-in/uniform_factory/light_shadow_map_PBR.uniform_factory",
       "uniforms": [],
       "target": { "name": "shadow_gbuffer", "shared": true, "width": 2048, "height": 2048, "format": "float", "bakeable": true, "bakeCombine": "min" },
       "clear": true,
@@ -36,7 +36,7 @@
       "phase": "built-in/render_phase/light_shadow.render_phase",
       "shader": "built-in/shaders/shadow_occlusion",
       "iterator": "light",
-      "uniformFactory": "built-in/uniform_factory/light_shadow_occlusion_ultra.uniform_factory",
+      "uniformFactory": "built-in/uniform_factory/light_shadow_occlusion_PBR.uniform_factory",
       "uniforms": [
         {
           "name": "_shadowDepthTex",
@@ -46,13 +46,8 @@
       ],
       "target": { "name": "light_occlusion", "shared": true, "format": "float" },
       "depthSource": { "name": "scene_depth", "shared": true, "grouped": false },
-      "clear": false,
-      "blend": {
-        "enabled": true,
-        "op": "add",
-        "src": "one",
-        "dst": "one"
-      },
+      "clear": true,
+      "blend": false,
       "depth": "preserve"
     },
     {
