@@ -1,0 +1,104 @@
+{
+  "passes": [
+    {
+      "phase": "built-in/render_phase/geometry.render_phase",
+      "shader": "built-in/shaders/camera_depth",
+      "iterator": "none",
+      "uniforms": [],
+      "target": { "name": "scene_depth", "shared": true, "format": "float" },
+      "clear": false,
+      "blend": false,
+      "depth": "preserve"
+    },
+    {
+      "phase": "built-in/render_phase/geometry.render_phase",
+      "shader": "built-in/shaders/lit_phong_base",
+      "iterator": "none",
+      "uniforms": [],
+      "target": { "name": "hdr_color", "shared": true, "grouped": false, "format": "rgba16f" },
+      "depthSource": { "name": "scene_depth", "shared": true, "grouped": false },
+      "clear": false,
+      "blend": false,
+      "depth": "preserve"
+    },
+    {
+      "phase": "built-in/render_phase/light_shadow.render_phase",
+      "shader": "built-in/shaders/shadow_depth",
+      "iterator": "light",
+      "uniformFactory": "built-in/uniform_factory/light_shadow_map_PBR.uniform_factory",
+      "uniforms": [],
+      "target": { "name": "shadow_gbuffer", "shared": true, "width": 2048, "height": 2048, "format": "float", "bakeable": true, "bakeCombine": "min" },
+      "clear": true,
+      "blend": false,
+      "depth": "clear"
+    },
+    {
+      "phase": "built-in/render_phase/light_shadow.render_phase",
+      "shader": "built-in/shaders/shadow_occlusion",
+      "iterator": "light",
+      "uniformFactory": "built-in/uniform_factory/light_shadow_occlusion_PBR.uniform_factory",
+      "uniforms": [
+        {
+          "name": "_shadowDepthTex",
+          "type": "renderTarget",
+          "value": { "name": "shadow_gbuffer", "shared": true }
+        }
+      ],
+      "target": { "name": "light_occlusion", "shared": true, "format": "float" },
+      "depthSource": { "name": "scene_depth", "shared": true, "grouped": false },
+      "clear": true,
+      "blend": false,
+      "depth": "preserve"
+    },
+    {
+      "phase": "built-in/render_phase/lighting.render_phase",
+      "shader": "built-in/shaders/lit_phong_light",
+      "iterator": "light",
+      "uniformFactory": "built-in/uniform_factory/light_pass_PBR.uniform_factory",
+      "uniforms": [
+        {
+          "name": "_lightOcclusionTex",
+          "type": "renderTarget",
+          "value": { "name": "light_occlusion", "shared": true }
+        }
+      ],
+      "target": { "name": "hdr_color", "shared": true, "grouped": false, "format": "rgba16f" },
+      "depthSource": { "name": "scene_depth", "shared": true, "grouped": false },
+      "clear": false,
+      "blend": {
+        "enabled": true,
+        "op": "add",
+        "src": "one",
+        "dst": "one"
+      },
+      "depth": "preserve"
+    },
+    {
+      "phase": "built-in/render_phase/post_lighting.render_phase",
+      "shader": "built-in/shaders/lit_PBR_present",
+      "draw": "fullscreen",
+      "iterator": "none",
+      "uniforms": [
+        {
+          "name": "_sourceTex",
+          "type": "renderTarget",
+          "value": { "name": "hdr_color", "shared": true, "grouped": false }
+        },
+        {
+          "name": "_sourceDepthTex",
+          "type": "renderTargetDepth",
+          "value": { "name": "scene_depth", "shared": true, "grouped": false }
+        }
+      ],
+      "target": { "name": "final", "shared": true },
+      "clear": false,
+      "blend": {
+        "enabled": true,
+        "op": "add",
+        "src": "one",
+        "dst": "oneMinusSrcAlpha"
+      },
+      "depth": "preserve"
+    }
+  ]
+}
