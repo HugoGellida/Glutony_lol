@@ -392,16 +392,8 @@ endfunction()
 
 if(NOT ${CMAKE_GENERATOR} MATCHES "Xcode")
     add_custom_target(glutony_sync_editor_runtime_assets
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/scr/img"
-                "${CMAKE_CURRENT_BINARY_DIR}/img"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/scr/vertex_shader.glsl"
-                "${CMAKE_CURRENT_BINARY_DIR}/vertex_shader.glsl"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/scr/fragment_shader.glsl"
-                "${CMAKE_CURRENT_BINARY_DIR}/fragment_shader.glsl"
-        COMMAND ${CMAKE_COMMAND} -E make_directory
+    
+    COMMAND ${CMAKE_COMMAND} -E make_directory
                 "${CMAKE_CURRENT_BINARY_DIR}/Assets"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/scr/built-in"
