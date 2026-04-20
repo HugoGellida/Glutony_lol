@@ -1,0 +1,23 @@
+{
+  "type": "lit",
+  "shader": "built-in/shaders/lit_PBR_light_cutout",
+  "renderPass": "built-in/render_pass/forward_lit_PBR_cutout.render_pass",
+  "uniforms": [
+    { "name": "_mainCol", "type": "vec3", "value": [1.000, 1.000, 1.000] },
+    { "name": "_albedoMap", "type": "texture", "value": "" },
+    { "name": "_ambientOcclusionMap", "type": "texture", "value": "" },
+    { "name": "_ambientOcclusionValue", "type": "float", "value": 1.000 },
+    { "name": "_metallicMap", "type": "texture", "value": "" },
+    { "name": "_roughnessMap", "type": "texture", "value": "" },
+    { "name": "_normalMap", "type": "texture", "value": "" },
+    { "name": "_metallicValue", "type": "float", "value": 0.000 },
+    { "name": "_roughnessValue", "type": "float", "value": 0.500 },
+    { "name": "_opacity", "type": "float", "value": 1.000 },
+    { "name": "_alphaCutoff", "type": "float", "value": 0.500 },
+    { "name": "_shadowBiasBase", "type": "float", "value": 0.001 },
+    { "name": "_shadowBiasSlopeScale", "type": "float", "value": 0.004 },
+    { "name": "_shadowBiasClamp", "type": "float", "value": 0.008 },
+    { "name": "_shadowPcfRadius", "type": "int", "value": 2 },
+    { "name": "_shadowStrength", "type": "float", "value": 0.750 }
+  ]
+}

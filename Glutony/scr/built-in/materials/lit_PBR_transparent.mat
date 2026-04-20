@@ -1,0 +1,17 @@
+{
+  "type": "lit",
+  "shader": "built-in/shaders/lit_PBR_transparent",
+  "renderPass": "built-in/render_pass/forward_lit_PBR_transparent.render_pass",
+  "uniforms": [
+    { "name": "_mainCol", "type": "vec3", "value": [1.000, 1.000, 1.000] },
+    { "name": "_albedoMap", "type": "texture", "value": "" },
+    { "name": "_ambientOcclusionMap", "type": "texture", "value": "" },
+    { "name": "_ambientOcclusionValue", "type": "float", "value": 1.000 },
+    { "name": "_metallicMap", "type": "texture", "value": "" },
+    { "name": "_roughnessMap", "type": "texture", "value": "" },
+    { "name": "_normalMap", "type": "texture", "value": "" },
+    { "name": "_metallicValue", "type": "float", "value": 0.000 },
+    { "name": "_roughnessValue", "type": "float", "value": 0.500 },
+    { "name": "_opacity", "type": "float", "value": 1.000 }
+  ]
+}

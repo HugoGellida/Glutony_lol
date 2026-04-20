@@ -459,7 +459,7 @@ namespace fileLoader
                 float v = 0.0f;
                 if (stream >> u >> v)
                 {
-                    texcoords.push_back(glm::vec2(u, v));
+                    texcoords.push_back(glm::vec2(u, 1.0f - v));
                     sawAnyTexcoords = true;
                 }
             }

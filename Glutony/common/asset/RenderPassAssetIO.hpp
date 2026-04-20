@@ -83,6 +83,13 @@ enum class RenderPassDrawMode
     Fullscreen,
 };
 
+enum class RenderItemSortMode
+{
+    None,
+    FrontToBack,
+    BackToFront,
+};
+
 enum class RenderPassUniformKind
 {
     Bool,
@@ -113,6 +120,7 @@ struct RenderPassStepDefinition
     std::string phaseName;
     std::string shaderPath;
     RenderPassDrawMode drawMode = RenderPassDrawMode::Geometry;
+    RenderItemSortMode itemSort = RenderItemSortMode::None;
     RenderPassIterator iterator = RenderPassIterator::None;
     std::string uniformFactoryPath;
     std::vector<RenderPassUniformDefinition> uniforms;
@@ -122,6 +130,7 @@ struct RenderPassStepDefinition
     bool clearColor = false;
     RenderBlendStateDefinition blend;
     RenderDepthAction depthAction = RenderDepthAction::Preserve;
+    bool depthWrite = true;
 };
 
 struct RenderPassAssetDefinition
@@ -401,6 +410,17 @@ private:
                 return value = RenderPassDrawMode::Geometry, true;
             if (rawValue == "fullscreen")
                 return value = RenderPassDrawMode::Fullscreen, true;
+            return false;
+        }
+
+        static bool parseItemSortValue(const std::string& rawValue, RenderItemSortMode& value)
+        {
+            if (rawValue == "none")
+                return value = RenderItemSortMode::None, true;
+            if (rawValue == "frontToBack" || rawValue == "front_to_back")
+                return value = RenderItemSortMode::FrontToBack, true;
+            if (rawValue == "backToFront" || rawValue == "back_to_front")
+                return value = RenderItemSortMode::BackToFront, true;
             return false;
         }
 
@@ -747,6 +767,12 @@ private:
                     if (!parseString(rawValue) || !parseDrawModeValue(rawValue, value.drawMode))
                         return false;
                 }
+                else if (key == "sort")
+                {
+                    std::string rawValue;
+                    if (!parseString(rawValue) || !parseItemSortValue(rawValue, value.itemSort))
+                        return false;
+                }
                 else if (key == "iterator")
                 {
                     std::string rawValue;
@@ -789,6 +815,11 @@ private:
                 {
                     std::string rawValue;
                     if (!parseString(rawValue) || !parseDepthActionValue(rawValue, value.depthAction))
+                        return false;
+                }
+                else if (key == "depthWrite" || key == "depth_write")
+                {
+                    if (!parseBool(value.depthWrite))
                         return false;
                 }
                 else
@@ -965,6 +996,20 @@ private:
         return value == RenderPassDrawMode::Fullscreen ? "fullscreen" : "geometry";
     }
 
+    static const char* itemSortValue(RenderItemSortMode value)
+    {
+        switch (value)
+        {
+        case RenderItemSortMode::FrontToBack:
+            return "frontToBack";
+        case RenderItemSortMode::BackToFront:
+            return "backToFront";
+        case RenderItemSortMode::None:
+        default:
+            return "none";
+        }
+    }
+
     static bool writeRenderTargetReference(std::ostream& output, const RenderTargetAssetReference& value)
     {
         output << "{ \"name\": \"" << value.name << "\", \"shared\": " << (value.shared ? "true" : "false");
@@ -1018,6 +1063,8 @@ public:
             output << "      \"phase\": \"" << pass.phaseName << "\",\n";
             output << "      \"shader\": \"" << pass.shaderPath << "\",\n";
             output << "      \"draw\": \"" << drawModeValue(pass.drawMode) << "\",\n";
+            if (pass.itemSort != RenderItemSortMode::None)
+                output << "      \"sort\": \"" << itemSortValue(pass.itemSort) << "\",\n";
             output << "      \"iterator\": \"" << iteratorValue(pass.iterator) << "\",\n";
             if (!pass.uniformFactoryPath.empty())
                 output << "      \"uniformFactory\": \"" << pass.uniformFactoryPath << "\",\n";
@@ -1099,7 +1146,11 @@ public:
                 output << " }";
             }
             output << ",\n";
-            output << "      \"depth\": \"" << depthActionValue(pass.depthAction) << "\"\n";
+            output << "      \"depth\": \"" << depthActionValue(pass.depthAction) << "\"";
+            if (!pass.depthWrite)
+                output << ",\n      \"depthWrite\": false\n";
+            else
+                output << '\n';
             output << "    }";
             if (passIndex + 1 < definition.passes.size())
                 output << ',';

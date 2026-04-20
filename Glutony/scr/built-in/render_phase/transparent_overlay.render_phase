@@ -1,0 +1,7 @@
+{
+  "name": "transparent_overlay",
+  "includes": [],
+  "before": [],
+  "after": ["built-in/render_phase/post_lighting.render_phase"],
+  "additionalIterator": "none"
+}

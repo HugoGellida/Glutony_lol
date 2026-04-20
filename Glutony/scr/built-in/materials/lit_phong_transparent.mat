@@ -1,0 +1,12 @@
+{
+  "type": "lit",
+  "shader": "built-in/shaders/lit_phong_transparent",
+  "renderPass": "built-in/render_pass/forward_lit_phong_transparent.render_pass",
+  "uniforms": [
+    { "name": "_mainCol", "type": "vec3", "value": [0.700, 0.700, 0.700] },
+    { "name": "_albedoMap", "type": "texture", "value": "" },
+    { "name": "_metallicValue", "type": "float", "value": 0.000 },
+    { "name": "_roughnessValue", "type": "float", "value": 0.500 },
+    { "name": "_opacity", "type": "float", "value": 1.000 }
+  ]
+}

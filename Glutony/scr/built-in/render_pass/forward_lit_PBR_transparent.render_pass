@@ -1,0 +1,23 @@
+{
+  "passes": [
+    {
+      "phase": "built-in/render_phase/transparent_overlay.render_phase",
+      "shader": "built-in/shaders/lit_PBR_transparent",
+      "draw": "geometry",
+      "sort": "backToFront",
+      "iterator": "none",
+      "uniformFactory": "built-in/uniform_factory/forward_transparent_lights.uniform_factory",
+      "uniforms": [],
+      "target": { "name": "final", "shared": true },
+      "clear": false,
+      "blend": {
+        "enabled": true,
+        "op": "add",
+        "src": "one",
+        "dst": "oneMinusSrcAlpha"
+      },
+      "depth": "preserve",
+      "depthWrite": false
+    }
+  ]
+}

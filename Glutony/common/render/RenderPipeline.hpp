@@ -311,6 +311,20 @@ private:
         }
     }
 
+    static const char* itemSortModeName(asset::RenderItemSortMode sortMode)
+    {
+        switch (sortMode)
+        {
+        case asset::RenderItemSortMode::FrontToBack:
+            return "front_to_back";
+        case asset::RenderItemSortMode::BackToFront:
+            return "back_to_front";
+        case asset::RenderItemSortMode::None:
+        default:
+            return "none";
+        }
+    }
+
     static const char* iteratorName(asset::RenderPassIterator iterator)
     {
         switch (iterator)
@@ -990,14 +1004,16 @@ private:
         std::ostringstream stream;
         stream << pass.phaseName << '|'
                << static_cast<int>(pass.drawMode) << '|'
+               << static_cast<int>(pass.itemSort) << '|'
                << asset::AssetManager::normalizeRelativePath(pass.shaderPath) << '|'
                << pass.target.name << '|'
                << (pass.target.shared ? '1' : '0') << '|'
-               << (pass.target.grouped ? '1' : '0') << '|'
+             << (pass.target.grouped ? '1' : '0') << '|'
              << (pass.target.bakeable ? '1' : '0') << '|'
              << static_cast<int>(pass.target.bakeCombine) << '|'
                << (pass.clearColor ? '1' : '0') << '|'
                << static_cast<int>(pass.depthAction) << '|'
+               << (pass.depthWrite ? '1' : '0') << '|'
                << (pass.blend.enabled ? '1' : '0') << '|'
                << (pass.blend.separateAlpha ? '1' : '0') << '|'
                << static_cast<int>(pass.iterator) << '|'
@@ -2170,17 +2186,39 @@ private:
                 options.dynamicOnlyOnBakeableTargets && targetMetadata != nullptr && targetMetadata->bakeable && hasResolvedBakedTargetTexture;
 
             bool batchHasDrawableItems = false;
+            std::vector<const DrawItem*> drawItems;
+            drawItems.reserve(batch.items.size());
             for (const DrawItem& item : batch.items)
             {
                 if (shouldRenderItem(item, dynamicOnlyForBatch))
                 {
                     batchHasDrawableItems = true;
-                    break;
+                    drawItems.push_back(&item);
                 }
             }
 
             if (!batchHasDrawableItems)
                 return;
+
+            if (batch.pass.itemSort != asset::RenderItemSortMode::None && batch.pass.drawMode == asset::RenderPassDrawMode::Geometry)
+            {
+                std::stable_sort(drawItems.begin(), drawItems.end(), [&](const DrawItem* lhs, const DrawItem* rhs) {
+                    const glm::vec3 lhsWorldPos = lhs != nullptr && lhs->transform != nullptr
+                        ? lhs->transform->getWorldPos(glm::vec3(0.0f, 0.0f, 0.0f))
+                        : glm::vec3(0.0f, 0.0f, 0.0f);
+                    const glm::vec3 rhsWorldPos = rhs != nullptr && rhs->transform != nullptr
+                        ? rhs->transform->getWorldPos(glm::vec3(0.0f, 0.0f, 0.0f))
+                        : glm::vec3(0.0f, 0.0f, 0.0f);
+                    const glm::vec3 lhsDelta = lhsWorldPos - camera.m_position;
+                    const glm::vec3 rhsDelta = rhsWorldPos - camera.m_position;
+                    const float lhsDistanceSq = glm::dot(lhsDelta, lhsDelta);
+                    const float rhsDistanceSq = glm::dot(rhsDelta, rhsDelta);
+
+                    if (batch.pass.itemSort == asset::RenderItemSortMode::FrontToBack)
+                        return lhsDistanceSq < rhsDistanceSq;
+                    return lhsDistanceSq > rhsDistanceSq;
+                });
+            }
 
             const auto findProducedRenderTargetResource = [&](const asset::RenderTargetAssetReference& reference) -> const RenderTargetResource* {
                 const std::string referencedTargetName = normalizeRenderTargetName(reference.name);
@@ -2309,14 +2347,20 @@ private:
             }
             else
             {
-                for (const DrawItem& item : batch.items)
+                GLboolean previousDepthMask = GL_TRUE;
+                glGetBooleanv(GL_DEPTH_WRITEMASK, &previousDepthMask);
+                glDepthMask(batch.pass.depthWrite ? GL_TRUE : GL_FALSE);
+
+                for (const DrawItem* item : drawItems)
                 {
-                    if (!shouldRenderItem(item, dynamicOnlyForBatch))
+                    if (item == nullptr)
                         continue;
 
-                    if (executeDrawItem(camera, batch, item, resolveRenderTargetTexture, nullptr, currentIteration, iterationCount))
+                    if (executeDrawItem(camera, batch, *item, resolveRenderTargetTexture, nullptr, currentIteration, iterationCount))
                         renderedAnything = true;
                 }
+
+                glDepthMask(previousDepthMask);
             }
 
             if (!groupedTargetInstanceKey.empty())
@@ -2517,6 +2561,8 @@ public:
                           << batch.sourceRenderPassPath << '#' << batch.sourcePassIndex
                           << " draw=" << drawModeName(batch.pass.drawMode)
                           << " iter=" << iteratorName(batch.iterator)
+                          << " sort=" << itemSortModeName(batch.pass.itemSort)
+                          << " depthWrite=" << (batch.pass.depthWrite ? "true" : "false")
                           << " matched_objects=" << batch.items.size();
                 if (batch.pass.drawMode == asset::RenderPassDrawMode::Fullscreen)
                     batchLine << " executes_once=1";
