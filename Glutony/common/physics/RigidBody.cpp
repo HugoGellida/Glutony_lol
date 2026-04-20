@@ -1,33 +1,85 @@
 #include "RigidBody.hpp"
 #include "PhysicEngine.hpp"
 
+namespace
+{
+glm::vec3 rigidBodyWorldPosition(const GameObject* gameObject)
+{
+    return gameObject != nullptr
+        ? gameObject->transform.getWorldPos(glm::vec3(0.0f, 0.0f, 0.0f))
+        : glm::vec3(0.0f, 0.0f, 0.0f);
+}
+
+glm::quat rigidBodyWorldOrientation(const GameObject* gameObject)
+{
+    return gameObject != nullptr
+        ? gameObject->transform.getWorldOrientation()
+        : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+}
+
+glm::vec3 rigidBodyWorldRotation(const GameObject* gameObject)
+{
+    return glm::degrees(glm::eulerAngles(rigidBodyWorldOrientation(gameObject)));
+}
+
+PhysicBody makePhysicBody(physics::RigidBody* rigidBody, physics::Collider* collider, GameObject* gameObject)
+{
+    PhysicBody body;
+    body.rb = rigidBody;
+    body.collider = collider;
+    body.transform = gameObject != nullptr ? &gameObject->transform : nullptr;
+    return body;
+}
+}
+
+void physics::RigidBody::syncPoseFromTransform()
+{
+    if (m_parent == nullptr)
+        return;
+
+    m_position = rigidBodyWorldPosition(m_parent);
+    m_orientation = rigidBodyWorldOrientation(m_parent);
+    m_rotation = rigidBodyWorldRotation(m_parent);
+    m_previousPosition = m_position;
+    m_previousRotation = m_rotation;
+    m_previousOrientation = m_orientation;
+}
+
+void physics::RigidBody::unregisterFromPhysics()
+{
+    if (!registered)
+    {
+        m_registeredCollider = nullptr;
+        return;
+    }
+
+    PhysicEngine::getInstance()->RemoveBody(makePhysicBody(this, m_registeredCollider, m_parent));
+    registered = false;
+    m_registeredCollider = nullptr;
+}
+
 
 void physics::RigidBody::run()
 {
     if (p_mass != mass)
         RecomputeInverseMass();
+
+    Collider* currentCollider = m_parent != nullptr ? m_parent->getComponent<Collider>() : nullptr;
+    if (registered && currentCollider != m_registeredCollider)
+        unregisterFromPhysics();
+
     if (registered)
         return;
 
     // Register using the transform's current world position so Scene setup order
     // cannot leave the rigid body with a stale initial position.
-    m_position = m_parent -> transform.getWorldPos(glm::vec3(0.0f, 0.0f, 0.0f));
-    m_rotation = m_parent -> transform.getRotation();
-    m_orientation = m_parent -> transform.getOrientation();
-    m_previousPosition = m_position;
-    m_previousRotation = m_rotation;
-    m_previousOrientation = m_orientation;
-    Collider * c = m_parent -> getComponent<Collider>();
-    if (c != nullptr)
+    syncPoseFromTransform();
+    if (currentCollider != nullptr)
     {
         RecomputeMassProperties();
 
-        PhysicBody pb;
-        pb.collider = c;
-        pb.rb = this;
-        pb.transform = &(m_parent -> transform);
-
-        PhysicEngine::getInstance() -> AddBody(pb);
+        PhysicEngine::getInstance()->AddBody(makePhysicBody(this, currentCollider, m_parent));
+        m_registeredCollider = currentCollider;
         registered = true;
         return;
     }
@@ -209,6 +261,9 @@ void physics::RigidBody::Teleport(glm::vec3 newPos)
 {
     m_position = newPos;
     m_previousPosition = newPos;
+
+    if (m_parent != nullptr)
+        m_parent->transform.setWorldPosition(newPos);
 }
 
 void physics::RigidBody::SetRotation(glm::vec3 eulerDegrees)
@@ -217,6 +272,10 @@ void physics::RigidBody::SetRotation(glm::vec3 eulerDegrees)
     m_previousRotation = eulerDegrees;
     m_orientation = glm::normalize(glm::quat(glm::radians(eulerDegrees)));
     m_previousOrientation = m_orientation;
+
+    if (m_parent != nullptr)
+        m_parent->transform.setWorldOrientation(m_orientation);
+
     UpdateDerivedData();
 }
 
@@ -238,6 +297,8 @@ void physics::RigidBody::SetAngularVelocity(glm::vec3 v)
 
 void physics::RigidBody::RefreshSerializedState()
 {
+    syncPoseFromTransform();
+
     Teleport(m_position);
     SetRotation(m_rotation);
     SetVelocity(m_linearVelocity);
@@ -252,17 +313,5 @@ void physics::RigidBody::RefreshSerializedState()
 
 physics::RigidBody::~RigidBody()
 {
-    if (registered)
-    {
-        Collider * c = m_parent -> getComponent<Collider>();
-        if (c != nullptr)
-        {
-            PhysicBody pb;
-            pb.collider = c;
-            pb.rb = this;
-            pb.transform = &(m_parent -> transform);
-
-            PhysicEngine::getInstance() -> RemoveBody(pb);
-        }
-    }
+    unregisterFromPhysics();
 }

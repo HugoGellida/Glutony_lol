@@ -143,8 +143,21 @@ add_definitions(
     -D_CRT_SECURE_NO_WARNINGS
 )
 
-option(ENABLE_LSAN "Enable LeakSanitizer (LSan) for Editor" OFF)
+option(ENABLE_LSAN "Enable LeakSanitizer (LSan) for first-party editor/runtime targets" OFF)
 option(GLUTONY_BUILD_GAMEPLAY "Build gameplay root sources" ON)
+
+function(glutony_enable_lsan target_name)
+    if(NOT TARGET ${target_name})
+        return()
+    endif()
+
+    get_target_property(_glutony_target_type ${target_name} TYPE)
+    target_compile_options(${target_name} PRIVATE -fsanitize=leak -fno-omit-frame-pointer -g)
+
+    if(NOT _glutony_target_type STREQUAL "STATIC_LIBRARY")
+        target_link_options(${target_name} PRIVATE -fsanitize=leak)
+    endif()
+endfunction()
 
 set(GLUTONY_GAMEPLAY_MANIFEST "${CMAKE_CURRENT_SOURCE_DIR}/gameplay/sources.cmake" CACHE FILEPATH "Gameplay manifest listing root cpp sources")
 set(GLUTONY_GENERATED_SCENE_SCRIPTS_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/GeneratedSceneScripts.cpp")
@@ -434,8 +447,9 @@ add_executable(runtime_game EXCLUDE_FROM_ALL
 
 if(ENABLE_LSAN)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-        target_compile_options(Editor PRIVATE -fsanitize=leak -fno-omit-frame-pointer -g)
-        target_link_options(Editor PRIVATE -fsanitize=leak)
+        foreach(_glutony_lsan_target IN ITEMS app_common engine_core editor_support gameplay_sources Editor runtime_game)
+            glutony_enable_lsan(${_glutony_lsan_target})
+        endforeach()
     else()
         message(WARNING "ENABLE_LSAN is only supported with Clang/GCC")
     endif()

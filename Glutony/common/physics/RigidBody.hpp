@@ -13,6 +13,10 @@ namespace physics
     {
     private:
         GameObject * m_parent = nullptr;
+        Collider* m_registeredCollider = nullptr;
+
+        void syncPoseFromTransform();
+        void unregisterFromPhysics();
     public:
         glm::vec3 accumulatedForce = glm::vec3(0.0f, 0.0f, 0.0f);
         glm::vec3 accumulatedTorque = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -57,12 +61,15 @@ namespace physics
         RigidBody(GameObject * parent) : Component()
         {
             m_parent = parent;
-            m_position = m_parent -> transform.getWorldPos(glm::vec3(0, 0, 0));
-            m_rotation = m_parent -> transform.getRotation();
-            m_orientation = m_parent -> transform.getOrientation();
-            m_previousPosition = m_position;
-            m_previousRotation = m_rotation;
-            m_previousOrientation = m_orientation;
+            if (m_parent != nullptr)
+            {
+                m_position = m_parent->transform.getWorldPos(glm::vec3(0.0f, 0.0f, 0.0f));
+                m_orientation = m_parent->transform.getWorldOrientation();
+                m_rotation = glm::degrees(glm::eulerAngles(m_orientation));
+                m_previousPosition = m_position;
+                m_previousRotation = m_rotation;
+                m_previousOrientation = m_orientation;
+            }
         }
 
         void run();
@@ -146,7 +153,11 @@ namespace physics
                         "Position",
                         component_meta::FieldKind::Vec3,
                         [](const component::Component& component) -> component_meta::SerializedValue {
-                            return static_cast<const RigidBody&>(component).m_position;
+                            const RigidBody& rigidBody = static_cast<const RigidBody&>(component);
+                            GameObject* owner = rigidBody.getOwner();
+                            return owner != nullptr
+                                ? owner->transform.getWorldPos(glm::vec3(0.0f, 0.0f, 0.0f))
+                                : rigidBody.m_position;
                         },
                         [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
                             const glm::vec3* parsed = std::get_if<glm::vec3>(&value);
@@ -163,7 +174,12 @@ namespace physics
                         "Rotation",
                         component_meta::FieldKind::Vec3,
                         [](const component::Component& component) -> component_meta::SerializedValue {
-                            return static_cast<const RigidBody&>(component).m_rotation;
+                            const RigidBody& rigidBody = static_cast<const RigidBody&>(component);
+                            GameObject* owner = rigidBody.getOwner();
+                            if (owner == nullptr)
+                                return rigidBody.m_rotation;
+
+                            return glm::degrees(glm::eulerAngles(owner->transform.getWorldOrientation()));
                         },
                         [](component::Component& component, const component_meta::SerializedValue& value) -> bool {
                             const glm::vec3* parsed = std::get_if<glm::vec3>(&value);

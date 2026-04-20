@@ -226,10 +226,11 @@ public:
 
     ~GameObject()
     {
-        for (unsigned int i = 0; i < m_componentStride; i++)
+        for (unsigned int i = m_componentStride; i > 0; --i)
         {
-            Component* component = m_component[i];
-            m_component[i] = nullptr;
+            const unsigned int componentIndex = i - 1;
+            Component* component = m_component[componentIndex];
+            m_component[componentIndex] = nullptr;
 
             if (component == nullptr)
                 continue;
